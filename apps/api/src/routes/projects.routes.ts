@@ -110,7 +110,7 @@ export default async function projectsRoutes(app: FastifyInstance) {
       where: { id },
       data: {
         ...parsed.data,
-        ...(cacheInvalid ? { cachedResult: null, cachedAt: null } : {}),
+        ...(cacheInvalid ? { cachedResult: null as any, cachedAt: null } : {}),
       },
     });
     return project;
