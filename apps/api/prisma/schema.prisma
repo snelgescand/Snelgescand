@@ -1,0 +1,153 @@
+// Prisma-schema voor Sportief Opgewekt API.
+//
+// Multi-tenant model:
+//   - Een `Tenant` is een adviesbureau of zelfstandig adviseur.
+//   - `User` hoort bij één tenant, kan meerdere rollen hebben.
+//   - `Project` is een verduurzamingsplan voor één sportclub.
+//   - Alle queries vanuit de API filteren op req.user.tenantId.
+//
+// State van een project:
+//   - `state` JSONB bevat het volledige ProjectContext + alle gekozen
+//     maatregel-inputs. Single source of truth.
+//   - `cachedResult` JSONB bevat de laatste rollup-output voor snelle reads.
+//     Wordt nullified bij elke state-mutatie en herberekend on-demand.
+//   - `timeseries` aparte tabel met BYTEA Float32Array — alleen geladen
+//     als de batterij-tijdreeks-view geopend wordt.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id          String   @id @default(cuid())
+  naam        String
+  slug        String   @unique         // gebruikt in URL: /t/{slug}/...
+  domein      String?  @unique         // optionele eigen domeinnaam
+  branding    Json?                    // logo-url, kleuren — null = default branding
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  projects    Project[]
+
+  @@index([slug])
+}
+
+enum UserRol {
+  ADVISEUR
+  BEHEERDER
+}
+
+model User {
+  id            String   @id @default(cuid())
+  tenantId      String
+  email         String
+  passwordHash  String
+  naam          String
+  rol           UserRol  @default(ADVISEUR)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  laatsteLogin  DateTime?
+
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  projecten     Project[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+enum ProjectStatus {
+  DRAFT
+  IN_PROGRESS
+  AFGEROND
+  GEARCHIVEERD
+}
+
+model Project {
+  id              String   @id @default(cuid())
+  tenantId        String
+  eigenaarId      String
+
+  clubNaam        String
+  status          ProjectStatus @default(DRAFT)
+  postcode        String?
+  huisnummer      String?
+
+  // De volledige invoer (ProjectContext + maatregel-inputs)
+  state           Json
+
+  // Cache van laatste rollup-output. NULL = stale.
+  cachedResult    Json?
+  cachedAt        DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  eigenaar        User     @relation(fields: [eigenaarId], references: [id])
+
+  timeseries      Timeseries[]
+  pptExports      PptExport[]
+
+  @@index([tenantId, status])
+  @@index([eigenaarId])
+}
+
+// 8760-uur tijdreeksen voor de batterij-engine.
+// Opgeslagen als Float32Array → bytes (4 byte × 8760 = ~35 KB per serie).
+model Timeseries {
+  id          String   @id @default(cuid())
+  projectId   String
+  soort       String   // 'pv-productie' | 'verbruik' | 'epex-prijs' | 'soc' | ...
+  jaar        Int
+  data        Bytes
+  metaJson    Json?
+  createdAt   DateTime @default(now())
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, soort, jaar])
+  @@index([projectId])
+}
+
+enum PptStatus {
+  WACHTEND
+  BEZIG
+  KLAAR
+  MISLUKT
+}
+
+// Async PPT-export jobs (gegenereerd via python-pptx sidecar).
+model PptExport {
+  id           String   @id @default(cuid())
+  projectId    String
+  status       PptStatus @default(WACHTEND)
+  filePath     String?
+  fileSizeBytes Int?
+  foutmelding  String?
+  createdAt    DateTime @default(now())
+  klaarOp      DateTime?
+
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status])
+}
+
+// Cache voor externe API-calls (BAG/PDOK/EPEX) zodat we niet bij elke
+// projectview opnieuw bevragen.
+model ExternalCache {
+  id          String   @id @default(cuid())
+  provider    String   // 'bag' | 'pdok' | 'epex' | 'entso-e'
+  key         String   // bv. postcode+huisnr, of datum-bereik
+  data        Json
+  vervaltOp   DateTime
+  createdAt   DateTime @default(now())
+
+  @@unique([provider, key])
+  @@index([provider, vervaltOp])
+}

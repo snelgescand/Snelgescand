@@ -1,0 +1,38 @@
+# Lokale dev-omgeving: Postgres + Redis.
+#
+# Start:    docker compose up -d
+# Stop:     docker compose down
+# Reset:    docker compose down -v   (waarschuwing: alle data weg)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sportief_opgewekt
+      POSTGRES_USER: sopg
+      POSTGRES_PASSWORD: lokaal_alleen
+    ports:
+      - "5432:5432"
+    volumes:
+      - sopg_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sopg"]
+      interval: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - sopg_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+volumes:
+  sopg_pg:
+  sopg_redis:

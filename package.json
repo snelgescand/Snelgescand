@@ -1,0 +1,21 @@
+{
+  "name": "sportief-opgewekt",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SaaS-applicatie voor verduurzaming van sportclubs — vervangt Excel-rekenmodellen.",
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "dev": "turbo run dev --parallel"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
