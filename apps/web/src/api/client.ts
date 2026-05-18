@@ -1,9 +1,20 @@
 /**
  * Lichte fetch-wrapper rond de Fastify API.
  *
- * `credentials: 'include'` zorgt dat de session cookie meegestuurd wordt.
- * Errors worden naar Error-instances gegooid voor react-query-friendly handling.
+ * `credentials: 'include'` zorgt dat de session cookie meegestuurd wordt
+ * (cross-site, dus de backend MOET sameSite=none + secure=true gebruiken).
+ *
+ * Het basis-URL wordt uit `VITE_API_URL` gelezen (geconfigureerd bij build-time
+ * in Render). Lokaal in dev kun je deze leeg laten — de Vite-proxy regelt /api.
  */
+
+const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
+
+function url(path: string): string {
+  // Zorg dat path altijd met / begint
+  const p = path.startsWith('/') ? path : '/' + path;
+  return API_BASE + p;
+}
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public details?: unknown) {
@@ -15,7 +26,7 @@ export async function api<T = unknown>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(url(path), {
     ...options,
     credentials: 'include',
     headers: {
@@ -72,7 +83,7 @@ export const projectsApi = {
    * Faalt als de berekening niet lukt — daarom liever eerst 'bereken' aanroepen.
    */
   exporteerPpt: async (id: string, filename: string): Promise<void> => {
-    const res = await fetch(`/api/projects/${id}/ppt`, {
+    const res = await fetch(url(`/api/projects/${id}/ppt`), {
       method: 'POST',
       credentials: 'include',
     });
@@ -82,14 +93,14 @@ export const projectsApi = {
       throw new ApiError(res.status, body.error ?? `${res.status} ${res.statusText}`);
     }
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = blobUrl;
     a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(blobUrl);
   },
 };
 

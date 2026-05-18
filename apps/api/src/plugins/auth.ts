@@ -92,12 +92,18 @@ export default fp(authPlugin, { name: 'auth' });
 export function zetSessieCookie(reply: FastifyReply, user: AuthUser): void {
   const token = reply.server.jwt.sign(user);
   const cfg = getConfig();
+  // Cross-site setup (frontend op snelgescand.nl, backend op *.onrender.com):
+  //  - sameSite: 'none'  → browser stuurt cookie wel mee bij cross-site fetch
+  //  - secure: true       → vereist bij sameSite=none, mag dus alleen via HTTPS
+  //  - domain weglaten als COOKIE_DOMAIN niet matcht met host die cookie zet,
+  //    anders weigert de browser de cookie. Voor onrender.com: laat leeg.
+  const useCrossSite = isProduction();
   reply.setCookie(COOKIE_NAME, token, {
     httpOnly: true,
-    secure: isProduction(),
-    sameSite: 'lax',
+    secure: useCrossSite,
+    sameSite: useCrossSite ? 'none' : 'lax',
     path: '/',
-    domain: cfg.COOKIE_DOMAIN,
+    domain: cfg.COOKIE_DOMAIN || undefined,
     signed: true,
     maxAge: 60 * 60 * 24 * 7, // 7 dagen
   });
@@ -107,7 +113,7 @@ export function wisSessieCookie(reply: FastifyReply): void {
   const cfg = getConfig();
   reply.clearCookie(COOKIE_NAME, {
     path: '/',
-    domain: cfg.COOKIE_DOMAIN,
+    domain: cfg.COOKIE_DOMAIN || undefined,
   });
 }
 
