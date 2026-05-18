@@ -25,9 +25,9 @@ const envSchema = z.object({
 
   // Welke seed-rekening de eerste BEHEERDER krijgt — alleen voor first-run.
   SEED_TENANT_NAAM: z.string().optional(),
-  SEED_TENANT_SLUG: z.string().optional(),
-  SEED_ADMIN_EMAIL: z.string().email().optional(),
-  SEED_ADMIN_PASSWORD: z.string().min(12).optional(),
+SEED_TENANT_SLUG: z.string().optional(),
+SEED_ADMIN_EMAIL: z.string().email().optional(),
+SEED_ADMIN_PASSWORD: z.string().min(6).optional(),
 
   // Optionele third-party API-keys (BAG/PDOK is publiek, EPEX vereist key)
   ENTSO_E_API_TOKEN: z.string().optional(),

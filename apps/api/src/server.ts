@@ -4,24 +4,78 @@
  * Start volgorde:
  *   1. Config validatie (faalt fast)
  *   2. Logger setup (pino-pretty in dev, JSON in prod)
- *   3. Plugins: helmet, cors, cookie+jwt+auth, rate-limit
- *   4. Routes registreren
- *   5. Health check
- *   6. Luister op PORT
- *   7. Graceful shutdown bij SIGTERM/SIGINT
+ *   3. Auto-seed (alleen als DB nog leeg is)
+ *   4. Plugins: helmet, cors, cookie+jwt+auth, rate-limit
+ *   5. Routes registreren
+ *   6. Health check
+ *   7. Luister op PORT
+ *   8. Graceful shutdown bij SIGTERM/SIGINT
  */
 
-import Fastify from 'fastify';
+import Fastify, { type FastifyBaseLogger } from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { getConfig, isProduction } from './config.js';
-import authPlugin from './plugins/auth.js';
+import authPlugin, { hashWachtwoord } from './plugins/auth.js';
 import authRoutes from './routes/auth.routes.js';
 import projectsRoutes from './routes/projects.routes.js';
 import modulesRoutes from './routes/modules.routes.js';
 import pptRoutes from './routes/ppt.routes.js';
 import { prisma } from './db.js';
+
+/**
+ * Auto-seed: maakt eenmalig de eerste Tenant + BEHEERDER aan als de DB
+ * nog geen tenants bevat. Idempotent — bij volgende startups gebeurt er niks.
+ *
+ * Vereist deze environment variables (anders wordt seed overgeslagen):
+ *   SEED_TENANT_NAAM
+ *   SEED_TENANT_SLUG
+ *   SEED_ADMIN_EMAIL
+ *   SEED_ADMIN_PASSWORD
+ */
+async function autoSeedAlsLeeg(log: FastifyBaseLogger): Promise<void> {
+  const cfg = getConfig();
+
+  if (!cfg.SEED_TENANT_NAAM || !cfg.SEED_TENANT_SLUG ||
+      !cfg.SEED_ADMIN_EMAIL || !cfg.SEED_ADMIN_PASSWORD) {
+    log.info('Auto-seed overgeslagen — SEED_* env vars niet (volledig) ingesteld');
+    return;
+  }
+
+  try {
+    const aantalTenants = await prisma.tenant.count();
+    if (aantalTenants > 0) {
+      log.info({ aantalTenants }, 'Auto-seed overgeslagen — tenant bestaat al');
+      return;
+    }
+
+    log.info('Auto-seed: database is leeg, eerste tenant + admin worden aangemaakt...');
+
+    const tenant = await prisma.tenant.create({
+      data: {
+        naam: cfg.SEED_TENANT_NAAM,
+        slug: cfg.SEED_TENANT_SLUG,
+      },
+    });
+    log.info({ tenantId: tenant.id, slug: tenant.slug }, '✓ Tenant aangemaakt');
+
+    const admin = await prisma.user.create({
+      data: {
+        tenantId: tenant.id,
+        email: cfg.SEED_ADMIN_EMAIL,
+        passwordHash: await hashWachtwoord(cfg.SEED_ADMIN_PASSWORD),
+        naam: 'Beheerder',
+        rol: 'BEHEERDER',
+      },
+    });
+    log.info({ adminId: admin.id, email: admin.email }, '✓ Beheerder aangemaakt');
+  } catch (err) {
+    // Niet fataal — server moet alsnog op kunnen komen, anders kunnen we
+    // het ook niet meer fixen via een nieuwe deploy.
+    log.error({ err }, 'Auto-seed mislukt — server start toch op');
+  }
+}
 
 async function buildServer() {
   const cfg = getConfig();
@@ -107,6 +161,9 @@ async function buildServer() {
 async function start() {
   const cfg = getConfig();
   const app = await buildServer();
+
+  // Eerst seeden (als DB leeg is), daarna pas requests accepteren
+  await autoSeedAlsLeeg(app.log);
 
   try {
     await app.listen({ port: cfg.PORT, host: cfg.HOST });
