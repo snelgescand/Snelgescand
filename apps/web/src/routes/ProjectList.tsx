@@ -17,11 +17,10 @@ export default function ProjectList() {
     mutationFn: () => projectsApi.create({
       clubNaam: 'Nieuw project',
       state: {
-        context: {
-          club: { naam: 'Nieuw project' },
-          gebouw: { bouwjaar: 1990, bvoTotaalM2: 250, plafondhoogteM: 3 },
-          energie: { gasverbruikM3: 5000, stroomverbruikTotaalKwh: 20000, gasprijsPerM3: 1.35, stroomprijsKaalPerKwh: 0.30 },
-        },
+        context: { club: { naam: '' }, gebouw: {}, energie: {} },
+        locatie: {},
+        huidigeSituatie: {},
+        fotos: [],
         gekozenMaatregelen: {},
       },
     }),

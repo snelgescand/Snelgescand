@@ -1,11 +1,12 @@
 /**
  * Berekening-service: bridge tussen Project.state JSONB en calc-core.
  *
- * Defensief geprogrammeerd:
- *  - Lege of incomplete state → werkt met defaults uit calc-core
- *  - Onbekende maatregel-id → wordt overgeslagen met log-melding ipv crash
- *  - Crashende module → wordt gevangen, rollup gaat door met andere modules
- *  - Resultaat is altijd JSON-serializable (geen Infinity/NaN)
+ * Defensief geprogrammeerd. Twee niveaus van validatie:
+ *  1. Minimaal: kunnen we überhaupt rekenen? (energieverbruik + prijzen)
+ *  2. Per maatregel: vul ontbrekende velden aan met defaults uit registry
+ *
+ * Bij ontbrekende minimale velden: geeft duidelijke foutmelding terug
+ * met welke velden ingevuld moeten worden.
  */
 
 import {
@@ -21,14 +22,18 @@ import {
 interface ProjectState {
   context?: Partial<ProjectContext>;
   gekozenMaatregelen?: Record<string, unknown>;
-  // Andere velden (locatie, fotos) negeren we hier — niet relevant voor rekenen
 }
 
 export interface BerekendProject {
   perMaatregel: Partial<Record<RegistryKey, MaatregelResultaat>>;
   rollup: ProjectResultaat;
-  /** Maatregelen die zijn overgeslagen door fouten — voor frontend-feedback */
   overgeslagen: Array<{ id: string; reden: string }>;
+}
+
+export class BerekenValidatieFout extends Error {
+  constructor(public ontbrekendeVelden: string[]) {
+    super(`Niet alle vereiste velden zijn ingevuld: ${ontbrekendeVelden.join(', ')}`);
+  }
 }
 
 export function berekenProject(rawState: unknown): BerekendProject {
@@ -36,8 +41,28 @@ export function berekenProject(rawState: unknown): BerekendProject {
     ? rawState as ProjectState
     : {};
 
-  // Robuuste context — defaults vullen ontbrekende velden aan
-  const context = defaultContext(state.context ?? {});
+  // Stap 1: minimale validatie
+  const energie = (state.context?.energie ?? {}) as Record<string, unknown>;
+  const ontbreken: string[] = [];
+  if (!isPositief(energie.gasverbruikM3)) ontbreken.push('gasverbruik per jaar');
+  if (!isPositief(energie.stroomverbruikTotaalKwh)) ontbreken.push('stroomverbruik per jaar');
+  if (!isPositief(energie.gasprijsPerM3)) ontbreken.push('gasprijs');
+  if (!isPositief(energie.stroomprijsKaalPerKwh)) ontbreken.push('stroomprijs');
+
+  if (ontbreken.length > 0) {
+    throw new BerekenValidatieFout(ontbreken);
+  }
+
+  // Stap 2: context opbouwen met defaults (deep merge voor energie/gebouw)
+  const baseCtx = defaultContext();
+  const userCtx = state.context ?? {};
+  const context = {
+    ...baseCtx,
+    ...userCtx,
+    club: { ...baseCtx.club, ...(userCtx.club ?? {}) },
+    gebouw: { ...baseCtx.gebouw, ...(userCtx.gebouw ?? {}) },
+    energie: { ...baseCtx.energie, ...(userCtx.energie ?? {}) },
+  };
 
   const resultaten: Partial<Record<RegistryKey, MaatregelResultaat>> = {};
   const overgeslagen: Array<{ id: string; reden: string }> = [];
@@ -51,13 +76,21 @@ export function berekenProject(rawState: unknown): BerekendProject {
     }
     const module = MODULE_REGISTRY[maatregelId as RegistryKey];
 
-    // Als input null/undefined is, gebruik defaultInput
-    const veiligeInput = (input && typeof input === 'object')
-      ? input
-      : module.defaultInput(context);
+    // Stap 3: per maatregel — merge user-input met defaults
+    const defaults = module.defaultInput(context) as unknown as Record<string, unknown>;
+    const userInput = (input && typeof input === 'object') ? input as Record<string, unknown> : {};
+    const samengevoegd = { ...defaults, ...userInput } as Record<string, unknown>;
+
+    // Verwijder undefined / null waardes zodat ze niet de defaults overschrijven
+    for (const k of Object.keys(samengevoegd)) {
+      const v = samengevoegd[k];
+      if (v === undefined || v === null || v === '') {
+        samengevoegd[k] = defaults[k];
+      }
+    }
 
     try {
-      const resultaat = module.bereken(veiligeInput as never, context);
+      const resultaat = module.bereken(samengevoegd as never, context);
       resultaten[maatregelId as RegistryKey] = resultaat;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -67,14 +100,15 @@ export function berekenProject(rawState: unknown): BerekendProject {
 
   const rollup = rollupProject({ context, resultaten });
 
-  // Sanitize Infinity/NaN naar null voor JSON-serialisatie
   return sanitize({ perMaatregel: resultaten, rollup, overgeslagen });
 }
 
+function isPositief(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0;
+}
+
 /**
- * Vervang Infinity/NaN door null in een dieper object — Postgres JSONB
- * accepteert die waardes niet, en JSON.stringify maakt ze tot "null"
- * waardoor TypeScript-types kunnen breken.
+ * Vervang Infinity/NaN door null voor JSON-serialisatie.
  */
 function sanitize<T>(obj: T): T {
   if (typeof obj !== 'object' || obj === null) {

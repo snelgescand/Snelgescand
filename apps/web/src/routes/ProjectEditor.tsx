@@ -1,10 +1,18 @@
 /**
- * Project-editor met detailformulieren per maatregel.
+ * Project-editor.
  *
- * UX:
- *  - Maatregelen-keuze: checkbox-lijst aan de linkerkant
- *  - Per gekozen maatregel: uitklap-paneel met detail-velden
- *  - Auto-save 2 sec na laatste wijziging
+ * Volgorde:
+ *  1. Project (clubnaam)
+ *  2. Locatie (PDOK adres + luchtfoto)
+ *  3. Gebouw (BAG-velden, overschrijfbaar)
+ *  4. Energieverbruik (zelf invullen — alleen placeholders)
+ *  5. Huidige situatie (checklist: doen ze goed / kan beter)
+ *  6. Maatregelen kiezen (vinkjes)
+ *  7. Details per maatregel (uitklap-panelen)
+ *  8. Rechts: luchtfoto + foto's + resultaat
+ *
+ * Geen voor-ingevulde getallen meer. Alleen placeholders met voorbeelden.
+ * BAG-velden krijgen de waarde van PDOK ingevuld, maar zijn overschrijfbaar.
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -17,7 +25,9 @@ import { Luchtfoto } from '../components/Luchtfoto';
 import { FotoUpload, type ProjectFoto } from '../components/FotoUpload';
 import { InfoTooltip } from '../components/InfoTooltip';
 import { MaatregelDetail } from '../components/MaatregelDetail';
+import { HuidigeSituatie } from '../components/HuidigeSituatie';
 import type { PdokAdres } from '../api/pdok';
+import type { ChecklistAntwoorden } from '../data/checklist';
 
 interface Locatie {
   adres?: string;
@@ -38,17 +48,16 @@ interface ProjectState {
   };
   locatie?: Locatie;
   fotos?: ProjectFoto[];
+  huidigeSituatie?: ChecklistAntwoorden;
   gekozenMaatregelen: Record<string, unknown>;
 }
 
+// Leeg startpunt — geen voor-ingevulde getallen meer
 const LEGE_STATE: ProjectState = {
-  context: {
-    club: { naam: '' },
-    gebouw: { bouwjaar: 1990, bvoTotaalM2: 250, plafondhoogteM: 3 },
-    energie: { gasverbruikM3: 5000, stroomverbruikTotaalKwh: 20000, gasprijsPerM3: 1.35, stroomprijsKaalPerKwh: 0.30 },
-  },
+  context: { club: { naam: '' }, gebouw: {}, energie: {} },
   locatie: {},
   fotos: [],
+  huidigeSituatie: {},
   gekozenMaatregelen: {},
 };
 
@@ -69,6 +78,7 @@ export default function ProjectEditor() {
 
   const [draft, setDraft] = useState<ProjectState | null>(null);
   const [berekenFout, setBerekenFout] = useState<string | null>(null);
+  const [pptFout, setPptFout] = useState<string | null>(null);
   const autoSaveTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -86,6 +96,7 @@ export default function ProjectEditor() {
         },
         locatie: { ...LEGE_STATE.locatie, ...(s.locatie ?? {}) },
         fotos: s.fotos ?? [],
+        huidigeSituatie: s.huidigeSituatie ?? {},
         gekozenMaatregelen: s.gekozenMaatregelen ?? {},
       });
     }
@@ -101,13 +112,19 @@ export default function ProjectEditor() {
   });
 
   const bereken = useMutation({
-    mutationFn: () => projectsApi.bereken(id!),
+    mutationFn: async () => {
+      // Eerst opslaan om zeker te zijn dat backend de laatste data heeft
+      if (draft) await save.mutateAsync(draft);
+      return projectsApi.bereken(id!);
+    },
     onSuccess: () => {
       setBerekenFout(null);
       qc.invalidateQueries({ queryKey: ['project', id] });
     },
     onError: (err: unknown) => {
       if (err instanceof ApiError) {
+        setBerekenFout(err.message + ((err.details as { message?: string })?.message ? ` — ${(err.details as { message: string }).message}` : ''));
+      } else if (err instanceof Error) {
         setBerekenFout(err.message);
       } else {
         setBerekenFout('Berekening mislukt — onbekende fout');
@@ -120,6 +137,11 @@ export default function ProjectEditor() {
       id!,
       `Verduurzamingsplan_${(draft?.context.club?.naam ?? 'project').replace(/[^a-zA-Z0-9]/g, '_')}.pptx`,
     ),
+    onSuccess: () => setPptFout(null),
+    onError: (err: unknown) => {
+      if (err instanceof ApiError) setPptFout(err.message);
+      else setPptFout('PowerPoint-export mislukt');
+    },
   });
 
   function updateDraft(updater: (s: ProjectState) => ProjectState) {
@@ -159,6 +181,7 @@ export default function ProjectEditor() {
 
   const cached = projectQuery.data?.cachedResult;
   const gekozenIds = Object.keys(draft.gekozenMaatregelen);
+  const heeftBerekening = cached?.rollup;
 
   return (
     <div className="min-h-screen pb-12">
@@ -169,21 +192,19 @@ export default function ProjectEditor() {
         </>
       } />
 
-      {/* Sub-header: titel + actieknoppen */}
       <div className="bg-white/80 backdrop-blur border-b border-primary-100 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-primary-900">{draft.context.club?.naam || 'Nieuw project'}</h1>
             <p className="text-xs text-gray-500">
-              {save.isPending ? 'Opslaan…' :
-                save.isSuccess ? '✓ Opgeslagen' : 'Wijzig om op te slaan'}
+              {save.isPending ? 'Opslaan…' : save.isSuccess ? '✓ Opgeslagen' : 'Wijzig om op te slaan'}
             </p>
           </div>
           <div className="flex gap-2">
             <button onClick={() => { setBerekenFout(null); bereken.mutate(); }} className="btn-accent" disabled={bereken.isPending}>
               {bereken.isPending ? 'Berekenen…' : 'Bereken'}
             </button>
-            <button onClick={() => exportPpt.mutate()} className="btn-secondary" disabled={exportPpt.isPending || !cached}>
+            <button onClick={() => { setPptFout(null); exportPpt.mutate(); }} className="btn-secondary" disabled={exportPpt.isPending || !heeftBerekening}>
               {exportPpt.isPending ? 'Exporteren…' : '↓ PowerPoint'}
             </button>
           </div>
@@ -198,6 +219,7 @@ export default function ProjectEditor() {
             <Veld label="Naam van de club of organisatie" tooltip="Komt op alle slides van het rapport.">
               <input
                 className="input"
+                placeholder="Bijvoorbeeld: VV Oranje Boys"
                 value={draft.context.club?.naam ?? ''}
                 onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, club: { ...s.context.club, naam: e.target.value } } }))}
               />
@@ -205,7 +227,7 @@ export default function ProjectEditor() {
           </Sectie>
 
           <Sectie titel="Locatie">
-            <Veld label="Adres opzoeken" tooltip="Begin te typen: postcode + huisnummer (bv. '6512AB 23') of straatnaam + plaats. Bouwjaar en oppervlakte worden automatisch opgehaald uit BAG.">
+            <Veld label="Adres opzoeken" tooltip="Typ postcode + huisnummer (bv. '6512AB 23') of straatnaam + plaats. Klik op het juiste adres in de lijst. Bouwjaar en oppervlakte worden dan automatisch opgehaald uit BAG (Basisregistratie Adressen en Gebouwen) van het Kadaster.">
               <AdresZoeker initieel={draft.locatie?.adres ?? ''} onAdresGekozen={adresGekozen} />
             </Veld>
             {draft.locatie?.adres && (
@@ -215,53 +237,116 @@ export default function ProjectEditor() {
 
           <Sectie titel="Gebouw">
             <div className="grid grid-cols-2 gap-3">
-              <Veld label="Bouwjaar" tooltip="Bepaalt standaard Rc-waardes en warmtepomp-vermogen.">
-                <input type="number" className="input"
+              <Veld
+                label="Bouwjaar"
+                tooltip="Automatisch ingevuld uit BAG (Kadaster) na adres-keuze. Overschrijf alleen als je weet dat het BAG-jaar fout is (bv. renovatiejaar i.p.v. oprichtingsjaar)."
+              >
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="bv. 1985"
                   value={draft.context.gebouw?.bouwjaar ?? ''}
-                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, bouwjaar: Number(e.target.value) } } }))} />
+                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, bouwjaar: e.target.value ? Number(e.target.value) : undefined } } }))}
+                />
               </Veld>
-              <Veld label="BVO (m²)" tooltip="Bruto vloeroppervlak — uit BAG, overschrijfbaar.">
-                <input type="number" className="input"
+              <Veld
+                label="BVO (m²)"
+                tooltip="Bruto vloeroppervlak. Automatisch ingevuld uit BAG na adres-keuze. Controleer of dit echt het clubhuis is (en niet inclusief opslagschuur)."
+              >
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="bv. 450"
                   value={draft.context.gebouw?.bvoTotaalM2 ?? ''}
-                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, bvoTotaalM2: Number(e.target.value) } } }))} />
+                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, bvoTotaalM2: e.target.value ? Number(e.target.value) : undefined } } }))}
+                />
               </Veld>
             </div>
-            <Veld label="Plafondhoogte (m)" tooltip="Gemiddelde vrije hoogte. Relevant voor warmtepompen die op volume rekenen.">
-              <input type="number" step="0.1" className="input"
-                value={draft.context.gebouw?.plafondhoogteM ?? 3}
-                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, plafondhoogteM: Number(e.target.value) } } }))} />
+            <Veld
+              label="Plafondhoogte (m)"
+              tooltip="Gemiddelde vrije hoogte. Niet uit BAG beschikbaar — meet of schat zelf in. Typisch 2,7-3,5m in clubhuizen. Relevant voor lucht/lucht-warmtepompen die op volume rekenen."
+            >
+              <input
+                type="number"
+                step="0.1"
+                className="input"
+                placeholder="bv. 3,0"
+                value={draft.context.gebouw?.plafondhoogteM ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, plafondhoogteM: e.target.value ? Number(e.target.value) : undefined } } }))}
+              />
             </Veld>
           </Sectie>
 
-          <Sectie titel="Energieverbruik">
+          <Sectie titel="Energieverbruik" tooltipTekst="Op te vragen via de jaarrekening van de energieleverancier, of via de slimme meter (verbruiksoverzicht laatste 12 maanden). Cijfers van het laatste volledige jaar geven de meest betrouwbare uitkomst.">
             <div className="grid grid-cols-2 gap-3">
-              <Veld label="Gas (m³/jaar)" tooltip="Totaal gasverbruik per jaar uit jaaroverzicht energieleverancier.">
-                <input type="number" className="input"
+              <Veld
+                label="Gas (m³/jaar)"
+                tooltip="Totaal gasverbruik per jaar. Vind je op de jaarafrekening — meestal hoofdpost. Voor een clubhuis met 200 leden typisch 3.000-8.000 m³."
+              >
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="bv. 5.000"
                   value={draft.context.energie?.gasverbruikM3 ?? ''}
-                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, gasverbruikM3: Number(e.target.value) } } }))} />
+                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, gasverbruikM3: e.target.value ? Number(e.target.value) : undefined } } }))}
+                />
               </Veld>
-              <Veld label="Stroom (kWh/jaar)" tooltip="Bruto verbruik — exclusief teruglevering.">
-                <input type="number" className="input"
+              <Veld
+                label="Stroom (kWh/jaar)"
+                tooltip="Totaal stroomverbruik per jaar. Vind je op de jaarafrekening of via slimme meter. Voor een clubhuis met veldverlichting typisch 15.000-40.000 kWh."
+              >
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="bv. 25.000"
                   value={draft.context.energie?.stroomverbruikTotaalKwh ?? ''}
-                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, stroomverbruikTotaalKwh: Number(e.target.value) } } }))} />
+                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, stroomverbruikTotaalKwh: e.target.value ? Number(e.target.value) : undefined } } }))}
+                />
               </Veld>
-              <Veld label="Gasprijs (€/m³)" tooltip="Daadwerkelijk betaalde prijs incl. BTW + heffingen.">
-                <input type="number" step="0.01" className="input"
-                  value={draft.context.energie?.gasprijsPerM3 ?? 1.35}
-                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, gasprijsPerM3: Number(e.target.value) } } }))} />
+              <Veld
+                label="Gasprijs (€/m³)"
+                tooltip="Prijs zoals werkelijk betaald, inclusief BTW en heffingen. Op de jaarafrekening: 'gemiddelde prijs per m³'. In 2025 typisch €1,30-€1,55."
+              >
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input"
+                  placeholder="bv. 1,35"
+                  value={draft.context.energie?.gasprijsPerM3 ?? ''}
+                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, gasprijsPerM3: e.target.value ? Number(e.target.value) : undefined } } }))}
+                />
               </Veld>
-              <Veld label="Stroomprijs (€/kWh)" tooltip="Kale stroomprijs (exclusief belasting/netbeheer).">
-                <input type="number" step="0.01" className="input"
-                  value={draft.context.energie?.stroomprijsKaalPerKwh ?? 0.30}
-                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, stroomprijsKaalPerKwh: Number(e.target.value) } } }))} />
+              <Veld
+                label="Stroomprijs (€/kWh)"
+                tooltip="Kale stroomprijs (zonder energiebelasting en netbeheer). Te vinden op je contract of factuur. In 2025 typisch €0,25-€0,35."
+              >
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input"
+                  placeholder="bv. 0,30"
+                  value={draft.context.energie?.stroomprijsKaalPerKwh ?? ''}
+                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, stroomprijsKaalPerKwh: e.target.value ? Number(e.target.value) : undefined } } }))}
+                />
               </Veld>
             </div>
           </Sectie>
 
+          {/* NIEUW: Huidige situatie / nulmeting */}
+          <Sectie
+            titel="Huidige situatie"
+            tooltipTekst="Inventarisatie van wat er al is en wat verbeterd kan worden. Vul dit in tijdens of na de scan. De aandachtspunten verschijnen straks in het rapport, en geven richting voor de keuze van maatregelen."
+          >
+            <HuidigeSituatie
+              antwoorden={draft.huidigeSituatie ?? {}}
+              onChange={(antwoorden) => updateDraft(s => ({ ...s, huidigeSituatie: antwoorden }))}
+            />
+          </Sectie>
+
           {/* Maatregelen kiezen */}
-          <Sectie titel="Maatregelen kiezen">
+          <Sectie titel="Voorgestelde maatregelen" tooltipTekst="Vink aan welke maatregelen je wilt meenemen in de businesscase. Per maatregel kun je daarna in het detail-paneel de uitgangswaardes finetunen.">
             <p className="text-xs text-gray-500 mb-3">
-              Vink aan wat je wilt meenemen. Per maatregel kun je daarna details aanpassen.
+              Selectie van maatregelen die je in het verduurzamingsplan opneemt. Tip: gebruik de huidige situatie hierboven als richtsnoer — waar staat "kan beter" matcht meestal een maatregel.
             </p>
             {modulesQuery.data && (
               <div className="space-y-4">
@@ -297,9 +382,8 @@ export default function ProjectEditor() {
             )}
           </Sectie>
 
-          {/* Detail-panelen per gekozen maatregel */}
           {gekozenIds.length > 0 && (
-            <Sectie titel="Details per maatregel" tooltipTekst="Klap een paneel uit om de standaardwaardes voor die maatregel aan te passen — bv. specifieke oppervlaktes, COP, of trainingstijden.">
+            <Sectie titel="Details per maatregel" tooltipTekst="Klap een paneel uit om de standaardwaardes voor die maatregel aan te passen.">
               <div className="space-y-2">
                 {gekozenIds.map(modId => {
                   const mod = modulesQuery.data?.modules.find(m => m.id === modId);
@@ -309,10 +393,7 @@ export default function ProjectEditor() {
                       maatregelId={modId}
                       maatregelNaam={mod?.naam ?? modId}
                       input={draft.gekozenMaatregelen[modId] as Record<string, unknown> ?? {}}
-                      onChange={(input) => updateDraft(s => ({
-                        ...s,
-                        gekozenMaatregelen: { ...s.gekozenMaatregelen, [modId]: input },
-                      }))}
+                      onChange={(input) => updateDraft(s => ({ ...s, gekozenMaatregelen: { ...s.gekozenMaatregelen, [modId]: input } }))}
                       onRemove={() => updateDraft(s => {
                         const next = { ...s.gekozenMaatregelen };
                         delete next[modId];
@@ -330,7 +411,7 @@ export default function ProjectEditor() {
         {/* ===== RECHTER KOLOM ===== */}
         <div className="space-y-5">
 
-          <Sectie titel="Luchtfoto" tooltipTekst="Bekijk het dak om PV-oppervlak in te schatten, of er al panelen liggen, en hoe de oriëntatie is.">
+          <Sectie titel="Luchtfoto" tooltipTekst="Bron: Kadaster luchtfoto (25cm resolutie). Bekijk het dak om PV-oppervlak in te schatten, of er al panelen liggen, en hoe de oriëntatie is.">
             <Luchtfoto
               rdX={draft.locatie?.rd_x ?? 0}
               rdY={draft.locatie?.rd_y ?? 0}
@@ -340,7 +421,7 @@ export default function ProjectEditor() {
             />
           </Sectie>
 
-          <Sectie titel="Foto's" tooltipTekst="Voeg foto's toe van de scan. Max 10 per project, automatisch verkleind.">
+          <Sectie titel="Foto's" tooltipTekst="Voeg foto's toe van de scan. Maximaal 10 per project. Worden automatisch verkleind voor snelle upload.">
             <FotoUpload
               fotos={draft.fotos ?? []}
               onChange={(fotos) => updateDraft(s => ({ ...s, fotos }))}
@@ -356,7 +437,16 @@ export default function ProjectEditor() {
             {berekenFout && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
                 <p className="font-medium text-red-900 mb-1">Berekening mislukt</p>
-                <p className="text-red-800 font-mono text-xs">{berekenFout}</p>
+                <p className="text-red-800 font-mono text-xs whitespace-pre-wrap">{berekenFout}</p>
+                <p className="text-red-700 text-xs mt-2">
+                  Tip: controleer of energieverbruik en prijzen zijn ingevuld.
+                </p>
+              </div>
+            )}
+            {pptFout && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm mt-2">
+                <p className="font-medium text-red-900 mb-1">PowerPoint-export mislukt</p>
+                <p className="text-red-800 font-mono text-xs">{pptFout}</p>
               </div>
             )}
             {cached?.rollup && (
@@ -393,8 +483,6 @@ export default function ProjectEditor() {
     </div>
   );
 }
-
-/* Helpers */
 
 function Sectie({ titel, tooltipTekst, children }: { titel: string; tooltipTekst?: string; children: React.ReactNode }) {
   return (

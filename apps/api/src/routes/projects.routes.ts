@@ -110,7 +110,7 @@ export default async function projectsRoutes(app: FastifyInstance) {
       where: { id },
       data: {
         ...parsed.data,
-        ...(cacheInvalid ? { cachedResult: null as any, cachedAt: null } : {}),
+        ...(cacheInvalid ? { cachedResult: null, cachedAt: null } : {}),
       },
     });
     return project;
@@ -149,8 +149,17 @@ export default async function projectsRoutes(app: FastifyInstance) {
       });
       return updated.cachedResult;
     } catch (err: unknown) {
+      // Specifieke validatie-fout (ontbrekende velden) → 400 met details
+      if (err && typeof err === 'object' && err.constructor.name === 'BerekenValidatieFout') {
+        const ontbrekend = (err as { ontbrekendeVelden?: string[] }).ontbrekendeVelden ?? [];
+        return reply.code(400).send({
+          error: 'Vul eerst alle vereiste velden in',
+          message: `Ontbreekt: ${ontbrekend.join(', ')}`,
+          ontbrekendeVelden: ontbrekend,
+        });
+      }
       app.log.error({ err, projectId: id }, 'Berekening mislukt');
-      return reply.code(400).send({
+      return reply.code(500).send({
         error: 'Berekening mislukt',
         message: err instanceof Error ? err.message : 'Onbekende fout',
       });

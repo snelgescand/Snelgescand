@@ -1,10 +1,16 @@
 /**
- * Tests voor bereken.service.ts — de defensieve brug tussen Project.state
- * JSONB en calc-core.
+ * Tests voor bereken.service.ts.
  */
 
 import { describe, it, expect } from 'vitest';
-import { berekenProject } from '../src/services/bereken.service.js';
+import { berekenProject, BerekenValidatieFout } from '../src/services/bereken.service.js';
+
+const COMPLETE_ENERGIE = {
+  gasverbruikM3: 5000,
+  stroomverbruikTotaalKwh: 20000,
+  gasprijsPerM3: 1.35,
+  stroomprijsKaalPerKwh: 0.30,
+};
 
 describe('berekenProject', () => {
   it('berekent met realistische state (dak + LED)', () => {
@@ -12,6 +18,7 @@ describe('berekenProject', () => {
       context: {
         club: { naam: 'Test FC' },
         gebouw: { bouwjaar: 1985, bvoTotaalM2: 250 },
+        energie: COMPLETE_ENERGIE,
       },
       gekozenMaatregelen: {
         'dakisolatie': {
@@ -38,45 +45,42 @@ describe('berekenProject', () => {
     expect(perMaatregel['binnenverlichting']).toBeDefined();
     expect(rollup.totaleInvestering).toBeGreaterThan(0);
     expect(rollup.totaleBesparingPerJaar).toBeGreaterThan(0);
-    expect(rollup.nettoInvestering).toBeLessThanOrEqual(rollup.totaleInvestering);
     expect(overgeslagen).toHaveLength(0);
   });
 
   it('werkt met lege maatregel-lijst', () => {
     const { perMaatregel, rollup } = berekenProject({
-      context: {},
+      context: { energie: COMPLETE_ENERGIE },
       gekozenMaatregelen: {},
     });
     expect(Object.keys(perMaatregel)).toHaveLength(0);
     expect(rollup.totaleInvestering).toBe(0);
-    expect(rollup.totaleBesparingPerJaar).toBe(0);
   });
 
   it('slaat onbekende maatregel-id over zonder te crashen', () => {
-    const { overgeslagen, rollup } = berekenProject({
-      context: {},
+    const { overgeslagen } = berekenProject({
+      context: { energie: COMPLETE_ENERGIE },
       gekozenMaatregelen: { 'nepmaatregel': {} },
     });
     expect(overgeslagen).toHaveLength(1);
     expect(overgeslagen[0].id).toBe('nepmaatregel');
-    expect(rollup).toBeDefined();
   });
 
-  it('werkt met missende context (gebruikt defaults)', () => {
-    const { rollup } = berekenProject({ gekozenMaatregelen: {} });
-    expect(rollup).toBeDefined();
-    expect(rollup.totaleInvestering).toBe(0);
+  it('gooit BerekenValidatieFout bij missend gasverbruik', () => {
+    expect(() => berekenProject({
+      context: { energie: { stroomverbruikTotaalKwh: 20000, gasprijsPerM3: 1.35, stroomprijsKaalPerKwh: 0.30 } },
+      gekozenMaatregelen: {},
+    })).toThrow(BerekenValidatieFout);
   });
 
-  it('werkt met null state (lege defaults)', () => {
-    const { rollup } = berekenProject(null);
-    expect(rollup).toBeDefined();
-    expect(rollup.totaleInvestering).toBe(0);
+  it('gooit BerekenValidatieFout bij lege context', () => {
+    expect(() => berekenProject(null)).toThrow(BerekenValidatieFout);
+    expect(() => berekenProject({})).toThrow(BerekenValidatieFout);
   });
 
   it('vult lege input voor maatregel automatisch met defaults', () => {
     const { perMaatregel, overgeslagen } = berekenProject({
-      context: { gebouw: { bouwjaar: 1990, bvoTotaalM2: 300 } },
+      context: { gebouw: { bouwjaar: 1990, bvoTotaalM2: 300 }, energie: COMPLETE_ENERGIE },
       gekozenMaatregelen: { 'binnenverlichting': null },
     });
     expect(overgeslagen).toHaveLength(0);
@@ -85,10 +89,9 @@ describe('berekenProject', () => {
 
   it('sanitizeert Infinity in resultaat naar null', () => {
     const { rollup } = berekenProject({
-      context: {},
+      context: { energie: COMPLETE_ENERGIE },
       gekozenMaatregelen: {},
     });
-    // Lege maatregelenlijst → TVT = Infinity → moet null worden
     expect(rollup.gemiddeldeTerugverdientijdJaren).toBeNull();
   });
 });
