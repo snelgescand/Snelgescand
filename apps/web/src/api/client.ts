@@ -1,17 +1,6 @@
-/**
- * Lichte fetch-wrapper rond de Fastify API.
- *
- * `credentials: 'include'` zorgt dat de session cookie meegestuurd wordt
- * (cross-site, dus de backend MOET sameSite=none + secure=true gebruiken).
- *
- * Het basis-URL wordt uit `VITE_API_URL` gelezen (geconfigureerd bij build-time
- * in Render). Lokaal in dev kun je deze leeg laten — de Vite-proxy regelt /api.
- */
-
-const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
+const API_BASE = 'https://api.snelgescand.nl';
 
 function url(path: string): string {
-  // Zorg dat path altijd met / begint
   const p = path.startsWith('/') ? path : '/' + path;
   return API_BASE + p;
 }
@@ -47,7 +36,6 @@ export async function api<T = unknown>(
   return res.json() as Promise<T>;
 }
 
-// Specifieke endpoint-functies
 export const authApi = {
   login: (email: string, wachtwoord: string, tenantSlug?: string) =>
     api<{ gebruiker: { id: string; email: string; naam: string; rol: string }; tenant: { slug: string; naam: string } }>(
@@ -78,10 +66,6 @@ export const projectsApi = {
   bereken: (id: string) =>
     api<any>(`/api/projects/${id}/bereken`, { method: 'POST' }),
 
-  /**
-   * Download de PPT-export. Triggert browser-download via een blob-URL.
-   * Faalt als de berekening niet lukt — daarom liever eerst 'bereken' aanroepen.
-   */
   exporteerPpt: async (id: string, filename: string): Promise<void> => {
     const res = await fetch(url(`/api/projects/${id}/ppt`), {
       method: 'POST',
