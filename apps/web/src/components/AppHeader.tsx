@@ -11,10 +11,14 @@ export function AppHeader({ rechts }: AppHeaderProps) {
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-3">
           <img
-            src={BRANDING.logo.src}
-            alt={BRANDING.logo.alt}
-            style={{ height: BRANDING.logo.height }}
+            src={BRANDING.logo.primary}
+            alt={BRANDING.logo.primaryAlt}
+            className="h-10 w-auto"
           />
+          <div className="leading-tight">
+            <div className="text-lg font-bold text-primary-700">{BRANDING.applicatieNaam}</div>
+            <div className="text-xs text-gray-500">een platform van {BRANDING.organisatieNaam}</div>
+          </div>
         </Link>
         {rechts && <div className="flex items-center gap-3 text-sm">{rechts}</div>}
       </div>

@@ -1,19 +1,11 @@
 /**
- * Berekening-service: bridge tussen het opgeslagen Project.state en calc-core.
+ * Berekening-service: bridge tussen Project.state JSONB en calc-core.
  *
- * State-structuur in DB:
- *   {
- *     context: ProjectContext,
- *     gekozenMaatregelen: {
- *       [maatregelId]: input
- *     }
- *   }
- *
- * Per maatregel:
- *   1. Haal de module op via MODULE_REGISTRY[maatregelId]
- *   2. Roep module.bereken(input, context) aan
- *   3. Verzamel resultaten in een record
- *   4. Roep rollupProject() aan voor het samenvattend resultaat
+ * Defensief geprogrammeerd:
+ *  - Lege of incomplete state → werkt met defaults uit calc-core
+ *  - Onbekende maatregel-id → wordt overgeslagen met log-melding ipv crash
+ *  - Crashende module → wordt gevangen, rollup gaat door met andere modules
+ *  - Resultaat is altijd JSON-serializable (geen Infinity/NaN)
  */
 
 import {
@@ -27,50 +19,76 @@ import {
 } from '@sportief-opgewekt/calc-core';
 
 interface ProjectState {
-  context: Partial<ProjectContext>;
-  gekozenMaatregelen: Record<string, unknown>;
+  context?: Partial<ProjectContext>;
+  gekozenMaatregelen?: Record<string, unknown>;
+  // Andere velden (locatie, fotos) negeren we hier — niet relevant voor rekenen
 }
 
 export interface BerekendProject {
   perMaatregel: Partial<Record<RegistryKey, MaatregelResultaat>>;
   rollup: ProjectResultaat;
+  /** Maatregelen die zijn overgeslagen door fouten — voor frontend-feedback */
+  overgeslagen: Array<{ id: string; reden: string }>;
 }
 
 export function berekenProject(rawState: unknown): BerekendProject {
-  // Basic shape-check
-  if (typeof rawState !== 'object' || rawState === null) {
-    throw new Error('State is geen object');
-  }
-  const state = rawState as ProjectState;
-  if (!state.context || typeof state.context !== 'object') {
-    throw new Error('state.context ontbreekt');
-  }
-  if (!state.gekozenMaatregelen || typeof state.gekozenMaatregelen !== 'object') {
-    throw new Error('state.gekozenMaatregelen ontbreekt');
-  }
+  const state: ProjectState = (typeof rawState === 'object' && rawState !== null)
+    ? rawState as ProjectState
+    : {};
 
-  const context = defaultContext(state.context);
+  // Robuuste context — defaults vullen ontbrekende velden aan
+  const context = defaultContext(state.context ?? {});
 
   const resultaten: Partial<Record<RegistryKey, MaatregelResultaat>> = {};
-  for (const [maatregelId, input] of Object.entries(state.gekozenMaatregelen)) {
+  const overgeslagen: Array<{ id: string; reden: string }> = [];
+
+  const gekozen = state.gekozenMaatregelen ?? {};
+
+  for (const [maatregelId, input] of Object.entries(gekozen)) {
     if (!(maatregelId in MODULE_REGISTRY)) {
-      throw new Error(`Onbekende maatregel: ${maatregelId}`);
+      overgeslagen.push({ id: maatregelId, reden: 'Onbekende maatregel' });
+      continue;
     }
     const module = MODULE_REGISTRY[maatregelId as RegistryKey];
+
+    // Als input null/undefined is, gebruik defaultInput
+    const veiligeInput = (input && typeof input === 'object')
+      ? input
+      : module.defaultInput(context);
+
     try {
-      const resultaat = module.bereken(input as never, context);
+      const resultaat = module.bereken(veiligeInput as never, context);
       resultaten[maatregelId as RegistryKey] = resultaat;
     } catch (err) {
-      throw new Error(
-        `Berekening voor '${maatregelId}' mislukt: ${err instanceof Error ? err.message : err}`,
-      );
+      const msg = err instanceof Error ? err.message : String(err);
+      overgeslagen.push({ id: maatregelId, reden: msg });
     }
   }
 
-  const rollup = rollupProject({
-    context,
-    resultaten,
-  });
+  const rollup = rollupProject({ context, resultaten });
 
-  return { perMaatregel: resultaten, rollup };
+  // Sanitize Infinity/NaN naar null voor JSON-serialisatie
+  return sanitize({ perMaatregel: resultaten, rollup, overgeslagen });
+}
+
+/**
+ * Vervang Infinity/NaN door null in een dieper object — Postgres JSONB
+ * accepteert die waardes niet, en JSON.stringify maakt ze tot "null"
+ * waardoor TypeScript-types kunnen breken.
+ */
+function sanitize<T>(obj: T): T {
+  if (typeof obj !== 'object' || obj === null) {
+    if (typeof obj === 'number' && !Number.isFinite(obj)) {
+      return null as unknown as T;
+    }
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(sanitize) as unknown as T;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    out[k] = sanitize(v);
+  }
+  return out as T;
 }

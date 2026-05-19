@@ -17,7 +17,11 @@ export default function ProjectList() {
     mutationFn: () => projectsApi.create({
       clubNaam: 'Nieuw project',
       state: {
-        context: { club: { naam: 'Nieuw project' }, gebouw: { bouwjaar: 1990, bvoTotaalM2: 250 } },
+        context: {
+          club: { naam: 'Nieuw project' },
+          gebouw: { bouwjaar: 1990, bvoTotaalM2: 250, plafondhoogteM: 3 },
+          energie: { gasverbruikM3: 5000, stroomverbruikTotaalKwh: 20000, gasprijsPerM3: 1.35, stroomprijsKaalPerKwh: 0.30 },
+        },
         gekozenMaatregelen: {},
       },
     }),
@@ -39,58 +43,98 @@ export default function ProjectList() {
     <div className="min-h-screen">
       <AppHeader rechts={
         <>
-          {me.data && <span className="text-gray-600">{me.data.gebruiker.naam} · {me.data.tenant.naam}</span>}
-          <button onClick={() => logout.mutate()} className="text-gray-600 hover:text-gray-900">Uitloggen</button>
+          <Link to="/kennisbank" className="text-sm text-gray-700 hover:text-primary-700">Kennisbank</Link>
+          {me.data && <span className="text-gray-500">·</span>}
+          {me.data && <span className="text-sm text-gray-600">{me.data.gebruiker.naam}</span>}
+          <button onClick={() => logout.mutate()} className="text-sm text-gray-500 hover:text-accent-orange">Uitloggen</button>
         </>
       } />
 
-      <main className="max-w-6xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-bold">Projecten</h2>
-          <button onClick={() => create.mutate()} className="btn-primary" disabled={create.isPending}>
-            {create.isPending ? 'Bezig…' : 'Nieuw project'}
+      <main className="max-w-6xl mx-auto px-4 py-8">
+        {/* Header met CTA */}
+        <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
+          <div>
+            <h1 className="text-3xl font-bold text-primary-900">Energiescans</h1>
+            <p className="text-gray-600 mt-1">Maak snel een verduurzamingsplan voor een sportclub of ander gebouw.</p>
+          </div>
+          <button onClick={() => create.mutate()} className="btn-accent text-base px-5 py-2.5" disabled={create.isPending}>
+            {create.isPending ? 'Bezig…' : '+ Nieuw project'}
           </button>
         </div>
 
         {isLoading && <p className="text-gray-500">Laden…</p>}
 
+        {/* Lege staat */}
         {data && data.projecten.length === 0 && (
-          <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-500">
-            Nog geen projecten. Maak er eentje aan om te beginnen.
+          <div className="card p-12 text-center">
+            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-primary-50 flex items-center justify-center">
+              <span className="text-3xl">📋</span>
+            </div>
+            <h2 className="text-xl font-semibold text-primary-900 mb-2">Nog geen projecten</h2>
+            <p className="text-gray-600 mb-6 max-w-md mx-auto">
+              Maak je eerste energiescan aan. Vul postcode + huisnummer in en we vullen automatisch het bouwjaar en de oppervlakte voor je in.
+            </p>
+            <button onClick={() => create.mutate()} className="btn-accent" disabled={create.isPending}>
+              + Maak eerste project
+            </button>
           </div>
         )}
 
+        {/* Projecten-grid */}
         {data && data.projecten.length > 0 && (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr className="text-left text-xs font-medium text-gray-500 uppercase">
-                  <th className="px-4 py-3">Club</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Eigenaar</th>
-                  <th className="px-4 py-3">Laatst bewerkt</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {data.projecten.map(p => (
-                  <tr key={p.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <Link to={`/projecten/${p.id}`} className="font-medium text-primary-700 hover:underline">
-                        {p.clubNaam}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{p.status}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{p.eigenaar.naam}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
-                      {new Date(p.updatedAt).toLocaleDateString('nl-NL')}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {data.projecten.map(p => (
+              <Link
+                key={p.id}
+                to={`/projecten/${p.id}`}
+                className="card-hover p-5 block group"
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <h3 className="font-semibold text-primary-900 group-hover:text-primary-700 transition-colors">
+                    {p.clubNaam}
+                  </h3>
+                  <StatusBadge status={p.status} />
+                </div>
+                <p className="text-xs text-gray-500 mb-3">
+                  {p.postcode && p.huisnummer
+                    ? `${p.postcode} ${p.huisnummer}`
+                    : 'Geen adres ingevuld'}
+                </p>
+                <div className="flex items-center justify-between text-xs text-gray-500 pt-3 border-t border-primary-50">
+                  <span>{p.eigenaar.naam}</span>
+                  <span>{new Date(p.updatedAt).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</span>
+                </div>
+              </Link>
+            ))}
           </div>
         )}
+
+        {/* Footer-tip */}
+        <div className="mt-8 text-center text-xs text-gray-500">
+          Vragen over berekeningen of aannames? Zie de{' '}
+          <Link to="/kennisbank" className="text-primary-700 hover:underline">Kennisbank</Link>.
+        </div>
       </main>
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    DRAFT: 'bg-gray-100 text-gray-700',
+    IN_PROGRESS: 'bg-accent-orange/15 text-accent-orange-dark',
+    AFGEROND: 'bg-primary-100 text-primary-700',
+    GEARCHIVEERD: 'bg-gray-100 text-gray-400',
+  };
+  const labels: Record<string, string> = {
+    DRAFT: 'Concept',
+    IN_PROGRESS: 'Bezig',
+    AFGEROND: 'Afgerond',
+    GEARCHIVEERD: 'Archief',
+  };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${styles[status] ?? styles.DRAFT}`}>
+      {labels[status] ?? status}
+    </span>
   );
 }

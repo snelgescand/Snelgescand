@@ -4,32 +4,48 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Op Naar Nul — teal (hoofdkleur)
         primary: {
-          50:  '#f0fdf4',
-          100: '#dcfce7',
-          200: '#bbf7d0',
-          300: '#86efac',
-          400: '#4ade80',
-          500: '#22c55e',
-          600: '#16a34a',   // hoofdkleur — synced met branding.ts
-          700: '#15803d',
-          800: '#166534',
-          900: '#14532d',
-          950: '#052e16',
+          50:  '#E6F1F3',
+          100: '#C1DDE2',
+          200: '#90C2C9',
+          300: '#5DA4AE',
+          400: '#308896',
+          500: '#117285',
+          600: '#006579',   // hoofdkleur ONN
+          700: '#005465',
+          800: '#003F4D',
+          900: '#042d34',   // donkere variant uit huisstijl
+          950: '#021A1F',
         },
-        secondary: {
-          50:  '#ecfeff',
-          500: '#06b6d4',
-          600: '#0891b2',
-          700: '#0e7490',
-        },
+        // Accent oranje uit ONN-huisstijl
         accent: {
-          500: '#f59e0b',
-          600: '#d97706',
+          orange: '#DE533E',
+          'orange-light': '#F2A192',
+          'orange-dark': '#B43924',
         },
+        // Sunrise — warme crème achtergrond
+        sunrise: {
+          DEFAULT: '#FFEFCE',
+          light: '#FFF8E7',
+          dark: '#F5DDA8',
+        },
+        // Sportief Opgewekt
+        secondary: {
+          500: '#2F3E8E',
+          600: '#1F2D7A',
+        },
+      },
+      backgroundImage: {
+        'sunrise-gradient': 'linear-gradient(180deg, #FFF8E7 0%, #FFEFCE 100%)',
       },
       fontFamily: {
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+        display: ['"Space Grotesk"', 'Inter', 'sans-serif'],
+      },
+      boxShadow: {
+        'card': '0 1px 3px rgba(4, 45, 52, 0.06), 0 4px 12px rgba(4, 45, 52, 0.04)',
+        'card-hover': '0 4px 12px rgba(4, 45, 52, 0.08), 0 12px 32px rgba(4, 45, 52, 0.06)',
       },
     },
   },

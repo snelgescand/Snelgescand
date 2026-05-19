@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Op Naar Nul cirkel-icoon -->
+  <!-- Hoofdring -->
+  <circle cx="28" cy="36" r="22" fill="none" stroke="#006579" stroke-width="8"/>
+  <!-- Los puntje rechtsboven -->
+  <circle cx="54" cy="20" r="5" fill="#006579"/>
+  <!-- Kleine boog boven het puntje (suggereert beweging) -->
+  <path d="M 42 10 A 14 14 0 0 1 56 6" fill="none" stroke="#006579" stroke-width="6" stroke-linecap="round"/>
+</svg>

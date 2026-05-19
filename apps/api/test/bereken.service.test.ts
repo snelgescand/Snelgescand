@@ -1,5 +1,6 @@
 /**
- * Tests voor bereken.service.ts — de brug tussen Project.state JSONB en calc-core.
+ * Tests voor bereken.service.ts — de defensieve brug tussen Project.state
+ * JSONB en calc-core.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -31,13 +32,14 @@ describe('berekenProject', () => {
       },
     };
 
-    const { perMaatregel, rollup } = berekenProject(state);
+    const { perMaatregel, rollup, overgeslagen } = berekenProject(state);
 
     expect(perMaatregel['dakisolatie']).toBeDefined();
     expect(perMaatregel['binnenverlichting']).toBeDefined();
     expect(rollup.totaleInvestering).toBeGreaterThan(0);
     expect(rollup.totaleBesparingPerJaar).toBeGreaterThan(0);
     expect(rollup.nettoInvestering).toBeLessThanOrEqual(rollup.totaleInvestering);
+    expect(overgeslagen).toHaveLength(0);
   });
 
   it('werkt met lege maatregel-lijst', () => {
@@ -50,22 +52,43 @@ describe('berekenProject', () => {
     expect(rollup.totaleBesparingPerJaar).toBe(0);
   });
 
-  it('gooit fout bij onbekende maatregel-id', () => {
-    expect(() => berekenProject({
+  it('slaat onbekende maatregel-id over zonder te crashen', () => {
+    const { overgeslagen, rollup } = berekenProject({
       context: {},
       gekozenMaatregelen: { 'nepmaatregel': {} },
-    })).toThrow(/Onbekende maatregel/);
+    });
+    expect(overgeslagen).toHaveLength(1);
+    expect(overgeslagen[0].id).toBe('nepmaatregel');
+    expect(rollup).toBeDefined();
   });
 
-  it('gooit fout bij missende context', () => {
-    expect(() => berekenProject({ gekozenMaatregelen: {} })).toThrow(/context ontbreekt/);
+  it('werkt met missende context (gebruikt defaults)', () => {
+    const { rollup } = berekenProject({ gekozenMaatregelen: {} });
+    expect(rollup).toBeDefined();
+    expect(rollup.totaleInvestering).toBe(0);
   });
 
-  it('gooit fout bij missende gekozenMaatregelen', () => {
-    expect(() => berekenProject({ context: {} })).toThrow(/gekozenMaatregelen ontbreekt/);
+  it('werkt met null state (lege defaults)', () => {
+    const { rollup } = berekenProject(null);
+    expect(rollup).toBeDefined();
+    expect(rollup.totaleInvestering).toBe(0);
   });
 
-  it('gooit fout bij null state', () => {
-    expect(() => berekenProject(null)).toThrow();
+  it('vult lege input voor maatregel automatisch met defaults', () => {
+    const { perMaatregel, overgeslagen } = berekenProject({
+      context: { gebouw: { bouwjaar: 1990, bvoTotaalM2: 300 } },
+      gekozenMaatregelen: { 'binnenverlichting': null },
+    });
+    expect(overgeslagen).toHaveLength(0);
+    expect(perMaatregel['binnenverlichting']).toBeDefined();
+  });
+
+  it('sanitizeert Infinity in resultaat naar null', () => {
+    const { rollup } = berekenProject({
+      context: {},
+      gekozenMaatregelen: {},
+    });
+    // Lege maatregelenlijst → TVT = Infinity → moet null worden
+    expect(rollup.gemiddeldeTerugverdientijdJaren).toBeNull();
   });
 });

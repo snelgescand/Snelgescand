@@ -6,7 +6,9 @@ import './styles.css';
 import Login from './routes/Login';
 import ProjectList from './routes/ProjectList';
 import ProjectEditor from './routes/ProjectEditor';
+import Kennisbank from './routes/Kennisbank';
 import { AuthGate } from './components/AuthGate';
+import { OnboardingModal } from './components/OnboardingModal';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,8 +23,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<AuthGate><Navigate to="/projecten" replace /></AuthGate>} />
-          <Route path="/projecten" element={<AuthGate><ProjectList /></AuthGate>} />
+          <Route path="/projecten" element={<AuthGate><ProjectList /><OnboardingModal /></AuthGate>} />
           <Route path="/projecten/:id" element={<AuthGate><ProjectEditor /></AuthGate>} />
+          <Route path="/kennisbank" element={<AuthGate><Kennisbank /></AuthGate>} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

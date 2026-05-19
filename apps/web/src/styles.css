@@ -1,27 +1,97 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   html {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background: linear-gradient(180deg, #FFF8E7 0%, #FFEFCE 30%, #FFF8E7 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    color: #042d34;
+  }
+
+  h1, h2, h3 {
+    font-family: 'Space Grotesk', 'Inter', sans-serif;
+    letter-spacing: -0.01em;
   }
 }
 
 @layer components {
+  /* Buttons */
   .btn {
-    @apply inline-flex items-center justify-center px-4 py-2 rounded-md font-medium transition-colors;
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all duration-150;
   }
   .btn-primary {
-    @apply btn bg-primary-600 text-white hover:bg-primary-700;
+    @apply btn bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800 shadow-sm hover:shadow;
   }
   .btn-secondary {
-    @apply btn bg-white text-gray-900 border border-gray-300 hover:bg-gray-50;
+    @apply btn bg-white text-primary-700 border border-primary-200 hover:border-primary-400 hover:bg-primary-50;
   }
+  .btn-accent {
+    @apply btn bg-accent-orange text-white hover:bg-accent-orange-dark shadow-sm hover:shadow-md;
+  }
+  .btn-ghost {
+    @apply btn text-gray-600 hover:text-primary-700 hover:bg-primary-50;
+  }
+
+  /* Form-elementen */
   .input {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500;
+    @apply w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400
+           focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500
+           transition-colors;
   }
   .label {
-    @apply block text-sm font-medium text-gray-700 mb-1;
+    @apply block text-sm font-medium text-primary-900 mb-1.5;
+  }
+
+  /* Cards / panels */
+  .card {
+    @apply bg-white rounded-xl shadow-card border border-primary-100/40;
+  }
+  .card-hover {
+    @apply card hover:shadow-card-hover transition-shadow;
+  }
+
+  /* Badges */
+  .badge-primary {
+    @apply inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-primary-100 text-primary-700;
+  }
+  .badge-accent {
+    @apply inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-orange-100 text-accent-orange-dark;
+  }
+
+  /* "Sunrise" achtergrond voor specifieke pagina's */
+  .bg-sunrise {
+    background: linear-gradient(180deg, #FFF8E7 0%, #FFEFCE 100%);
+  }
+}
+
+/* Custom scrollbar voor lange lijsten */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 101, 121, 0.3) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(0, 101, 121, 0.3);
+    border-radius: 3px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 101, 121, 0.5);
   }
 }
