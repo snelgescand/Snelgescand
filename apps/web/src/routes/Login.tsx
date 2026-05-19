@@ -81,6 +81,8 @@ export default function Login() {
 
         <p className="text-xs text-gray-500 text-center pt-2">
           Een platform van {BRANDING.organisatieNaam}
+          <br />
+          <span className="text-gray-400">Website door Bart Cornelissen</span>
         </p>
       </form>
     </div>

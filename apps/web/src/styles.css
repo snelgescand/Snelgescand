@@ -1,4 +1,40 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
+
+/*
+ * Nexa is een commercieel font (Fontfabric). Wanneer de licentiebestanden
+ * aanwezig zijn onder /fonts/, gebruiken we Nexa. Anders valt de browser
+ * automatisch terug op Montserrat — een Google Font dat zeer dicht bij
+ * Nexa staat qua karakter (geometrische sans-serif).
+ *
+ * Plaats om Nexa te activeren:
+ *   apps/web/public/fonts/Nexa-Regular.woff2
+ *   apps/web/public/fonts/Nexa-Bold.woff2
+ *   (eventueel Light en Heavy varianten)
+ */
+@font-face {
+  font-family: 'Nexa';
+  src: url('/fonts/Nexa-Regular.woff2') format('woff2'),
+       url('/fonts/Nexa-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Nexa';
+  src: url('/fonts/Nexa-Bold.woff2') format('woff2'),
+       url('/fonts/Nexa-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Nexa';
+  src: url('/fonts/Nexa-Heavy.woff2') format('woff2'),
+       url('/fonts/Nexa-Heavy.woff') format('woff');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
 
 @tailwind base;
 @tailwind components;
@@ -6,7 +42,7 @@
 
 @layer base {
   html {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-family: 'Nexa', 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -18,14 +54,14 @@
     color: #042d34;
   }
 
-  h1, h2, h3 {
-    font-family: 'Space Grotesk', 'Inter', sans-serif;
+  h1, h2, h3, h4 {
+    font-family: 'Nexa', 'Montserrat', sans-serif;
     letter-spacing: -0.01em;
+    font-weight: 700;
   }
 }
 
 @layer components {
-  /* Buttons */
   .btn {
     @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all duration-150;
   }
@@ -42,7 +78,6 @@
     @apply btn text-gray-600 hover:text-primary-700 hover:bg-primary-50;
   }
 
-  /* Form-elementen */
   .input {
     @apply w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400
            focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500
@@ -52,7 +87,6 @@
     @apply block text-sm font-medium text-primary-900 mb-1.5;
   }
 
-  /* Cards / panels */
   .card {
     @apply bg-white rounded-xl shadow-card border border-primary-100/40;
   }
@@ -60,7 +94,6 @@
     @apply card hover:shadow-card-hover transition-shadow;
   }
 
-  /* Badges */
   .badge-primary {
     @apply inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-primary-100 text-primary-700;
   }
@@ -68,13 +101,11 @@
     @apply inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-orange-100 text-accent-orange-dark;
   }
 
-  /* "Sunrise" achtergrond voor specifieke pagina's */
   .bg-sunrise {
     background: linear-gradient(180deg, #FFF8E7 0%, #FFEFCE 100%);
   }
 }
 
-/* Custom scrollbar voor lange lijsten */
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;

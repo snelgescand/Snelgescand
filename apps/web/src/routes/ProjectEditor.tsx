@@ -20,6 +20,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { projectsApi, modulesApi, ApiError } from '../api/client';
 import { AppHeader } from '../components/AppHeader';
+import { Footer } from '../components/Footer';
 import { AdresZoeker } from '../components/AdresZoeker';
 import { Luchtfoto } from '../components/Luchtfoto';
 import { FotoUpload, type ProjectFoto } from '../components/FotoUpload';
@@ -28,6 +29,10 @@ import { MaatregelDetail } from '../components/MaatregelDetail';
 import { HuidigeSituatie } from '../components/HuidigeSituatie';
 import type { PdokAdres } from '../api/pdok';
 import type { ChecklistAntwoorden } from '../data/checklist';
+
+// Voor de "flush bij unmount"-functionaliteit: synchrone fetch naar API.
+// Eenmalig gelezen uit env (zelfde bron als api/client.ts).
+const API_BASE_FOR_BEACON = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
 
 interface Locatie {
   adres?: string;
@@ -144,13 +149,59 @@ export default function ProjectEditor() {
     },
   });
 
+  // Houdt laatste pending state bij (om bij unmount/visibility-change te flushen)
+  const pendingDraft = useRef<ProjectState | null>(null);
+
   function updateDraft(updater: (s: ProjectState) => ProjectState) {
     if (!draft) return;
     const next = updater(draft);
     setDraft(next);
+    pendingDraft.current = next;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = window.setTimeout(() => save.mutate(next), 2000);
+    autoSaveTimer.current = window.setTimeout(() => {
+      save.mutate(next);
+      pendingDraft.current = null;
+    }, 1200);  // korter: 1,2 sec ipv 2 sec
   }
+
+  // Flush bij unmount of paginawissel: stuur pending wijzigingen direct
+  useEffect(() => {
+    function flushPending() {
+      if (pendingDraft.current && autoSaveTimer.current) {
+        clearTimeout(autoSaveTimer.current);
+        // Synchrone fetch met keepalive zodat de browser 'm niet aborteert
+        const blob = JSON.stringify({
+          state: pendingDraft.current,
+          clubNaam: pendingDraft.current.context.club?.naam || 'Onbekend project',
+        });
+        const apiUrl = `${API_BASE_FOR_BEACON}/api/projects/${id}`;
+        try {
+          // Beacon API stuurt POST, dus we faken een PUT via fetch+keepalive
+          fetch(apiUrl, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: blob,
+            keepalive: true,
+          });
+        } catch { /* best effort */ }
+        pendingDraft.current = null;
+      }
+    }
+
+    // Browser sluit / refresh
+    window.addEventListener('beforeunload', flushPending);
+    // Tab inactief (mobiel achtergrond, switch venster)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushPending();
+    });
+
+    return () => {
+      // Component unmount (terug navigeren binnen SPA) — flush synchroon
+      window.removeEventListener('beforeunload', flushPending);
+      flushPending();
+    };
+  }, [id]);
 
   function adresGekozen(adres: PdokAdres) {
     updateDraft(s => ({
@@ -480,6 +531,7 @@ export default function ProjectEditor() {
 
         </div>
       </main>
+      <Footer />
     </div>
   );
 }

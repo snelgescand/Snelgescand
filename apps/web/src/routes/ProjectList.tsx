@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi, projectsApi } from '../api/client';
 import { AppHeader } from '../components/AppHeader';
+import { Footer } from '../components/Footer';
 
 export default function ProjectList() {
   const qc = useQueryClient();
@@ -114,6 +115,7 @@ export default function ProjectList() {
           <Link to="/kennisbank" className="text-primary-700 hover:underline">Kennisbank</Link>.
         </div>
       </main>
+      <Footer />
     </div>
   );
 }

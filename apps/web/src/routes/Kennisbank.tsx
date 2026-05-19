@@ -8,6 +8,7 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
+import { Footer } from '../components/Footer';
 import { KENNIS, CATEGORIE_LABELS, type KennisArtikel } from '../data/kennisbank';
 
 export default function Kennisbank() {
@@ -93,6 +94,7 @@ export default function Kennisbank() {
           </article>
         </div>
       </main>
+      <Footer />
     </div>
   );
 }

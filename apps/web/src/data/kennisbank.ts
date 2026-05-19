@@ -165,6 +165,56 @@ export const KENNIS: KennisArtikel[] = [
       { type: 'tip', inhoud: 'Voor sportclubs (winter > zomerverbruik) is dit minder erg dan voor woningen — meer eigen verbruik in de zomer.' },
     ],
   },
+  {
+    id: 'batterij-basis',
+    categorie: 'stroom',
+    titel: 'Wat doet een batterij?',
+    korteBeschrijving: 'Twee hoofddoelen — zelfconsumptie en EPEX-arbitrage — en hoe ze samenkomen.',
+    paragrafen: [
+      { type: 'tekst', inhoud: 'Een batterij slaat elektriciteit tijdelijk op, en levert die later weer terug. Voor sportclubs zijn er drie hoofdtoepassingen:' },
+      { type: 'lijst', items: [
+        'Zelfconsumptie van PV: opslag overdag, ontladen \'s avonds. Vooral relevant na salderingsafbouw (2027-2031).',
+        'EPEX-arbitrage: laden in goedkope uren (nacht/middag), ontladen in dure uren (ochtend/avond).',
+        'Piekafschaving: vermijden van hoog gecontracteerd vermogen bij netbeheer.',
+      ]},
+      { type: 'tekst', inhoud: 'De berekening in deze tool gebruikt jaartotalen (cycli × spread). Voor een precieze inschatting met uur-data is een tijdreeks-simulatie nodig.' },
+      { type: 'formule', latex: 'Besparing_{jr} = capaciteit \\times cycli \\times spread \\times (1 - kabelverlies)',
+        toelichting: 'Capaciteit in kWh, cycli per jaar, spread in €/kWh, kabelverlies typisch 0,02 (2%).' },
+      { type: 'tip', inhoud: 'Bij hoge gascentrale-marginale-productie zijn EPEX-spreads het grootst. Dat zijn juist de uren waarop een batterij het meest oplevert.' },
+    ],
+  },
+  {
+    id: 'batterij-dimensionering',
+    categorie: 'stroom',
+    titel: 'Batterij dimensioneren',
+    korteBeschrijving: 'Hoe groot moet de batterij zijn? Vuistregels per toepassing.',
+    paragrafen: [
+      { type: 'tabel', kolommen: ['Doel', 'Capaciteit', 'C-rate (vermogen)', 'Cycli/jr'], rijen: [
+        ['Zelfconsumptie PV', '1× dagverbruik', '0,5 C', '300'],
+        ['EPEX-arbitrage', '2-3× dagverbruik', '0,5 C', '500-700'],
+        ['Piekafschaving', '1-2u op contractwaarde', '1,0 C', '50-100'],
+      ]},
+      { type: 'tekst', inhoud: 'C-rate = vermogen ÷ capaciteit. Bij 0,5 C kan een 100 kWh batterij in 2 uur volledig laden of ontladen.' },
+      { type: 'tip', inhoud: 'Voor sportclubs is het zelden zinvol om meer dan 3× dagverbruik te installeren — extra capaciteit wordt niet meer benut, en investering verdient zich niet terug.' },
+    ],
+  },
+  {
+    id: 'batterij-levensduur',
+    categorie: 'stroom',
+    titel: 'Levensduur en degradatie van batterijen',
+    korteBeschrijving: 'Cycli, kalenderveroudering en wanneer een batterij vervangen moet.',
+    paragrafen: [
+      { type: 'tekst', inhoud: 'Lithium-ijzer-fosfaat (LFP) batterijen zijn de standaard voor stationaire toepassingen vanwege levensduur, veiligheid en kosten.' },
+      { type: 'tabel', kolommen: ['Technologie', 'Cycli', 'Kalenderleven', 'Prijs (per kWh)'], rijen: [
+        ['LFP', '6.000 - 10.000', '15 jr', '€400 - €600'],
+        ['NMC', '3.000 - 5.000', '10 jr', '€350 - €500'],
+        ['Loodzuur', '1.500 - 2.500', '8 jr', '€200 - €350'],
+      ]},
+      { type: 'formule', latex: 'Levensduur_{jr} = \\min(cycli_{totaal} / cycli_{jaar},\\ kalenderleven)',
+        toelichting: 'Bij 300 cycli/jaar haalt een LFP-batterij makkelijk 20+ jaar op papier — kalenderveroudering wordt dan beperkend.' },
+      { type: 'tip', inhoud: 'Bij 80% capaciteitsbehoud spreken we van "End-of-Life" voor stationaire toepassingen. Daarna is hergebruik in mindere applicaties soms nog mogelijk.' },
+    ],
+  },
 
   // ============================================================
   // SUBSIDIES
