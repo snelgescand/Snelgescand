@@ -1,4 +1,13 @@
-const API_BASE = 'https://api.snelgescand.nl';
+/**
+ * Lichte fetch-wrapper rond de Fastify API.
+ *
+ * `credentials: 'include'` zorgt dat de session cookie meegestuurd wordt.
+ * `Content-Type: application/json` wordt ALLEEN gezet als er een body is —
+ * anders krijgt Fastify een "Body cannot be empty"-error bij POST/PUT
+ * zonder payload (bv. de bereken- of logout-call).
+ */
+
+const API_BASE = (import.meta.env.VITE_API_URL ?? 'https://api.snelgescand.nl').replace(/\/+$/, '');
 
 function url(path: string): string {
   const p = path.startsWith('/') ? path : '/' + path;
@@ -15,13 +24,19 @@ export async function api<T = unknown>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
+  // Content-Type alleen instellen als er een body is — Fastify weigert anders
+  // POST/PUT-requests zonder payload met "Body cannot be empty".
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string> | undefined ?? {}),
+  };
+  if (options.body != null && !('Content-Type' in headers) && !('content-type' in headers)) {
+    headers['Content-Type'] = 'application/json';
+  }
+
   const res = await fetch(url(path), {
     ...options,
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!res.ok) {
@@ -35,6 +50,8 @@ export async function api<T = unknown>(
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
+
+// ===== Endpoint-functies =====
 
 export const authApi = {
   login: (email: string, wachtwoord: string, tenantSlug?: string) =>
@@ -72,9 +89,9 @@ export const projectsApi = {
       credentials: 'include',
     });
     if (!res.ok) {
-      let body: { error?: string } = {};
-      try { body = await res.json(); } catch { /* empty */ }
-      throw new ApiError(res.status, body.error ?? `${res.status} ${res.statusText}`);
+      let body: { error?: string; message?: string } = {};
+      try { body = await res.json(); } catch { /* ignore */ }
+      throw new ApiError(res.status, body.error ?? `${res.status} ${res.statusText}`, body);
     }
     const blob = await res.blob();
     const blobUrl = URL.createObjectURL(blob);
