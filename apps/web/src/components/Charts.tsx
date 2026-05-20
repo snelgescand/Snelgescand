@@ -151,6 +151,32 @@ export function EnergiebalansChart({ data }: { data: EnergiePost[] }) {
 }
 
 /* ============================================================
+ * Waterverbruik per uur van de dag (bar chart)
+ * ============================================================ */
+
+interface WaterPerUur {
+  uur: string;
+  liters: number;
+}
+
+export function WaterverbruikPerUurChart({ data }: { data: WaterPerUur[] }) {
+  return (
+    <ResponsiveContainer>
+      <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#E0F2F5" />
+        <XAxis dataKey="uur" tick={{ fill: ONN_DONKER, fontSize: 10 }} interval={2} />
+        <YAxis tick={{ fill: ONN_DONKER, fontSize: 12 }} />
+        <Tooltip
+          contentStyle={{ background: 'white', border: `1px solid ${ONN_TEAL}`, borderRadius: 8, fontSize: 12 }}
+          formatter={(v: number) => `${Math.round(v).toLocaleString('nl-NL')} L`}
+        />
+        <Bar dataKey="liters" name="Warm water" fill={ONN_TEAL} radius={[4, 4, 0, 0]} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+/* ============================================================
  * Maatregel-vergelijking (TVT en besparing per maatregel)
  * ============================================================ */
 

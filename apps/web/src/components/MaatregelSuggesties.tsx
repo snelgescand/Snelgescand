@@ -9,6 +9,7 @@
  */
 
 import { useMemo } from 'react';
+import { MODULE_REGISTRY, defaultContext, type RegistryKey, type ProjectContext } from '@sportief-opgewekt/calc-core';
 import { scoreAlleMaatregelen, type AanbevelingContext } from '../util/aanbeveling-engine';
 import type { HuidigeSituatieData } from '../data/huidige-situatie';
 
@@ -24,10 +25,45 @@ interface MaatregelSuggestiesProps {
     bvoM2?: number;
     gasverbruikM3?: number;
     stroomverbruikKwh?: number;
+    gasprijsPerM3?: number;
+    stroomprijsKaalPerKwh?: number;
   };
   huidigeSituatie: HuidigeSituatieData;
   gekozenIds: string[];
   onToggle: (id: string, defaultInput: unknown) => void;
+}
+
+/**
+ * Bouwt een lichte preview (€ investering / € besparing per jaar) voor een maatregel
+ * door calc-core direct aan te roepen met default input. Returnt null bij errors.
+ */
+function maatregelPreview(maatregelId: string, ctx: MaatregelSuggestiesProps['context']): { investering: number; besparingPerJaar: number; tvt: number } | null {
+  if (!(maatregelId in MODULE_REGISTRY)) return null;
+  try {
+    // Bouw minimaal-werkende context
+    const base = defaultContext();
+    const merged: ProjectContext = {
+      ...base,
+      gebouw: { ...base.gebouw, bouwjaar: ctx.bouwjaar ?? base.gebouw.bouwjaar, bvoTotaalM2: ctx.bvoM2 ?? base.gebouw.bvoTotaalM2 },
+      energie: {
+        ...base.energie,
+        gasverbruikM3: ctx.gasverbruikM3 ?? base.energie.gasverbruikM3,
+        stroomverbruikTotaalKwh: ctx.stroomverbruikKwh ?? base.energie.stroomverbruikTotaalKwh,
+        gasprijsPerM3: ctx.gasprijsPerM3 ?? base.energie.gasprijsPerM3,
+        stroomprijsKaalPerKwh: ctx.stroomprijsKaalPerKwh ?? base.energie.stroomprijsKaalPerKwh,
+      },
+    };
+    const mod = MODULE_REGISTRY[maatregelId as RegistryKey];
+    const input = mod.defaultInput(merged) as never;
+    const r = mod.bereken(input, merged);
+    return {
+      investering: r.brutoInvestering ?? 0,
+      besparingPerJaar: r.besparingPerJaar ?? 0,
+      tvt: r.terugverdientijdJaren ?? Infinity,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function MaatregelSuggesties({
@@ -42,6 +78,14 @@ export function MaatregelSuggesties({
     const alleIds = beschikbareModules.modules.map(m => m.id);
     return scoreAlleMaatregelen(alleIds, ctx).sort((a, b) => b.score - a.score);
   }, [beschikbareModules, context, huidigeSituatie]);
+
+  const previews = useMemo(() => {
+    const out: Record<string, ReturnType<typeof maatregelPreview>> = {};
+    for (const s of scores) {
+      out[s.maatregelId] = maatregelPreview(s.maatregelId, context);
+    }
+    return out;
+  }, [scores, context]);
 
   const sterk = scores.filter(s => s.categorie === 'sterk');
   const middel = scores.filter(s => s.categorie === 'middel');
@@ -63,6 +107,7 @@ export function MaatregelSuggesties({
           maatregelen={sterk}
           modules={beschikbareModules}
           gekozenIds={gekozenIds}
+          previews={previews}
           onToggle={onToggle}
         />
       )}
@@ -75,6 +120,7 @@ export function MaatregelSuggesties({
           maatregelen={middel}
           modules={beschikbareModules}
           gekozenIds={gekozenIds}
+          previews={previews}
           onToggle={onToggle}
         />
       )}
@@ -87,6 +133,7 @@ export function MaatregelSuggesties({
           maatregelen={laag}
           modules={beschikbareModules}
           gekozenIds={gekozenIds}
+          previews={previews}
           onToggle={onToggle}
         />
       )}
@@ -95,7 +142,7 @@ export function MaatregelSuggesties({
 }
 
 function Groep({
-  titel, ondertitel, kleur, maatregelen, modules, gekozenIds, onToggle,
+  titel, ondertitel, kleur, maatregelen, modules, gekozenIds, previews, onToggle,
 }: {
   titel: string;
   ondertitel: string;
@@ -103,6 +150,7 @@ function Groep({
   maatregelen: ReturnType<typeof scoreAlleMaatregelen>;
   modules: ModulesInfo;
   gekozenIds: string[];
+  previews: Record<string, { investering: number; besparingPerJaar: number; tvt: number } | null>;
   onToggle: (id: string, defaultInput: unknown) => void;
 }) {
   const styles = {
@@ -148,6 +196,15 @@ function Groep({
                         {score.redenen.slice(0, 3).join(' · ')}
                       </p>
                     )}
+                    {previews[score.maatregelId] && (
+                      <p className="text-xs text-primary-700 mt-1 font-medium">
+                        ≈ € {formatEur(previews[score.maatregelId]!.investering)} investering ·
+                        {' '}€ {formatEur(previews[score.maatregelId]!.besparingPerJaar)} /jaar besparing
+                        {Number.isFinite(previews[score.maatregelId]!.tvt) && previews[score.maatregelId]!.tvt < 100
+                          ? ` · TVT ${previews[score.maatregelId]!.tvt.toFixed(1)} jr`
+                          : ''}
+                      </p>
+                    )}
                   </div>
                 </label>
               </div>
@@ -157,6 +214,10 @@ function Groep({
       </div>
     </div>
   );
+}
+
+function formatEur(n: number): string {
+  return Math.round(n).toLocaleString('nl-NL');
 }
 
 function ScoreBadge({ score }: { score: number }) {

@@ -25,7 +25,10 @@ import { InfoTooltip } from '../components/InfoTooltip';
 import { MaatregelDetail } from '../components/MaatregelDetail';
 import { HuidigeSituatie } from '../components/HuidigeSituatie';
 import { MaatregelSuggesties } from '../components/MaatregelSuggesties';
-import { ChartCard, WaterverbruikChart, KasstroomChart, EnergiebalansChart } from '../components/Charts';
+import { ChartCard, WaterverbruikChart, KasstroomChart, EnergiebalansChart, WaterverbruikPerUurChart } from '../components/Charts';
+import { TrainingsSchemaInvoer, analyseSchema, type TrainingsSchema } from '../components/TrainingsSchema';
+import { EnergielabelKaart } from '../components/EnergielabelKaart';
+import { berekenEnergielabel, berekenLabelNaMaatregelen, bepaalLabelSprong } from '../util/energielabel';
 import type { PdokAdres } from '../api/pdok';
 import type { HuidigeSituatieData } from '../data/huidige-situatie';
 
@@ -47,6 +50,8 @@ interface ProjectState {
   huidigeSituatie?: HuidigeSituatieData;
   gekozenMaatregelen: Record<string, unknown>;
   fase?: 1 | 2;
+  /** Trainingsschema voor specifiekere gas/water-verdeling */
+  trainingsSchema?: TrainingsSchema;
   /** Opgeslagen lokaal berekend resultaat — zodat backend het ook heeft voor PPT */
   berekendResultaat?: Record<string, unknown>;
 }
@@ -79,7 +84,6 @@ export default function ProjectEditor() {
   const [fase, setFase] = useState<1 | 2>(1);
   const [berekenFout, setBerekenFout] = useState<string | null>(null);
   const [pptFout, setPptFout] = useState<string | null>(null);
-  const [opslaanFeedback, setOpslaanFeedback] = useState<string | null>(null);
   const autoSaveTimer = useRef<number | null>(null);
   const pendingDraft = useRef<ProjectState | null>(null);
 
@@ -114,11 +118,8 @@ export default function ProjectEditor() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['project', id] });
-      setOpslaanFeedback('✓ Opgeslagen');
-      setTimeout(() => setOpslaanFeedback(null), 2000);
     },
     onError: (err) => {
-      setOpslaanFeedback('⚠ Opslaan mislukt — probeer opnieuw');
       console.error('Save mislukt', err);
     },
   });
@@ -178,16 +179,22 @@ export default function ProjectEditor() {
     pendingDraft.current = next;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = window.setTimeout(() => {
-      save.mutate(next);
-      pendingDraft.current = null;
-    }, 1200);
+      if (pendingDraft.current) {
+        save.mutate(pendingDraft.current);
+        pendingDraft.current = null;
+      }
+      autoSaveTimer.current = null;
+    }, 600);  // 600ms — vrijwel direct, maar voorkomt save bij elke toetsaanslag
   }
 
-  // Flush op unmount
+  // Flush op unmount + tab-switch + browser-sluit
   useEffect(() => {
     function flushPending() {
-      if (pendingDraft.current && autoSaveTimer.current) {
-        clearTimeout(autoSaveTimer.current);
+      if (pendingDraft.current) {
+        if (autoSaveTimer.current) {
+          clearTimeout(autoSaveTimer.current);
+          autoSaveTimer.current = null;
+        }
         const blob = JSON.stringify({
           state: pendingDraft.current,
           clubNaam: pendingDraft.current.context.club?.naam || 'Onbekend project',
@@ -204,12 +211,14 @@ export default function ProjectEditor() {
         pendingDraft.current = null;
       }
     }
-    window.addEventListener('beforeunload', flushPending);
-    document.addEventListener('visibilitychange', () => {
+    function onVisibility() {
       if (document.visibilityState === 'hidden') flushPending();
-    });
+    }
+    window.addEventListener('beforeunload', flushPending);
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       window.removeEventListener('beforeunload', flushPending);
+      document.removeEventListener('visibilitychange', onVisibility);
       flushPending();
     };
   }, [id]);
@@ -269,19 +278,19 @@ export default function ProjectEditor() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between flex-wrap gap-2">
           <div>
             <h1 className="text-xl font-bold text-primary-900">{draft.context.club?.naam || 'Nieuw project'}</h1>
-            <p className="text-xs text-gray-500">
-              {save.isPending ? 'Opslaan…' : (opslaanFeedback ?? (save.isSuccess ? '✓ Opgeslagen' : 'Wijzig om op te slaan'))}
+            <p className="text-xs flex items-center gap-1">
+              {save.isPending ? (
+                <span className="text-gray-500">⏳ Bezig met opslaan…</span>
+              ) : pendingDraft.current ? (
+                <span className="text-accent-orange">● Niet opgeslagen — wacht even</span>
+              ) : save.isSuccess || projectQuery.data?.updatedAt ? (
+                <span className="text-primary-700">✓ Alles opgeslagen</span>
+              ) : (
+                <span className="text-gray-500">Wijzig om automatisch op te slaan</span>
+              )}
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => { if (draft) save.mutate(draft); }}
-              className="btn-secondary"
-              disabled={save.isPending}
-              title="Direct opslaan"
-            >
-              {save.isPending ? 'Opslaan…' : '💾 Opslaan'}
-            </button>
             <button
               onClick={() => { setBerekenFout(null); bereken.mutate(); }}
               className="btn-accent"
@@ -475,6 +484,13 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
           />
         </Sectie>
 
+        <Sectie titel="Trainingsschema (optioneel)" tooltipTekst="Voeg trainings- en wedstrijdmomenten toe. Hoe vollediger, hoe nauwkeuriger de gas/water-verdeling in stap 2.">
+          <TrainingsSchemaInvoer
+            schema={draft.trainingsSchema ?? []}
+            onChange={(s) => updateDraft(d => ({ ...d, trainingsSchema: s }))}
+          />
+        </Sectie>
+
         {/* CTA naar stap 2 */}
         <div className="card p-4 bg-primary-50/60 border-primary-200 flex items-center justify-between gap-3">
           <div>
@@ -532,10 +548,36 @@ interface Stap2Props {
 function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFout, pptFout, kanBerekenen, onTerugStap1 }: Stap2Props) {
   const gekozenIds = Object.keys(draft.gekozenMaatregelen);
 
-  // Bouw waterverbruik-grafiekdata uit detail-input
-  const waterData = useMemo(() => bouwWaterverbruikData(draft.gekozenMaatregelen), [draft.gekozenMaatregelen]);
-  const energiebalansData = useMemo(() => bouwEnergiebalansData(draft, cached), [draft, cached]);
+  // Bouw waterverbruik-grafiekdata uit trainingsschema (of detail-input als fallback)
+  const waterData = useMemo(() => bouwWaterverbruikData(draft), [draft]);
+  const waterPerUurData = useMemo(() => bouwWaterPerUurData(draft.trainingsSchema), [draft.trainingsSchema]);
+  const energiebalansData = useMemo(() => bouwEnergiebalansData(draft), [draft]);
   const kasstroomData = useMemo(() => bouwKasstroomData(cached), [cached]);
+
+  // Energielabel berekening — huidig en (indien berekend) na maatregelen
+  const energielabelData = useMemo(() => {
+    const gas = draft.context.energie?.gasverbruikM3;
+    const stroom = draft.context.energie?.stroomverbruikTotaalKwh;
+    const bvo = draft.context.gebouw?.bvoTotaalM2;
+    if (!gas || !stroom || !bvo) return null;
+
+    const huidig = berekenEnergielabel({ gasverbruikM3: gas, stroomverbruikKwh: stroom, bvoM2: bvo });
+
+    if (cached?.rollup) {
+      const r = cached.rollup;
+      const nieuw = berekenLabelNaMaatregelen({
+        huidigGasM3: gas,
+        huidigStroomKwh: stroom,
+        bvoM2: bvo,
+        gasBesparingM3: r.totaleBesparingGasM3 ?? 0,
+        stroomBesparingKwh: r.totaleBesparingStroomKwh ?? 0,
+        extraStroomverbruikKwh: r.totaalExtraStroomverbruikKwh ?? 0,
+      });
+      const sprong = bepaalLabelSprong(huidig.label, nieuw.label);
+      return { huidig, nieuw, sprong };
+    }
+    return { huidig };
+  }, [draft, cached]);
 
   return (
     <div className="grid lg:grid-cols-[3fr_2fr] gap-6">
@@ -559,6 +601,8 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
                 bvoM2: draft.context.gebouw?.bvoTotaalM2,
                 gasverbruikM3: draft.context.energie?.gasverbruikM3,
                 stroomverbruikKwh: draft.context.energie?.stroomverbruikTotaalKwh,
+                gasprijsPerM3: draft.context.energie?.gasprijsPerM3,
+                stroomprijsKaalPerKwh: draft.context.energie?.stroomprijsKaalPerKwh,
               }}
               huidigeSituatie={draft.huidigeSituatie ?? {}}
               gekozenIds={gekozenIds}
@@ -648,14 +692,41 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
           )}
         </Sectie>
 
+        {/* Energielabel + Paris Proof */}
+        {energielabelData && (
+          <EnergielabelKaart
+            huidig={energielabelData.huidig}
+            nieuw={energielabelData.nieuw}
+            sprong={energielabelData.sprong}
+          />
+        )}
+
         {/* Grafieken */}
+        {waterPerUurData.length > 0 && (
+          <ChartCard
+            titel="Waterverbruik per uur (gemiddelde week)"
+            ondertitel="Berekend uit het trainingsschema in stap 1"
+            hoogte={220}
+          >
+            <WaterverbruikPerUurChart data={waterPerUurData} />
+            <p className="text-xs text-gray-500 mt-2 leading-snug">
+              <strong>Hoe is dit berekend?</strong> Voor elk trainings-/wedstrijdmoment uit het schema rekenen we met
+              35 liter warm water per persoon-met-douche, gespreid over de duur van het moment.
+              Vul het trainingsschema in stap 1 nauwkeuriger in voor een specifieker beeld.
+            </p>
+          </ChartCard>
+        )}
+
         {waterData.length > 0 && (
           <ChartCard
             titel="Waterverbruik per dag"
-            ondertitel="Berekend uit gedetailleerde douches-invoer in stap 2"
+            ondertitel="Op basis van trainingsschema (of douches-analyse)"
             hoogte={240}
           >
             <WaterverbruikChart data={waterData} />
+            <p className="text-xs text-gray-500 mt-2 leading-snug">
+              Gestapelde balken: kindertijd vs. volwassenen-tijd. 35 L warm water per persoon-met-douche.
+            </p>
           </ChartCard>
         )}
 
@@ -666,16 +737,29 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             hoogte={240}
           >
             <KasstroomChart data={kasstroomData} />
+            <p className="text-xs text-gray-500 mt-2 leading-snug">
+              Cumulatieve som van jaarlijkse besparingen, minus de netto-investering in jaar 0.
+              Conservatief gerekend zonder energieprijs-stijging.
+            </p>
           </ChartCard>
         )}
 
         {energiebalansData.length > 0 && (
           <ChartCard
             titel="Verdeling huidig gasverbruik"
-            ondertitel="Inschatting per categorie"
+            ondertitel={draft.trainingsSchema && draft.trainingsSchema.length > 0
+              ? 'Berekend uit trainingsschema'
+              : 'Heuristische verdeling (vul trainingsschema in voor specifieker beeld)'}
             hoogte={260}
           >
             <EnergiebalansChart data={energiebalansData} />
+            <p className="text-xs text-gray-500 mt-2 leading-snug">
+              <strong>Hoe is dit berekend?</strong> {draft.trainingsSchema && draft.trainingsSchema.length > 0
+                ? <>Op basis van het ingevulde trainingsschema: aantal douche-beurten × ~2 m³ gas per beurt voor tapwater,
+                   trainings-/wedstrijduren × ruimteverwarming-vraag, rest is kantine/overig.</>
+                : <>Standaardprofiel sportclub: 55% ruimteverwarming, 35% tapwater (douches), 10% keuken/overig.
+                   Vul het trainingsschema in stap 1 in voor een specifieker beeld op basis van jullie eigen gebruik.</>}
+            </p>
           </ChartCard>
         )}
       </div>
@@ -687,17 +771,55 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
  * Helpers
  * ============================================================ */
 
-function bouwWaterverbruikData(gekozen: Record<string, unknown>) {
-  const douches = gekozen['douches-analyse'] as Record<string, unknown> | undefined;
+const DAGEN_VOLGORDE = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'] as const;
+const LITERS_PER_DOUCHE = 35;
+
+function bouwWaterverbruikData(draft: ProjectState) {
+  const schema = draft.trainingsSchema;
+  if (schema && schema.length > 0) {
+    // Aggregeer per dag
+    const perDag: Record<string, { kinderenL: number; volwassenenL: number }> = {};
+    for (const m of schema) {
+      if (!m.metDouche) continue;
+      if (!perDag[m.dag]) perDag[m.dag] = { kinderenL: 0, volwassenenL: 0 };
+      perDag[m.dag].kinderenL += (m.aantalKinderen ?? 0) * LITERS_PER_DOUCHE;
+      perDag[m.dag].volwassenenL += (m.aantalVolwassenen ?? 0) * LITERS_PER_DOUCHE;
+    }
+    return DAGEN_VOLGORDE.filter(d => perDag[d]).map(d => ({
+      dag: d,
+      trainingL: perDag[d].kinderenL,
+      wedstrijdL: perDag[d].volwassenenL,
+    }));
+  }
+  // Fallback: douches-analyse module input
+  const douches = draft.gekozenMaatregelen['douches-analyse'] as Record<string, unknown> | undefined;
   if (!douches || douches.modus !== 'gedetailleerd') return [];
   const dagen = douches.dagen as Array<{ dag: string; training: number; wedstrijd: number }> | undefined;
   if (!dagen) return [];
-  const liters = 35; // L per beurt
   return dagen.map(d => ({
     dag: d.dag,
-    trainingL: (d.training ?? 0) * liters,
-    wedstrijdL: (d.wedstrijd ?? 0) * liters,
+    trainingL: (d.training ?? 0) * LITERS_PER_DOUCHE,
+    wedstrijdL: (d.wedstrijd ?? 0) * LITERS_PER_DOUCHE,
   }));
+}
+
+/** Waterverbruik per uur-van-de-dag (0–23), gespreid over de momenten in het schema */
+function bouwWaterPerUurData(schema?: TrainingsSchema) {
+  if (!schema || schema.length === 0) return [];
+  const perUur: number[] = new Array(24).fill(0);
+  for (const m of schema) {
+    if (!m.metDouche) continue;
+    const personen = (m.aantalKinderen ?? 0) + (m.aantalVolwassenen ?? 0);
+    const liters = personen * LITERS_PER_DOUCHE;
+    const startU = parseInt(m.startTijd.split(':')[0] ?? '0', 10);
+    const eindU = parseInt(m.eindTijd.split(':')[0] ?? '0', 10);
+    // Vooral aan het einde van de training wordt gedoucht — laatste uur krijgt 70%, één-na-laatste 30%
+    const laatste = Math.max(startU, eindU - 1);
+    const eenNaLaatst = Math.max(startU, eindU - 2);
+    perUur[laatste] += liters * 0.7;
+    if (eenNaLaatst !== laatste) perUur[eenNaLaatst] += liters * 0.3;
+  }
+  return perUur.map((l, u) => ({ uur: `${u}:00`, liters: Math.round(l) }));
 }
 
 function bouwKasstroomData(cached: any) {
@@ -709,16 +831,36 @@ function bouwKasstroomData(cached: any) {
   let cumulatief = -netto;
   data.push({ jaar: 0, cumulatief });
   for (let j = 1; j <= 15; j++) {
-    cumulatief += besparingPerJr * Math.pow(1.0, j);  // geen prijsstijging, conservatief
+    cumulatief += besparingPerJr;
     data.push({ jaar: j, cumulatief: Math.round(cumulatief) });
   }
   return data;
 }
 
-function bouwEnergiebalansData(draft: ProjectState, _cached: any) {
+/**
+ * Gasverdeling: gebruikt trainingsschema indien beschikbaar voor specifiekere verdeling.
+ * Anders heuristisch 55/35/10.
+ */
+function bouwEnergiebalansData(draft: ProjectState) {
   const gas = draft.context.energie?.gasverbruikM3 ?? 0;
   if (gas <= 0) return [];
-  // Heuristische verdeling op basis van standaardprofiel sportclub
+
+  const schema = draft.trainingsSchema;
+  if (schema && schema.length > 0) {
+    const analyse = analyseSchema(schema);
+    // Tapwater-gas: 2 m³ per 10 doucheboeben (HR-ketel ~80% rend), per week × 52
+    const tapwaterM3PerJaar = (analyse.doucheBeurtenPerWeek * 0.2) * 52;
+    // Ruimteverwarming-gas: rest minus 10% overig
+    const tapwaterShare = Math.min(0.6, tapwaterM3PerJaar / gas);
+    const overigShare = 0.10;
+    const verwarmingShare = Math.max(0.1, 1 - tapwaterShare - overigShare);
+    return [
+      { naam: 'Ruimteverwarming', m3: Math.round(gas * verwarmingShare) },
+      { naam: 'Tapwater (douches)', m3: Math.round(gas * tapwaterShare) },
+      { naam: 'Keuken / overig', m3: Math.round(gas * overigShare) },
+    ];
+  }
+  // Heuristische verdeling
   return [
     { naam: 'Ruimteverwarming', m3: Math.round(gas * 0.55) },
     { naam: 'Tapwater (douches)', m3: Math.round(gas * 0.35) },

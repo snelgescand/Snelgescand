@@ -229,6 +229,18 @@ function scoreMaatregel(id: string, ctx: AanbevelingContext): MaatregelScore {
       break;
   }
 
+  // === DUMAVA-bonus: maatregelen die een grote label-sprong veroorzaken ===
+  // Maatregelen die zowel gas als isolatie aanpakken zijn DUMAVA-kandidaten.
+  // We geven een lichte bonus aan combinaties die typisch tot 2+ label-sprongen leiden.
+  const dumavaKandidaten = ['dakisolatie', 'spouwmuurisolatie', 'vloerisolatie', 'glasisolatie',
+    'hybride-warmtepomp', 'lucht-water-warmtepomp', 'warmtepompboiler', 'qton-warmtepomp', 'lmnt-warmtepomp'];
+  if (dumavaKandidaten.includes(id) && veelGas) {
+    score += 3;
+    if (score >= 70 && !redenen.some(r => r.includes('DUMAVA'))) {
+      redenen.push('Onderdeel DUMAVA-pakket (kans op 30-40% subsidie)');
+    }
+  }
+
   score = Math.max(0, Math.min(100, score));
   const categorie: MaatregelScore['categorie'] =
     score >= 70 ? 'sterk' : score >= 40 ? 'middel' : 'laag';
