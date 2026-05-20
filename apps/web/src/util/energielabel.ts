@@ -104,32 +104,79 @@ export function berekenEnergielabel(input: {
  * Bepaalt de "sprong" tussen oude en nieuwe energielabel,
  * uitgedrukt in aantal labelklassen.
  *
- * Gebruikt voor DUMAVA-subsidie-tier:
- *   - 1-label sprong → 20% subsidie
- *   - 2-label sprong → 30%
- *   - 3+ labels      → 40%
+ * Gebruikt voor DUMAVA-subsidie 2025/2026 (RVO).
+ *
+ * SUBSIDIE-TIERS:
+ *   20% — Losse maatregelen (1 t/m 3 maatregelen, geen label-eis)
+ *   30% — Integraal pakket EN nieuwe label ≥ B
+ *   40% — Integraal pakket EN nieuwe label ≥ A++ (sport/maatschappelijk) of A+++ (kantoor/overig)
+ *
+ * Het gaat dus om het EIND-label, niet om het aantal label-sprongen.
+ * Bron: RVO DUMAVA-subsidieregeling 2025 + NOC*NSF voorlichting.
  */
 export interface LabelSprong {
   oudLabel: EnergielabelInschatting['label'];
   nieuwLabel: EnergielabelInschatting['label'];
-  /** Aantal sprongen (positief = verbetering) */
+  /** Aantal sprongen (positief = verbetering) — voor toelichting */
   sprongen: number;
-  /** Verwachte DUMAVA-subsidie-percentage */
+  /** Verwachte DUMAVA-subsidie-percentage o.b.v. eind-label */
   dumavaPercentage: 20 | 30 | 40;
+  /** Tekstuele toelichting waarom dit percentage */
+  dumavaToelichting: string;
 }
 
 const LABEL_VOLGORDE: Array<EnergielabelInschatting['label']> =
   ['A++++', 'A+++', 'A++', 'A+', 'A', 'B', 'C', 'D', 'E', 'F', 'G'];
 
-export function bepaalLabelSprong(oud: EnergielabelInschatting['label'], nieuw: EnergielabelInschatting['label']): LabelSprong {
-  const oudIdx = LABEL_VOLGORDE.indexOf(oud);
-  const nieuwIdx = LABEL_VOLGORDE.indexOf(nieuw);
-  const sprongen = oudIdx - nieuwIdx; // positief = verbetering (lager index = beter label)
+/** Label-volgorde van best naar slechtst — index 0 = beste */
+function labelIndex(l: EnergielabelInschatting['label']): number {
+  return LABEL_VOLGORDE.indexOf(l);
+}
 
-  const dumavaPercentage: 20 | 30 | 40 =
-    sprongen >= 3 ? 40 : sprongen >= 2 ? 30 : 20;
+/** Is label1 minstens zo goed als label2? (lagere index = beter) */
+function labelMinstens(label: EnergielabelInschatting['label'], drempel: EnergielabelInschatting['label']): boolean {
+  return labelIndex(label) <= labelIndex(drempel);
+}
 
-  return { oudLabel: oud, nieuwLabel: nieuw, sprongen, dumavaPercentage };
+export function bepaalLabelSprong(
+  oud: EnergielabelInschatting['label'],
+  nieuw: EnergielabelInschatting['label'],
+  /** Bestemming: 'sport' (default voor sportclubs) of 'overig' (kantoor etc.) */
+  bestemming: 'sport' | 'overig' = 'sport',
+): LabelSprong {
+  const sprongen = labelIndex(oud) - labelIndex(nieuw);
+
+  // 40% — eind-label A++ (sport) of A+++ (overig)
+  const drempel40 = bestemming === 'sport' ? 'A++' : 'A+++';
+  if (labelMinstens(nieuw, drempel40)) {
+    return {
+      oudLabel: oud,
+      nieuwLabel: nieuw,
+      sprongen,
+      dumavaPercentage: 40,
+      dumavaToelichting: `Nieuw label ${nieuw} ≥ ${drempel40} bij ${bestemming === 'sport' ? 'sportbestemming' : 'overige bestemming'} → 40% subsidie bij integraal pakket`,
+    };
+  }
+
+  // 30% — eind-label B of beter
+  if (labelMinstens(nieuw, 'B')) {
+    return {
+      oudLabel: oud,
+      nieuwLabel: nieuw,
+      sprongen,
+      dumavaPercentage: 30,
+      dumavaToelichting: `Nieuw label ${nieuw} ≥ B → 30% subsidie bij integraal pakket`,
+    };
+  }
+
+  // Anders 20% — losse maatregelen
+  return {
+    oudLabel: oud,
+    nieuwLabel: nieuw,
+    sprongen,
+    dumavaPercentage: 20,
+    dumavaToelichting: `Nieuw label ${nieuw} haalt B-grens nog niet → 20% subsidie voor losse maatregelen`,
+  };
 }
 
 /**

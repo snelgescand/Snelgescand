@@ -214,12 +214,17 @@ function scoreMaatregel(id: string, ctx: AanbevelingContext): MaatregelScore {
       if (veelStroom) score += 5;
       break;
     }
-    case 'batterij-eenvoudig': {
+    case 'batterij-eenvoudig':
+    case 'batterij-uitgebreid': {
       const pv = getKeuze(sit, 'pv-aanwezig');
       const bat = getKeuze(sit, 'batterij');
       if (bat === 'groot') { score -= 40; redenen.push('Batterij al aanwezig'); }
       else if (pv === 'middel' || pv === 'groot') { score += 18; redenen.push('PV aanwezig — batterij combineert goed'); }
       else if (pv === 'geen') { score -= 15; redenen.push('Eerst PV, dan batterij'); }
+      if (id === 'batterij-uitgebreid') {
+        score += 3;
+        redenen.push('Werkelijke Excel-rekenmodel met EPEX-handel');
+      }
       score -= 5; // langere TVT
       break;
     }

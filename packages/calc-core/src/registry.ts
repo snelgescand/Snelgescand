@@ -26,6 +26,7 @@ import { binnenverlichtingModule } from './modules/binnenverlichting.js';
 import { ledVeldverlichtingModule } from './modules/ledveldverlichting.js';
 import { zonnepanelenModule } from './modules/zonnepanelen.js';
 import { batterijEenvoudigModule } from './modules/batterij-eenvoudig.js';
+import { batterijUitgebreidModule } from './modules/batterij-uitgebreid.js';
 import { douchesAnalyseModule } from './modules/douches.js';
 
 /**
@@ -54,6 +55,7 @@ export const MODULE_REGISTRY = {
   'ledveldverlichting': ledVeldverlichtingModule,
   'zonnepanelen': zonnepanelenModule,
   'batterij-eenvoudig': batterijEenvoudigModule,
+  'batterij-uitgebreid': batterijUitgebreidModule,
 } as const satisfies Partial<Record<MaatregelId, MaatregelModule<any, MaatregelResultaat>>>;
 
 export type RegistryKey = keyof typeof MODULE_REGISTRY;
@@ -66,7 +68,7 @@ export const MAATREGEL_GROEPEN = {
   'Warmte opwekken': ['warmtepompboiler', 'qton-warmtepomp', 'lmnt-warmtepomp', 'eboiler', 'pvt-tapwater', 'lucht-water-warmtepomp', 'lucht-lucht-warmtepomp', 'hybride-warmtepomp'],
   'Stroom besparen': ['binnenverlichting', 'ledveldverlichting'],
   'Stroom opwekken': ['zonnepanelen'],
-  'Opslag & flex': ['batterij-eenvoudig'],
+  'Opslag & flex': ['batterij-eenvoudig', 'batterij-uitgebreid'],
   'Analyse': ['douches-analyse'],
 } as const satisfies Record<string, readonly RegistryKey[]>;
 

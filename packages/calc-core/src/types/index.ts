@@ -31,6 +31,7 @@ export type MaatregelId =
   | 'ledveldverlichting'
   | 'zonnepanelen'
   | 'batterij-eenvoudig'
+  | 'batterij-uitgebreid'
   | 'batterij-tijdreeks';
 
 /* ============================================================================

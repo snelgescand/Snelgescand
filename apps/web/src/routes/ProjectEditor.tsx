@@ -793,21 +793,33 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
 const DAGEN_VOLGORDE = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'] as const;
 const LITERS_PER_DOUCHE = 35;
 
+// Douche-percentage o.b.v. leeftijd en dag (uit Excel Rekenmodel)
+function douchePct(leeftijd: 'onder13' | 'vanaf13', dag: string): number {
+  if (leeftijd === 'onder13') {
+    if (dag === 'zaterdag') return 0.50;
+    if (dag === 'zondag') return 1.00;
+    return 0.25;
+  }
+  if (dag === 'zaterdag' || dag === 'zondag') return 1.00;
+  return 0.95;
+}
+
 function bouwWaterverbruikData(draft: ProjectState) {
   const schema = draft.trainingsSchema;
   if (schema && schema.length > 0) {
-    // Aggregeer per dag
-    const perDag: Record<string, { kinderenL: number; volwassenenL: number }> = {};
+    const perDag: Record<string, { jeugdL: number; volwassenL: number }> = {};
     for (const m of schema) {
       if (!m.metDouche) continue;
-      if (!perDag[m.dag]) perDag[m.dag] = { kinderenL: 0, volwassenenL: 0 };
-      perDag[m.dag].kinderenL += (m.aantalKinderen ?? 0) * LITERS_PER_DOUCHE;
-      perDag[m.dag].volwassenenL += (m.aantalVolwassenen ?? 0) * LITERS_PER_DOUCHE;
+      if (!perDag[m.dag]) perDag[m.dag] = { jeugdL: 0, volwassenL: 0 };
+      const o13 = m.aantalOnder13 ?? 0;
+      const v13 = m.aantalVanaf13 ?? 0;
+      perDag[m.dag].jeugdL += o13 * douchePct('onder13', m.dag) * LITERS_PER_DOUCHE;
+      perDag[m.dag].volwassenL += v13 * douchePct('vanaf13', m.dag) * LITERS_PER_DOUCHE;
     }
     return DAGEN_VOLGORDE.filter(d => perDag[d]).map(d => ({
       dag: d,
-      trainingL: perDag[d].kinderenL,
-      wedstrijdL: perDag[d].volwassenenL,
+      trainingL: Math.round(perDag[d].jeugdL),
+      wedstrijdL: Math.round(perDag[d].volwassenL),
     }));
   }
   // Fallback: douches-analyse module input
@@ -822,17 +834,17 @@ function bouwWaterverbruikData(draft: ProjectState) {
   }));
 }
 
-/** Waterverbruik per uur-van-de-dag (0–23), gespreid over de momenten in het schema */
+/** Waterverbruik per uur-van-de-dag (0–23), met leeftijdsspecifiek douche-percentage */
 function bouwWaterPerUurData(schema?: TrainingsSchema) {
   if (!schema || schema.length === 0) return [];
   const perUur: number[] = new Array(24).fill(0);
   for (const m of schema) {
     if (!m.metDouche) continue;
-    const personen = (m.aantalKinderen ?? 0) + (m.aantalVolwassenen ?? 0);
-    const liters = personen * LITERS_PER_DOUCHE;
+    const o13 = (m.aantalOnder13 ?? 0) * douchePct('onder13', m.dag);
+    const v13 = (m.aantalVanaf13 ?? 0) * douchePct('vanaf13', m.dag);
+    const liters = (o13 + v13) * LITERS_PER_DOUCHE;
     const startU = parseInt(m.startTijd.split(':')[0] ?? '0', 10);
     const eindU = parseInt(m.eindTijd.split(':')[0] ?? '0', 10);
-    // Vooral aan het einde van de training wordt gedoucht — laatste uur krijgt 70%, één-na-laatste 30%
     const laatste = Math.max(startU, eindU - 1);
     const eenNaLaatst = Math.max(startU, eindU - 2);
     perUur[laatste] += liters * 0.7;

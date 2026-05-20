@@ -142,6 +142,12 @@ export type {
   BatterijEenvoudigResultaat,
 } from './modules/batterij-eenvoudig.js';
 
+export { batterijUitgebreidModule } from './modules/batterij-uitgebreid.js';
+export type {
+  BatterijUitgebreidInput,
+  BatterijUitgebreidResultaat,
+} from './modules/batterij-uitgebreid.js';
+
 export {
   simuleerBatterijTijdreeks,
 } from './modules/batterij-tijdreeks.js';

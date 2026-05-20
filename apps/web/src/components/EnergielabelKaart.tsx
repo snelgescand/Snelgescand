@@ -50,17 +50,25 @@ export function EnergielabelKaart({ huidig, nieuw, sprong }: Props) {
         </div>
 
         {/* DUMAVA-tier */}
-        {sprong && sprong.sprongen > 0 && (
-          <div className="bg-accent-orange/10 border-l-4 border-accent-orange p-3 rounded text-sm">
-            <p className="font-semibold text-accent-orange-dark mb-0.5">
-              Sprong van {sprong.sprongen} {sprong.sprongen === 1 ? 'labelklasse' : 'labelklassen'} → DUMAVA-tier <strong>{sprong.dumavaPercentage}%</strong>
+        {sprong && (
+          <div className={`border-l-4 p-3 rounded text-sm ${
+            sprong.dumavaPercentage === 40 ? 'bg-primary-50 border-primary-500' :
+            sprong.dumavaPercentage === 30 ? 'bg-accent-orange/10 border-accent-orange' :
+            'bg-gray-50 border-gray-400'
+          }`}>
+            <p className={`font-semibold mb-0.5 ${
+              sprong.dumavaPercentage === 40 ? 'text-primary-900' :
+              sprong.dumavaPercentage === 30 ? 'text-accent-orange-dark' :
+              'text-gray-800'
+            }`}>
+              DUMAVA-tier: <strong>{sprong.dumavaPercentage}%</strong> subsidie
             </p>
             <p className="text-gray-700 text-xs">
-              {sprong.dumavaPercentage === 40
-                ? '40% subsidie mogelijk bij integraal pakket (3+ labelsprong)'
-                : sprong.dumavaPercentage === 30
-                ? '30% subsidie mogelijk bij twee-labelsprong'
-                : '20% subsidie standaard bij 1-labelsprong'}
+              {sprong.dumavaToelichting}
+            </p>
+            <p className="text-gray-500 text-[10px] mt-1 italic">
+              Voorwaarden 2025/2026: 40% vereist eind-label ≥ A++ (sportbestemming) of ≥ A+++ (kantoor/overig);
+              30% vereist eind-label ≥ B; 20% standaard voor 1–3 losse maatregelen.
             </p>
           </div>
         )}
