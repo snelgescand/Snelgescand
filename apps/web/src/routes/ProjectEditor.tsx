@@ -26,7 +26,7 @@ import { HuidigeSituatie } from '../components/HuidigeSituatie';
 import { MaatregelSuggesties } from '../components/MaatregelSuggesties';
 import { ChartCard, WaterverbruikChart, KasstroomChart, EnergiebalansChart } from '../components/Charts';
 import type { PdokAdres } from '../api/pdok';
-import type { ChecklistAntwoorden } from '../data/checklist';
+import type { HuidigeSituatieData } from '../data/huidige-situatie';
 
 const API_BASE_FOR_BEACON = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
 
@@ -43,7 +43,7 @@ interface ProjectState {
   };
   locatie?: Locatie;
   fotos?: ProjectFoto[];
-  huidigeSituatie?: ChecklistAntwoorden;
+  huidigeSituatie?: HuidigeSituatieData;
   gekozenMaatregelen: Record<string, unknown>;
   fase?: 1 | 2;
 }
@@ -197,22 +197,28 @@ export default function ProjectEditor() {
   }, [id]);
 
   function adresGekozen(adres: PdokAdres) {
-    updateDraft(s => ({
-      ...s,
+    if (!draft) return;
+    const next: ProjectState = {
+      ...draft,
       locatie: {
         adres: adres.weergavenaam, postcode: adres.postcode, huisnummer: adres.huisnummer,
         woonplaats: adres.woonplaatsnaam, rd_x: adres.rd_x, rd_y: adres.rd_y,
         lat: adres.lat, lon: adres.lon,
       },
       context: {
-        ...s.context,
+        ...draft.context,
         gebouw: {
-          ...s.context.gebouw,
-          bouwjaar: adres.bouwjaar ?? s.context.gebouw?.bouwjaar,
-          bvoTotaalM2: adres.oppervlakte ?? s.context.gebouw?.bvoTotaalM2,
+          ...draft.context.gebouw,
+          bouwjaar: adres.bouwjaar ?? draft.context.gebouw?.bouwjaar,
+          bvoTotaalM2: adres.oppervlakte ?? draft.context.gebouw?.bvoTotaalM2,
         },
       },
-    }));
+    };
+    // ADRES IS KRITIEK — direct saven, geen debounce
+    setDraft(next);
+    pendingDraft.current = null;
+    if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
+    save.mutate(next);
   }
 
   function gaNaarFase(nieuweFase: 1 | 2) {
@@ -444,8 +450,8 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
 
         <Sectie titel="Huidige situatie" tooltipTekst="Inventarisatie wat er al is en wat verbeterd kan worden. Beïnvloedt direct welke maatregelen in stap 2 worden aanbevolen.">
           <HuidigeSituatie
-            antwoorden={draft.huidigeSituatie ?? {}}
-            onChange={(antwoorden) => updateDraft(s => ({ ...s, huidigeSituatie: antwoorden }))}
+            data={draft.huidigeSituatie ?? {}}
+            onChange={(data) => updateDraft(s => ({ ...s, huidigeSituatie: data }))}
           />
         </Sectie>
 

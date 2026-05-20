@@ -10,7 +10,7 @@
 
 import { useMemo } from 'react';
 import { scoreAlleMaatregelen, type AanbevelingContext } from '../util/aanbeveling-engine';
-import type { ChecklistAntwoorden } from '../data/checklist';
+import type { HuidigeSituatieData } from '../data/huidige-situatie';
 
 export interface ModulesInfo {
   modules: Array<{ id: string; naam: string; defaultInput: unknown }>;
@@ -25,7 +25,7 @@ interface MaatregelSuggestiesProps {
     gasverbruikM3?: number;
     stroomverbruikKwh?: number;
   };
-  huidigeSituatie: ChecklistAntwoorden;
+  huidigeSituatie: HuidigeSituatieData;
   gekozenIds: string[];
   onToggle: (id: string, defaultInput: unknown) => void;
 }
