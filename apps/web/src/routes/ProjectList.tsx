@@ -44,6 +44,12 @@ export default function ProjectList() {
       <AppHeader rechts={
         <>
           <Link to="/kennisbank" className="text-sm text-gray-700 hover:text-primary-700">Kennisbank</Link>
+          {me.data?.gebruiker.rol === 'BEHEERDER' && (
+            <>
+              <span className="text-gray-300">·</span>
+              <Link to="/beheer" className="text-sm text-gray-700 hover:text-primary-700">Beheer</Link>
+            </>
+          )}
           {me.data && <span className="text-gray-500">·</span>}
           {me.data && <span className="text-sm text-gray-600">{me.data.gebruiker.naam}</span>}
           <button onClick={() => logout.mutate()} className="text-sm text-gray-500 hover:text-accent-orange">Uitloggen</button>

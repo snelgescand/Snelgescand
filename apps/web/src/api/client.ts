@@ -83,6 +83,13 @@ export const projectsApi = {
   bereken: (id: string) =>
     api<any>(`/api/projects/${id}/bereken`, { method: 'POST' }),
 
+  /** Dedicated locatie-save: kan nooit verloren gaan, merget op de server. */
+  saveLocatie: (id: string, locatie: unknown, gebouwPatch?: unknown) =>
+    api<{ ok: boolean; project: { id: string; updatedAt: string } }>(
+      `/api/projects/${id}/locatie`,
+      { method: 'PATCH', body: JSON.stringify({ locatie, gebouwPatch }) },
+    ),
+
   exporteerPpt: async (id: string, filename: string): Promise<void> => {
     const res = await fetch(url(`/api/projects/${id}/ppt`), {
       method: 'POST',
@@ -115,4 +122,23 @@ export const modulesApi = {
   list: () => api<{ modules: Array<{ id: string; naam: string; defaultInput: unknown }>; groepen: Record<string, readonly string[]> }>(
     '/api/modules',
   ),
+};
+
+export interface UserRow {
+  id: string;
+  email: string;
+  naam: string;
+  rol: 'BEHEERDER' | 'ADVISEUR' | 'VIEWER';
+  createdAt?: string;
+  laatsteLogin?: string;
+}
+
+export const usersApi = {
+  list: () => api<{ gebruikers: UserRow[] }>('/api/users'),
+  create: (data: { email: string; naam: string; wachtwoord: string; rol?: 'BEHEERDER' | 'ADVISEUR' | 'VIEWER' }) =>
+    api<{ gebruiker: UserRow }>('/api/users', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<{ naam: string; rol: 'BEHEERDER' | 'ADVISEUR' | 'VIEWER'; wachtwoord: string }>) =>
+    api<{ gebruiker: UserRow }>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id: string) =>
+    api<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
 };

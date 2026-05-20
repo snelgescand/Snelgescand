@@ -21,6 +21,7 @@ import authPlugin, { hashWachtwoord } from './plugins/auth.js';
 import authRoutes from './routes/auth.routes.js';
 import projectsRoutes from './routes/projects.routes.js';
 import modulesRoutes from './routes/modules.routes.js';
+import usersRoutes from './routes/users.routes.js';
 import pptRoutes from './routes/ppt.routes.js';
 import { prisma } from './db.js';
 
@@ -122,6 +123,7 @@ async function buildServer() {
   // ===== Routes =====
   await app.register(projectsRoutes, { prefix: '/api' });
   await app.register(modulesRoutes, { prefix: '/api' });
+  await app.register(usersRoutes, { prefix: '/api' });
   await app.register(pptRoutes, { prefix: '/api' });
 
   // Health & version

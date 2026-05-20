@@ -66,6 +66,8 @@ interface ProjectState {
       gasprijsPerM3?: number;
       gasHistorischM3?: number[];
       stroomHistorischKwh?: number[];
+      aansluitwaardeLabel?: string;  // bv "3x25 A"
+      aansluitwaardeElektra?: { fase: 1 | 3; ampere: number; vermogenKw: number };
     };
   };
   locatie?: Locatie;
@@ -293,50 +295,69 @@ export default function ProjectEditor() {
 
   async function adresGekozen(adres: PdokAdres) {
     if (!draft) return;
+    const locatie = {
+      adres: adres.weergavenaam, postcode: adres.postcode, huisnummer: adres.huisnummer,
+      woonplaats: adres.woonplaatsnaam, rd_x: adres.rd_x, rd_y: adres.rd_y,
+      lat: adres.lat, lon: adres.lon,
+    };
+    const gebouwPatch: Record<string, unknown> = {};
+    if (adres.bouwjaar) gebouwPatch.bouwjaar = adres.bouwjaar;
+    if (adres.oppervlakte) gebouwPatch.bvoTotaalM2 = adres.oppervlakte;
+
     const next: ProjectState = {
       ...draft,
-      locatie: {
-        adres: adres.weergavenaam, postcode: adres.postcode, huisnummer: adres.huisnummer,
-        woonplaats: adres.woonplaatsnaam, rd_x: adres.rd_x, rd_y: adres.rd_y,
-        lat: adres.lat, lon: adres.lon,
-      },
+      locatie,
       context: {
         ...draft.context,
-        gebouw: {
-          ...draft.context.gebouw,
-          bouwjaar: adres.bouwjaar ?? draft.context.gebouw?.bouwjaar,
-          bvoTotaalM2: adres.oppervlakte ?? draft.context.gebouw?.bvoTotaalM2,
-        },
+        gebouw: { ...draft.context.gebouw, ...gebouwPatch },
       },
     };
-    // ADRES IS KRITIEK — direct saven, geen debounce
     setDraft(next);
     pendingDraft.current = null;
     if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
-    save.mutate(next);
 
-    // 3D BAG hoogte ophalen op de achtergrond (niet kritiek voor opslag)
+    // KRITIEK: gebruik dedicated PATCH /api/projects/:id/locatie endpoint.
+    // Dit endpoint kan onmogelijk locatie verliezen (merget op de server zelf
+    // tegen de huidige opgeslagen state).
+    try {
+      await projectsApi.saveLocatie(id!, locatie, gebouwPatch);
+      // Forceer ook een save van de overige state via de normale PUT
+      save.mutate(next);
+    } catch (err) {
+      console.error('[Locatie save] mislukt', err);
+      // Val terug op de normale save flow
+      save.mutate(next);
+    }
+
+    // 3D BAG hoogte ophalen op de achtergrond
     if (adres.pandid) {
       try {
         const hoogte = await fetch3dBagHoogte(adres.pandid);
-        if (hoogte?.geschattePlafondhoogteM) {
+        if (hoogte?.bouwhoogteM) {
+          const extraGebouw: Record<string, unknown> = {
+            bouwhoogteM: hoogte.bouwhoogteM,
+          };
+          if (hoogte.geschattePlafondhoogteM && !next.context.gebouw?.plafondhoogteM) {
+            extraGebouw.plafondhoogteM = hoogte.geschattePlafondhoogteM;
+          }
           const nextMetHoogte: ProjectState = {
             ...next,
             context: {
               ...next.context,
-              gebouw: {
-                ...next.context.gebouw,
-                // Alleen plafondhoogte overschrijven als nog leeg (anders user-keuze respecteren)
-                plafondhoogteM: next.context.gebouw?.plafondhoogteM ?? hoogte.geschattePlafondhoogteM,
-                bouwhoogteM: hoogte.bouwhoogteM,
-              },
+              gebouw: { ...next.context.gebouw, ...extraGebouw },
             },
           };
           setDraft(nextMetHoogte);
+          // Sla ook de hoogte op via locatie-endpoint
+          try {
+            await projectsApi.saveLocatie(id!, locatie, { ...gebouwPatch, ...extraGebouw });
+          } catch (err) {
+            console.error('[3D BAG save] mislukt', err);
+          }
           save.mutate(nextMetHoogte);
         }
-      } catch {
-        // Niet kritiek
+      } catch (err) {
+        console.warn('[3D BAG fetch] mislukt — niet kritiek', err);
       }
     }
   }
@@ -655,6 +676,57 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
                   Actueel
                 </button>
               </div>
+            </Veld>
+          </div>
+
+          {/* Aansluitwaarde — beïnvloedt waarschuwing voor netverzwaring */}
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <Veld
+              label="Aansluitwaarde elektra"
+              tooltip="Op de elektriciteitsmeter te vinden. Beïnvloedt of er netverzwaring nodig is bij elektrische maatregelen (warmtepomp, e-boiler, PV)."
+            >
+              <select
+                className="input max-w-sm"
+                value={draft.context.energie?.aansluitwaardeLabel ?? ''}
+                onChange={e => {
+                  const label = e.target.value;
+                  const lookup: Record<string, { fase: 1 | 3; ampere: number; vermogenKw: number }> = {
+                    '1x16 A': { fase: 1, ampere: 16, vermogenKw: 3.68 },
+                    '1x25 A': { fase: 1, ampere: 25, vermogenKw: 5.75 },
+                    '1x35 A': { fase: 1, ampere: 35, vermogenKw: 8.05 },
+                    '1x40 A': { fase: 1, ampere: 40, vermogenKw: 9.2 },
+                    '3x25 A': { fase: 3, ampere: 25, vermogenKw: 17.2 },
+                    '3x35 A': { fase: 3, ampere: 35, vermogenKw: 24.1 },
+                    '3x40 A': { fase: 3, ampere: 40, vermogenKw: 27.6 },
+                    '3x50 A': { fase: 3, ampere: 50, vermogenKw: 34.5 },
+                    '3x63 A': { fase: 3, ampere: 63, vermogenKw: 43.47 },
+                    '3x80 A': { fase: 3, ampere: 80, vermogenKw: 55.2 },
+                  };
+                  const conf = lookup[label];
+                  updateDraft(s => ({
+                    ...s,
+                    context: {
+                      ...s.context,
+                      energie: {
+                        ...s.context.energie,
+                        aansluitwaardeLabel: label || undefined,
+                        aansluitwaardeElektra: conf ?? undefined,
+                      },
+                    },
+                  }));
+                }}
+              >
+                <option value="">— onbekend (default 3x25A) —</option>
+                <option value="1x25 A">1×25 A (5,75 kW)</option>
+                <option value="1x35 A">1×35 A (8,05 kW)</option>
+                <option value="1x40 A">1×40 A (9,2 kW)</option>
+                <option value="3x25 A">3×25 A (17,2 kW) — meest voorkomend</option>
+                <option value="3x35 A">3×35 A (24,1 kW)</option>
+                <option value="3x40 A">3×40 A (27,6 kW)</option>
+                <option value="3x50 A">3×50 A (34,5 kW)</option>
+                <option value="3x63 A">3×63 A (43,5 kW)</option>
+                <option value="3x80 A">3×80 A (55,2 kW) — grens grootverbruik</option>
+              </select>
             </Veld>
           </div>
         </Sectie>

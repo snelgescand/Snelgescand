@@ -116,6 +116,62 @@ export default async function projectsRoutes(app: FastifyInstance) {
     return project;
   });
 
+  /**
+   * DEDICATED locatie-endpoint — voor zekerheid. Hier kan niets verloren gaan:
+   * we lezen de huidige state, mergen alleen `locatie` (en optioneel
+   * gebouw-velden uit BAG zoals bouwjaar/bvo) erin, en schrijven die terug.
+   *
+   * Dit voorkomt elke vorm van race-condition met de gewone PUT-flow.
+   */
+  app.patch('/projects/:id/locatie', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as {
+      locatie: Record<string, unknown>;
+      gebouwPatch?: Record<string, unknown>;  // bouwjaar/bvo/bouwhoogte uit BAG
+    };
+
+    if (!body?.locatie || typeof body.locatie !== 'object') {
+      return reply.code(400).send({ error: 'locatie verplicht in body' });
+    }
+
+    const project = await prisma.project.findFirst({
+      where: { id, tenantId: req.user!.tenantId },
+    });
+    if (!project) return reply.code(404).send({ error: 'Niet gevonden' });
+
+    const huidigeState = (project.state as Record<string, unknown>) ?? {};
+    const huidigeContext = (huidigeState.context as Record<string, unknown>) ?? {};
+    const huidigeGebouw = (huidigeContext.gebouw as Record<string, unknown>) ?? {};
+
+    const nieuweState = {
+      ...huidigeState,
+      locatie: body.locatie,
+      ...(body.gebouwPatch ? {
+        context: {
+          ...huidigeContext,
+          gebouw: { ...huidigeGebouw, ...body.gebouwPatch },
+        },
+      } : {}),
+    };
+
+    const updated = await prisma.project.update({
+      where: { id },
+      data: {
+        state: nieuweState as never,
+        cachedResult: null,
+        cachedAt: null,
+      },
+      select: { id: true, state: true, updatedAt: true },
+    });
+
+    app.log.info(
+      { projectId: id, locatieAdres: (body.locatie as { adres?: string }).adres },
+      'Locatie opgeslagen via dedicated endpoint',
+    );
+
+    return { ok: true, project: updated };
+  });
+
   app.delete('/projects/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const bestaat = await prisma.project.findFirst({
