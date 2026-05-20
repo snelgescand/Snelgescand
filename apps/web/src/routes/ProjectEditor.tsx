@@ -28,6 +28,7 @@ import { MaatregelSuggesties } from '../components/MaatregelSuggesties';
 import { ChartCard, WaterverbruikChart, KasstroomChart, EnergiebalansChart, WaterverbruikPerUurChart } from '../components/Charts';
 import { TrainingsSchemaInvoer, analyseSchema, type TrainingsSchema } from '../components/TrainingsSchema';
 import { EnergielabelKaart } from '../components/EnergielabelKaart';
+import { HistorischVerbruik } from '../components/HistorischVerbruik';
 import { berekenEnergielabel, berekenLabelNaMaatregelen, bepaalLabelSprong } from '../util/energielabel';
 import type { PdokAdres } from '../api/pdok';
 import type { HuidigeSituatieData } from '../data/huidige-situatie';
@@ -43,7 +44,14 @@ interface ProjectState {
   context: {
     club?: { naam?: string };
     gebouw?: { bouwjaar?: number; bvoTotaalM2?: number; plafondhoogteM?: number };
-    energie?: { gasverbruikM3?: number; stroomverbruikTotaalKwh?: number; stroomprijsKaalPerKwh?: number; gasprijsPerM3?: number };
+    energie?: {
+      gasverbruikM3?: number;
+      stroomverbruikTotaalKwh?: number;
+      stroomprijsKaalPerKwh?: number;
+      gasprijsPerM3?: number;
+      gasHistorischM3?: number[];
+      stroomHistorischKwh?: number[];
+    };
   };
   locatie?: Locatie;
   fotos?: ProjectFoto[];
@@ -450,29 +458,40 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
 
         <Sectie
           titel={`Energieverbruik ${energieCompleet ? '✓' : '(vereist)'}`}
-          tooltipTekst="Op te vragen via jaarrekening van energieleverancier of slimme meter. Cijfers van het laatste volledige jaar geven beste resultaat."
+          tooltipTekst="Vul ofwel het laatste jaar in, ofwel de afgelopen 3 jaar voor een betrouwbaarder gemiddelde. Te vinden op de jaarafrekening of via Mijn Energieleverancier."
           accent={!energieCompleet}
         >
-          <div className="grid grid-cols-2 gap-3">
-            <Veld label="Gas (m³/jaar)" tooltip="Totaal gasverbruik per jaar. Op jaarafrekening.">
-              <input type="number" className="input" placeholder="bv. 5.000"
-                value={draft.context.energie?.gasverbruikM3 ?? ''}
-                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, gasverbruikM3: e.target.value ? Number(e.target.value) : undefined } } }))} />
+          <HistorischVerbruik
+            energie={draft.context.energie ?? {}}
+            onChange={(patch) => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, ...patch } } }))}
+          />
+
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <Veld label="Gasprijs (€/m³)" tooltip="Werkelijke prijs incl. BTW + heffingen. Klik 'Actueel' om CBS-gemiddelde te gebruiken.">
+              <div className="flex gap-1">
+                <input type="number" step="0.01" className="input flex-1" placeholder="bv. 1,35"
+                  value={draft.context.energie?.gasprijsPerM3 ?? ''}
+                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, gasprijsPerM3: e.target.value ? Number(e.target.value) : undefined } } }))} />
+                <button type="button"
+                  onClick={() => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, gasprijsPerM3: 1.35 } } }))}
+                  className="px-2 text-xs text-primary-700 hover:bg-primary-50 rounded border border-primary-200"
+                  title="Vul CBS-gemiddelde 2025 in (~€1,35)">
+                  Actueel
+                </button>
+              </div>
             </Veld>
-            <Veld label="Stroom (kWh/jaar)" tooltip="Bruto verbruik per jaar.">
-              <input type="number" className="input" placeholder="bv. 25.000"
-                value={draft.context.energie?.stroomverbruikTotaalKwh ?? ''}
-                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, stroomverbruikTotaalKwh: e.target.value ? Number(e.target.value) : undefined } } }))} />
-            </Veld>
-            <Veld label="Gasprijs (€/m³)" tooltip="Werkelijke prijs incl. BTW + heffingen. 2025: ~€1,35.">
-              <input type="number" step="0.01" className="input" placeholder="bv. 1,35"
-                value={draft.context.energie?.gasprijsPerM3 ?? ''}
-                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, gasprijsPerM3: e.target.value ? Number(e.target.value) : undefined } } }))} />
-            </Veld>
-            <Veld label="Stroomprijs (€/kWh)" tooltip="Kale stroomprijs (zonder energiebelasting/netbeheer). 2025: ~€0,30.">
-              <input type="number" step="0.01" className="input" placeholder="bv. 0,30"
-                value={draft.context.energie?.stroomprijsKaalPerKwh ?? ''}
-                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, stroomprijsKaalPerKwh: e.target.value ? Number(e.target.value) : undefined } } }))} />
+            <Veld label="Stroomprijs (€/kWh)" tooltip="Kale stroomprijs (zonder energiebelasting/netbeheer). Klik 'Actueel' om CBS-gemiddelde te gebruiken.">
+              <div className="flex gap-1">
+                <input type="number" step="0.01" className="input flex-1" placeholder="bv. 0,30"
+                  value={draft.context.energie?.stroomprijsKaalPerKwh ?? ''}
+                  onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, stroomprijsKaalPerKwh: e.target.value ? Number(e.target.value) : undefined } } }))} />
+                <button type="button"
+                  onClick={() => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, stroomprijsKaalPerKwh: 0.30 } } }))}
+                  className="px-2 text-xs text-primary-700 hover:bg-primary-50 rounded border border-primary-200"
+                  title="Vul CBS-gemiddelde 2025 in (~€0,30)">
+                  Actueel
+                </button>
+              </div>
             </Veld>
           </div>
         </Sectie>

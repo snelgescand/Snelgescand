@@ -20,6 +20,8 @@ export interface VeldDef {
   type: VeldType;
   eenheid?: string;
   tooltip?: string;
+  /** Specifieke placeholder voor het invulveld, anders dan generiek 'voer waarde in' */
+  placeholder?: string;
   opties?: Array<{ waarde: string; label: string }>;
   stap?: number;                // voor number inputs
 }
@@ -37,36 +39,36 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
     kort: 'Dak na-isoleren naar Rc 3,5 of hoger. Levert besparing op het hele jaar door minder warmteverlies.',
     velden: [
       { pad: 'oppervlakteM2', label: 'Dakoppervlak', type: 'number', eenheid: 'm²',
-        tooltip: 'Totaal dakoppervlak van het clubhuis dat geïsoleerd wordt.' },
+        tooltip: 'Totaal dakoppervlak van het clubhuis dat geïsoleerd wordt.', placeholder: 'bv. 200' },
       { pad: 'huidigeRcWaarde', label: 'Huidige Rc-waarde', type: 'number', stap: 0.1, eenheid: 'm²·K/W',
-        tooltip: 'Hoe goed het dak nu isoleert. Default uit bouwjaartabel — overschrijf indien bekend.' },
+        tooltip: 'Hoe goed het dak nu isoleert. Default uit bouwjaartabel — overschrijf indien bekend.', placeholder: 'bv. 1.30' },
       { pad: 'nieuweRcWaarde', label: 'Nieuwe Rc-waarde', type: 'number', stap: 0.1, eenheid: 'm²·K/W',
-        tooltip: 'Streefwaarde na isolatie. 3,5 is standaard, 6,0 is Bijna Energie Neutraal Gebouw (BENG)-niveau.' },
+        tooltip: 'Streefwaarde na isolatie. 3,5 is standaard, 6,0 is Bijna Energie Neutraal Gebouw (BENG)-niveau.', placeholder: 'bv. 3.5' },
       { pad: 'stookurenPerJaar', label: 'Stookuren per jaar', type: 'number', eenheid: 'uur',
-        tooltip: 'Hoeveel uur per jaar er gestookt wordt. Clubhuis: typisch 1500 uur (5 maand × 10 uur/dag).' },
+        tooltip: 'Hoeveel uur per jaar er gestookt wordt. Clubhuis: typisch 1500 uur (5 maand × 10 uur/dag).', placeholder: 'bv. 1500' },
       { pad: 'binnenBuitenDeltaT', label: 'Temperatuurverschil binnen-buiten', type: 'number', eenheid: '°C',
-        tooltip: 'Gemiddeld verschil tijdens stookuren. Default 8°C (gemiddeld winterweer).' },
+        tooltip: 'Gemiddeld verschil tijdens stookuren. Default 8°C (gemiddeld winterweer).', placeholder: 'bv. 8' },
     ],
   },
   'spouwmuurisolatie': {
     kort: 'Spouw vullen (na-isolatie van gevel). Snelle ingreep, lage kosten, korte TVT.',
     velden: [
       { pad: 'oppervlakteM2', label: 'Geveloppervlak', type: 'number', eenheid: 'm²',
-        tooltip: 'Totaal gevel-oppervlak (exclusief ramen).' },
-      { pad: 'huidigeRcWaarde', label: 'Huidige Rc-waarde', type: 'number', stap: 0.1, eenheid: 'm²·K/W' },
+        tooltip: 'Totaal gevel-oppervlak (exclusief ramen).', placeholder: 'bv. 200' },
+      { pad: 'huidigeRcWaarde', label: 'Huidige Rc-waarde', type: 'number', stap: 0.1, eenheid: 'm²·K/W', placeholder: 'bv. 1.30' },
       { pad: 'nieuweRcWaarde', label: 'Nieuwe Rc-waarde', type: 'number', stap: 0.1, eenheid: 'm²·K/W',
-        tooltip: 'Bij parelvulling typisch 1,3.' },
-      { pad: 'stookurenPerJaar', label: 'Stookuren per jaar', type: 'number', eenheid: 'uur' },
+        tooltip: 'Bij parelvulling typisch 1,3.', placeholder: 'bv. 3.5' },
+      { pad: 'stookurenPerJaar', label: 'Stookuren per jaar', type: 'number', eenheid: 'uur', placeholder: 'bv. 1500' },
       { pad: 'kostenPerM2InclBtw', label: 'Kosten per m²', type: 'number', eenheid: '€',
-        tooltip: 'Standaard €27,50/m² voor parel- of schuimvulling.' },
+        tooltip: 'Standaard €27,50/m² voor parel- of schuimvulling.', placeholder: 'bv. 27.50' },
     ],
   },
   'vloerisolatie': {
     kort: 'Vloer onder het clubhuis isoleren. Vergt kruipruimte-toegang.',
     velden: [
-      { pad: 'oppervlakteM2', label: 'Vloeroppervlak', type: 'number', eenheid: 'm²' },
-      { pad: 'huidigeRcWaarde', label: 'Huidige Rc', type: 'number', stap: 0.1, eenheid: 'm²·K/W' },
-      { pad: 'nieuweRcWaarde', label: 'Nieuwe Rc', type: 'number', stap: 0.1, eenheid: 'm²·K/W' },
+      { pad: 'oppervlakteM2', label: 'Vloeroppervlak', type: 'number', eenheid: 'm²', placeholder: 'bv. 200' },
+      { pad: 'huidigeRcWaarde', label: 'Huidige Rc', type: 'number', stap: 0.1, eenheid: 'm²·K/W', placeholder: 'bv. 1.30' },
+      { pad: 'nieuweRcWaarde', label: 'Nieuwe Rc', type: 'number', stap: 0.1, eenheid: 'm²·K/W', placeholder: 'bv. 3.5' },
       { pad: 'isolatieType', label: 'Type isolatie', type: 'select',
         opties: [
           { waarde: 'pir', label: 'PIR (hard, €65/m²)' },
@@ -74,30 +76,30 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
           { waarde: 'spuiterspray', label: 'Spuitschuim (€55/m²)' },
           { waarde: 'standaard', label: 'Standaard (€60/m²)' },
         ]},
-      { pad: 'stookurenPerJaar', label: 'Stookuren per jaar', type: 'number', eenheid: 'uur' },
+      { pad: 'stookurenPerJaar', label: 'Stookuren per jaar', type: 'number', eenheid: 'uur', placeholder: 'bv. 1500' },
     ],
   },
   'waterzijdig-inregelen': {
     kort: 'Optimaliseren van de cv-installatie zodat alle radiatoren correct hun water krijgen. Snelle, goedkope ingreep met 5-15% gasbesparing.',
     velden: [
       { pad: 'aantalRadiatoren', label: 'Aantal radiatoren / groepen', type: 'number',
-        tooltip: 'Aantal afleveringen / radiatoren / vloerverwarming-circuits.' },
+        tooltip: 'Aantal afleveringen / radiatoren / vloerverwarming-circuits.', placeholder: 'bv. 12' },
       { pad: 'besparingsPercentage', label: 'Verwachte besparing', type: 'number', stap: 0.01,
-        tooltip: 'Default 8% (0,08). Realistisch tussen 5% en 15%.' },
+        tooltip: 'Default 8% (0,08). Realistisch tussen 5% en 15%.', placeholder: 'bv. 0.08' },
       { pad: 'kostenPerRadiatorInclBtw', label: 'Kosten per radiator', type: 'number', eenheid: '€',
-        tooltip: 'Marktprijs ~€350 per radiator inclusief installatie en metingen.' },
+        tooltip: 'Marktprijs ~€350 per radiator inclusief installatie en metingen.', placeholder: 'bv. 350' },
     ],
   },
   'wtw': {
     kort: 'Warmte Terug Winning ventilatie. Wint warmte uit afgevoerde lucht terug naar verse aanvoerlucht.',
     velden: [
       { pad: 'ventilatiedebietM3PerUur', label: 'Ventilatiedebiet', type: 'number', eenheid: 'm³/u',
-        tooltip: 'Vuistregel: 4 m³/u per m² gebruiksoppervlak.' },
+        tooltip: 'Vuistregel: 4 m³/u per m² gebruiksoppervlak.', placeholder: 'bv. 1200' },
       { pad: 'rendement', label: 'Rendement WTW', type: 'number', stap: 0.05,
-        tooltip: 'Moderne units halen 0,85 (85%). Goedkopere modellen 0,70.' },
-      { pad: 'stookurenPerJaar', label: 'Draaiuren per jaar', type: 'number', eenheid: 'uur' },
+        tooltip: 'Moderne units halen 0,85 (85%). Goedkopere modellen 0,70.', placeholder: 'bv. 0.85' },
+      { pad: 'stookurenPerJaar', label: 'Draaiuren per jaar', type: 'number', eenheid: 'uur', placeholder: 'bv. 1500' },
       { pad: 'binnenBuitenDeltaT', label: 'Gem. ΔT binnen-buiten', type: 'number', eenheid: '°C',
-        tooltip: 'Default 14°C als ventilatie volledige stooktijd actief is.' },
+        tooltip: 'Default 14°C als ventilatie volledige stooktijd actief is.', placeholder: 'bv. 8' },
     ],
   },
 
@@ -111,7 +113,7 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
         tooltip: 'Komt typisch uit de douche-analyse. Voor 100 leden × 1 keer/wk × 70L ≈ 365.000 L.' },
       { pad: 'cop', label: 'COP (verhouding warmte/stroom)', type: 'number', stap: 0.1,
         tooltip: 'Default 3,5 voor moderne lucht/water-warmtepompboilers.' },
-      { pad: 'aantalUnits', label: 'Aantal units', type: 'number' },
+      { pad: 'aantalUnits', label: 'Aantal units', type: 'number', placeholder: 'bv. 1' },
       { pad: 'prijsPerUnitInclBtw', label: 'Prijs per unit', type: 'number', eenheid: '€' },
       { pad: 'isdeBedragPerUnit', label: 'ISDE-bedrag per unit', type: 'number', eenheid: '€' },
     ],
@@ -124,7 +126,7 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
           { waarde: 'HMA30A', label: 'HMA30A — 30 kW (€28.500)' },
           { waarde: 'HMA45A', label: 'HMA45A — 45 kW (€38.500)' },
         ]},
-      { pad: 'aantalUnits', label: 'Aantal units', type: 'number' },
+      { pad: 'aantalUnits', label: 'Aantal units', type: 'number', placeholder: 'bv. 1' },
       { pad: 'litersPerJaar', label: 'Warm water per jaar', type: 'number', eenheid: 'liter' },
       { pad: 'warmwaterTemperatuurC', label: 'Tapwater-temperatuur', type: 'select',
         opties: [
@@ -137,7 +139,7 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
     kort: 'Modulair LMNT-systeem. Voor middelgrote clubs, modulair op te schalen in 5 kW-stappen.',
     velden: [
       { pad: 'vermogenKw', label: 'Vermogen', type: 'number', eenheid: 'kW',
-        tooltip: 'Stappen van 5 kW. 15 kW voor ~120 leden, 30 kW voor 300+ leden.' },
+        tooltip: 'Stappen van 5 kW. 15 kW voor ~120 leden, 30 kW voor 300+ leden.', placeholder: 'bv. 15' },
       { pad: 'litersPerJaar', label: 'Warm water per jaar', type: 'number', eenheid: 'liter' },
       { pad: 'warmwaterTemperatuurC', label: 'Tapwater-temperatuur', type: 'number', eenheid: '°C' },
       { pad: 'metLegionellaBoiler', label: 'Inclusief legionellaboiler?', type: 'select',
@@ -147,7 +149,7 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
   'lucht-water-warmtepomp': {
     kort: 'Volledige vervanging van gasketel door lucht/water-warmtepomp voor ruimteverwarming en eventueel tapwater.',
     velden: [
-      { pad: 'oppervlakteM2', label: 'Te verwarmen oppervlakte', type: 'number', eenheid: 'm²' },
+      { pad: 'oppervlakteM2', label: 'Te verwarmen oppervlakte', type: 'number', eenheid: 'm²', placeholder: 'bv. 200' },
       { pad: 'heeftWtw', label: 'Heeft WTW-ventilatie?', type: 'select',
         opties: [{ waarde: 'true', label: 'Ja' }, { waarde: 'false', label: 'Nee' }],
         tooltip: 'Met WTW is de benodigde vermogensafgifte lager.' },
@@ -160,7 +162,7 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
   'hybride-warmtepomp': {
     kort: 'Hybride combi: bestaande cv-ketel + warmtepomp. WP doet de basis-verwarming, ketel pakt piekvraag op.',
     velden: [
-      { pad: 'oppervlakteM2', label: 'Te verwarmen oppervlakte', type: 'number', eenheid: 'm²' },
+      { pad: 'oppervlakteM2', label: 'Te verwarmen oppervlakte', type: 'number', eenheid: 'm²', placeholder: 'bv. 200' },
       { pad: 'cop', label: 'COP', type: 'number', stap: 0.1 },
       { pad: 'beta', label: 'Beta (deel via WP)', type: 'number', stap: 0.05,
         tooltip: 'Aandeel van de warmtevraag dat de warmtepomp dekt. Default 0,78 (78%).' },
@@ -173,12 +175,12 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
   'binnenverlichting': {
     kort: 'TL-armaturen vervangen door LED. Lage TVT, weinig overlast.',
     velden: [
-      { pad: 'aantalArmaturen', label: 'Aantal armaturen', type: 'number' },
+      { pad: 'aantalArmaturen', label: 'Aantal armaturen', type: 'number', placeholder: 'bv. 40' },
       { pad: 'wattageOudPerArmatuur', label: 'Wattage oud (per stuk)', type: 'number', eenheid: 'W',
         tooltip: 'TL-buis met conventioneel voorschakelapparaat is typisch 58W. Met HF-VSA ~50W.' },
       { pad: 'wattageNieuwPerArmatuur', label: 'Wattage nieuw (per stuk)', type: 'number', eenheid: 'W',
         tooltip: 'LED-vervangers typisch 18-28W.' },
-      { pad: 'brandurenPerJaar', label: 'Branduren per jaar', type: 'number', eenheid: 'uur' },
+      { pad: 'brandurenPerJaar', label: 'Branduren per jaar', type: 'number', eenheid: 'uur', placeholder: 'bv. 1500' },
       { pad: 'kostenPerArmatuurInclBtw', label: 'Kosten per armatuur', type: 'number', eenheid: '€' },
     ],
   },
@@ -199,7 +201,7 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
     kort: 'PV-installatie op het dak. Saldering loopt af 2027-2031, eigen verbruik wordt belangrijker.',
     velden: [
       { pad: 'aantalPanelen', label: 'Aantal panelen', type: 'number',
-        tooltip: 'Vuistregel: 1,8 m² per paneel. 100 panelen = 180 m² dak nodig.' },
+        tooltip: 'Vuistregel: 1,8 m² per paneel. 100 panelen = 180 m² dak nodig.', placeholder: 'bv. 100' },
       { pad: 'wpPerPaneel', label: 'Vermogen per paneel', type: 'number', eenheid: 'Wp',
         tooltip: 'Moderne panelen 425-450 Wp.' },
       { pad: 'instralingsfactor', label: 'Instralingsfactor', type: 'number', stap: 0.05,
@@ -214,9 +216,9 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
     kort: 'Stationaire batterij voor zelfconsumptie van PV en/of EPEX-arbitrage. Berekening gebruikt jaartotalen (cycli × spread). Voor tijdreeks-simulatie: contact opnemen.',
     velden: [
       { pad: 'capaciteitKwh', label: 'Capaciteit', type: 'number', eenheid: 'kWh',
-        tooltip: 'Bruikbare capaciteit. Voor sportclubs typisch 50-200 kWh. Vuistregel: 1× gemiddeld dagverbruik voor zelfconsumptie, 2-3× voor arbitrage.' },
+        tooltip: 'Bruikbare capaciteit. Voor sportclubs typisch 50-200 kWh. Vuistregel: 1× gemiddeld dagverbruik voor zelfconsumptie, 2-3× voor arbitrage.', placeholder: 'bv. 30' },
       { pad: 'vermogenKw', label: 'Vermogen', type: 'number', eenheid: 'kW',
-        tooltip: 'Maximaal laad-/ontladevermogen. Typisch C-rate 0,5 (vermogen = ½ × capaciteit). 100 kWh batterij = 50 kW vermogen.' },
+        tooltip: 'Maximaal laad-/ontladevermogen. Typisch C-rate 0,5 (vermogen = ½ × capaciteit). 100 kWh batterij = 50 kW vermogen.', placeholder: 'bv. 15' },
       { pad: 'cycliPerJaar', label: 'Cycli per jaar', type: 'number',
         tooltip: '300 voor pure zelfconsumptie (1 cyclus/dag). 500-700 voor actieve EPEX-handel. Beïnvloedt levensduur: bij 5.000 totale cycli = 7-16 jaar.' },
       { pad: 'gemiddeldeEpexSpreadPerKwh', label: 'Gem. EPEX-spread', type: 'number', stap: 0.01, eenheid: '€/kWh',
@@ -237,14 +239,14 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
     kort: 'Elektrische boiler. Vervangt gas door stroom. Geschikt voor noodboiler of overschot-PV.',
     velden: [
       { pad: 'litersPerJaar', label: 'Warm water per jaar', type: 'number', eenheid: 'liter' },
-      { pad: 'vermogenKw', label: 'Vermogen', type: 'number', eenheid: 'kW' },
+      { pad: 'vermogenKw', label: 'Vermogen', type: 'number', eenheid: 'kW', placeholder: 'bv. 15' },
       { pad: 'brutoInvestering', label: 'Investering', type: 'number', eenheid: '€' },
     ],
   },
   'pvt-tapwater': {
     kort: 'PVT-panelen — combineren PV (stroom) en thermisch (warmte) in één paneel.',
     velden: [
-      { pad: 'aantalPanelen', label: 'Aantal PVT-panelen', type: 'number' },
+      { pad: 'aantalPanelen', label: 'Aantal PVT-panelen', type: 'number', placeholder: 'bv. 100' },
       { pad: 'thermischePbrengstPerPaneelKwhJr', label: 'Thermisch per paneel', type: 'number', eenheid: 'kWh/jr' },
       { pad: 'stroomOpbrengstPerPaneelKwhJr', label: 'PV per paneel', type: 'number', eenheid: 'kWh/jr' },
     ],

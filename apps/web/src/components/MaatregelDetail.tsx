@@ -116,6 +116,7 @@ function VeldInput({ veld, waarde, onChange, suggestie, suggestieLabel }: {
           <input
             type="number"
             step={veld.stap}
+            placeholder={veld.placeholder}
             className="input"
             value={waarde as number ?? ''}
             onChange={e => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
@@ -134,6 +135,7 @@ function VeldInput({ veld, waarde, onChange, suggestie, suggestieLabel }: {
       {veld.type === 'text' && (
         <input
           type="text"
+          placeholder={veld.placeholder}
           className="input"
           value={waarde as string ?? ''}
           onChange={e => onChange(e.target.value)}
@@ -171,11 +173,12 @@ interface GlasSegment {
   huidig: string;
   nieuw: string;
   urenPerDag: number;
+  plek?: string;
 }
 
 function GlasSegmenten({ input, onChange }: { input: Record<string, unknown>; onChange: (input: Record<string, unknown>) => void }) {
   const segmenten = (input.segmenten as GlasSegment[] | undefined) ?? [
-    { oppervlakteM2: 10, huidig: 'dubbel', nieuw: 'hr-pp', urenPerDag: 8 },
+    { plek: 'Kantine', oppervlakteM2: 10, huidig: 'dubbel', nieuw: 'hr-pp', urenPerDag: 8 },
   ];
 
   function update(i: number, patch: Partial<GlasSegment>) {
@@ -183,7 +186,7 @@ function GlasSegmenten({ input, onChange }: { input: Record<string, unknown>; on
     onChange({ ...input, segmenten: next });
   }
   function voegToe() {
-    onChange({ ...input, segmenten: [...segmenten, { oppervlakteM2: 5, huidig: 'enkel', nieuw: 'hr-pp', urenPerDag: 8 }] });
+    onChange({ ...input, segmenten: [...segmenten, { plek: '', oppervlakteM2: 5, huidig: 'enkel', nieuw: 'hr-pp', urenPerDag: 8 }] });
   }
   function verwijder(i: number) {
     onChange({ ...input, segmenten: segmenten.filter((_, idx) => idx !== i) });
@@ -192,13 +195,23 @@ function GlasSegmenten({ input, onChange }: { input: Record<string, unknown>; on
   return (
     <div className="space-y-2 pb-2 border-b border-gray-100">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-800">Glassegmenten</h4>
-        <span className="text-xs text-gray-500">Voeg per glas-type een segment toe</span>
+        <h4 className="text-sm font-medium text-gray-800">Beglazing per plek</h4>
+        <span className="text-xs text-gray-500">Voeg per plek/ruimte een aparte regel toe</span>
       </div>
       {segmenten.map((s, i) => (
-        <div key={i} className="grid grid-cols-[1fr_1.4fr_1.4fr_1fr_auto] gap-2 items-end p-2 bg-gray-50 rounded">
+        <div key={i} className="grid grid-cols-[1.2fr_0.8fr_1.2fr_1.2fr_0.7fr_auto] gap-2 items-end p-2 bg-gray-50 rounded">
           <div>
-            <label className="text-xs text-gray-600">Oppervlak (m²)</label>
+            <label className="text-xs text-gray-600">Plek</label>
+            <input
+              type="text"
+              placeholder="bv. Kantine"
+              className="input py-1.5 text-sm"
+              value={s.plek ?? ''}
+              onChange={e => update(i, { plek: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">m²</label>
             <input
               type="number"
               className="input py-1.5 text-sm"
@@ -245,7 +258,7 @@ function GlasSegmenten({ input, onChange }: { input: Record<string, unknown>; on
         </div>
       ))}
       <button onClick={voegToe} type="button" className="text-xs text-primary-700 hover:underline">
-        + Segment toevoegen
+        + Plek toevoegen
       </button>
     </div>
   );
