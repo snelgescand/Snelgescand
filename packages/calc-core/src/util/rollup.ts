@@ -71,10 +71,14 @@ export function rollupProject(input: RollupInput): ProjectResultaat {
   }
 
   const bestaandePiek = input.bestaandePiekKw
-    ?? Math.max(context.energie.stroomverbruikTotaalKwh / 2500, 0);
+    ?? Math.max((context.energie?.stroomverbruikTotaalKwh ?? 0) / 2500, 0);
+
+  // Defensief: zorg dat aansluitwaardeElektra altijd vermogenKw heeft
+  const aansluiting = context.energie?.aansluitwaardeElektra
+    ?? { fase: 3 as 1 | 3, ampere: 25, vermogenKw: 17.2 };
 
   const aansluitcheck = controleerAansluitwaarde({
-    huidigeAansluiting: context.energie.aansluitwaardeElektra,
+    huidigeAansluiting: aansluiting,
     extraPiekvermogenKw: totaalPiek,
     bestaandePiekKw: bestaandePiek,
     veiligheidsmarge: input.aansluitwaardeMarge ?? 1.2,
@@ -84,7 +88,7 @@ export function rollupProject(input: RollupInput): ProjectResultaat {
     warnings.push({
       level: 'warning',
       code: 'AANSLUITWAARDE',
-      message: `Aansluitwaarde ${context.energie.aansluitwaardeElektra.vermogenKw} kW ` +
+      message: `Aansluitwaarde ${aansluiting.vermogenKw} kW ` +
         `is onvoldoende voor nieuwe piek ${aansluitcheck.nieuwePiekKw.toFixed(1)} kW. ` +
         (aansluitcheck.benodigdeOpwaardering
           ? `Opwaarderen naar ${aansluitcheck.benodigdeOpwaardering.label} (~€${aansluitcheck.geschatteOpwaarderingsKosten}).`

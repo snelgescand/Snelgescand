@@ -49,7 +49,9 @@ function rowKey(r: AansluitingRow): string {
 }
 
 export function controleerAansluitwaarde(input: AansluitwaardeCheckInput): AansluitwaardeCheckResultaat {
-  const huidigeKw = input.huidigeAansluiting.vermogenKw;
+  // Defensief: als huidigeAansluiting ontbreekt (oude project-state of merge-bug),
+  // val terug op 3x25A (17,2 kW) — meest voorkomende sportclub-aansluiting.
+  const huidigeKw = input.huidigeAansluiting?.vermogenKw ?? 17.2;
   const nieuwePiek = (input.bestaandePiekKw + input.extraPiekvermogenKw) * input.veiligheidsmarge;
   const voldoende = nieuwePiek <= huidigeKw;
 
@@ -61,7 +63,6 @@ export function controleerAansluitwaarde(input: AansluitwaardeCheckInput): Aansl
     };
   }
 
-  // Zoek de kleinst-mogelijke opwaardering
   const opwaardering = AANSLUITINGEN.find(a => a.vermogenKw >= nieuwePiek);
   const kosten = opwaardering ? OPWAARDERINGSKOSTEN_LOOKUP[rowKey(opwaardering)] : undefined;
 

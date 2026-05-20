@@ -85,11 +85,12 @@ export const eBoilerModule: MaatregelModule<EBoilerInput, EBoilerResultaat> = {
       warnings,
     });
 
-    if (input.vermogenKw > context.energie.aansluitwaardeElektra.vermogenKw * 0.5) {
+    const aansluitVermogen = context.energie?.aansluitwaardeElektra?.vermogenKw ?? 17.2;
+    if (input.vermogenKw > aansluitVermogen * 0.5) {
       warnings.push({
         level: 'warning',
         code: 'PIEK_TE_HOOG',
-        message: `E-boiler van ${input.vermogenKw} kW belast aansluiting (${context.energie.aansluitwaardeElektra.vermogenKw} kW) zwaar.`,
+        message: `E-boiler van ${input.vermogenKw} kW belast aansluiting (${aansluitVermogen} kW) zwaar.`,
       });
     }
 
