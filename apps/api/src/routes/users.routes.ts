@@ -16,12 +16,12 @@ const createUserSchema = z.object({
   email: z.string().email().max(200),
   naam: z.string().min(1).max(100),
   wachtwoord: z.string().min(8).max(200),
-  rol: z.enum(['BEHEERDER', 'ADVISEUR', 'VIEWER']).default('ADVISEUR'),
+  rol: z.enum(['BEHEERDER', 'ADVISEUR']).default('ADVISEUR'),
 });
 
 const updateUserSchema = z.object({
   naam: z.string().min(1).max(100).optional(),
-  rol: z.enum(['BEHEERDER', 'ADVISEUR', 'VIEWER']).optional(),
+  rol: z.enum(['BEHEERDER', 'ADVISEUR']).optional(),
   wachtwoord: z.string().min(8).max(200).optional(),
 });
 

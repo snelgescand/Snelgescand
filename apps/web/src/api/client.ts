@@ -128,16 +128,16 @@ export interface UserRow {
   id: string;
   email: string;
   naam: string;
-  rol: 'BEHEERDER' | 'ADVISEUR' | 'VIEWER';
+  rol: 'BEHEERDER' | 'ADVISEUR';
   createdAt?: string;
   laatsteLogin?: string;
 }
 
 export const usersApi = {
   list: () => api<{ gebruikers: UserRow[] }>('/api/users'),
-  create: (data: { email: string; naam: string; wachtwoord: string; rol?: 'BEHEERDER' | 'ADVISEUR' | 'VIEWER' }) =>
+  create: (data: { email: string; naam: string; wachtwoord: string; rol?: 'BEHEERDER' | 'ADVISEUR' }) =>
     api<{ gebruiker: UserRow }>('/api/users', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<{ naam: string; rol: 'BEHEERDER' | 'ADVISEUR' | 'VIEWER'; wachtwoord: string }>) =>
+  update: (id: string, data: Partial<{ naam: string; rol: 'BEHEERDER' | 'ADVISEUR'; wachtwoord: string }>) =>
     api<{ gebruiker: UserRow }>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id: string) =>
     api<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),

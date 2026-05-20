@@ -126,8 +126,7 @@ function GebruikersTab({ huidigeUserId }: { huidigeUserId: string }) {
                 <td className="px-4 py-2.5">
                   <span className={`inline-block px-2 py-0.5 rounded text-xs ${
                     g.rol === 'BEHEERDER' ? 'bg-accent-orange/15 text-accent-orange-dark' :
-                    g.rol === 'ADVISEUR' ? 'bg-primary-100 text-primary-800' :
-                    'bg-gray-100 text-gray-700'
+                    'bg-primary-100 text-primary-800'
                   }`}>{g.rol}</span>
                 </td>
                 <td className="px-4 py-2.5 text-gray-500 text-xs">
@@ -249,7 +248,6 @@ function GebruikerModal({ gebruiker, onClose, onSaved }: ModalProps) {
           <div>
             <label className="label text-sm">Rol</label>
             <select className="input" value={rol} onChange={e => setRol(e.target.value as UserRow['rol'])}>
-              <option value="VIEWER">Viewer (alleen lezen)</option>
               <option value="ADVISEUR">Adviseur (projecten maken)</option>
               <option value="BEHEERDER">Beheerder (volledige toegang)</option>
             </select>

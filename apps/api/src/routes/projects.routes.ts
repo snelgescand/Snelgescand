@@ -17,6 +17,11 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { berekenProject } from '../services/bereken.service.js';
 
+// Prisma Json-velden accepteren `unknown` data; we casten via `any` om de
+// fout-uitvoerige Prisma-types te omzeilen. Het rekenmodel valideert zelf
+// de inhoud van de state-objecten.
+type Json = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+
 const projectStateSchema = z.object({
   context: z.any(),       // ProjectContext — calc-core valideert ons niet, we vertrouwen JSONB
   gekozenMaatregelen: z.record(z.string(), z.any()),  // { [maatregelId]: input }
@@ -75,7 +80,7 @@ export default async function projectsRoutes(app: FastifyInstance) {
         clubNaam: parsed.data.clubNaam,
         postcode: parsed.data.postcode,
         huisnummer: parsed.data.huisnummer,
-        state: parsed.data.state,
+        state: parsed.data.state as Json,
       },
     });
 
@@ -106,11 +111,13 @@ export default async function projectsRoutes(app: FastifyInstance) {
 
     // Cache invalideren bij state-mutatie
     const cacheInvalid = parsed.data.state !== undefined;
+    const { state, ...overigeData } = parsed.data;
     const project = await prisma.project.update({
       where: { id },
       data: {
-        ...parsed.data,
-        ...(cacheInvalid ? { cachedResult: null, cachedAt: null } : {}),
+        ...overigeData,
+        ...(state !== undefined ? { state: state as Json } : {}),
+        ...(cacheInvalid ? { cachedResult: null as Json, cachedAt: null } : {}),
       },
     });
     return project;
@@ -157,8 +164,8 @@ export default async function projectsRoutes(app: FastifyInstance) {
     const updated = await prisma.project.update({
       where: { id },
       data: {
-        state: nieuweState as never,
-        cachedResult: null,
+        state: nieuweState as Json,
+        cachedResult: null as Json,
         cachedAt: null,
       },
       select: { id: true, state: true, updatedAt: true },
