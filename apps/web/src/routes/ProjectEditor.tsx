@@ -21,6 +21,8 @@ import { Footer } from '../components/Footer';
 import { AdresZoeker } from '../components/AdresZoeker';
 import { Luchtfoto } from '../components/Luchtfoto';
 import { FotoUpload, type ProjectFoto } from '../components/FotoUpload';
+import { LogoUpload, type ClubLogo } from '../components/LogoUpload';
+import { SaveIndicator } from '../components/SaveIndicator';
 import { InfoTooltip } from '../components/InfoTooltip';
 import { MaatregelDetail } from '../components/MaatregelDetail';
 import { HuidigeSituatie } from '../components/HuidigeSituatie';
@@ -31,6 +33,7 @@ import { EnergielabelKaart } from '../components/EnergielabelKaart';
 import { HistorischVerbruik } from '../components/HistorischVerbruik';
 import { berekenEnergielabel, berekenLabelNaMaatregelen, bepaalLabelSprong } from '../util/energielabel';
 import type { PdokAdres } from '../api/pdok';
+import { fetch3dBagHoogte } from '../api/pdok';
 import type { HuidigeSituatieData } from '../data/huidige-situatie';
 
 const API_BASE_FOR_BEACON = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
@@ -43,7 +46,19 @@ interface Locatie {
 interface ProjectState {
   context: {
     club?: { naam?: string };
-    gebouw?: { bouwjaar?: number; bvoTotaalM2?: number; plafondhoogteM?: number };
+    gebouw?: {
+      bouwjaar?: number;
+      bvoTotaalM2?: number;
+      plafondhoogteM?: number;
+      bouwhoogteM?: number;
+      // Excel-velden uit Rekenmodel inputsheet
+      typeSport?: string;
+      aantalVeldenBanen?: number;
+      aantalLeden?: number;
+      aantalKleedkamers?: number;
+      aantalDouchekoppen?: number;
+      eigendom?: string;
+    };
     energie?: {
       gasverbruikM3?: number;
       stroomverbruikTotaalKwh?: number;
@@ -55,6 +70,8 @@ interface ProjectState {
   };
   locatie?: Locatie;
   fotos?: ProjectFoto[];
+  /** Club-logo (PNG/JPG/SVG, base64) — komt in PowerPoint */
+  logo?: ClubLogo;
   huidigeSituatie?: HuidigeSituatieData;
   gekozenMaatregelen: Record<string, unknown>;
   fase?: 1 | 2;
@@ -195,6 +212,49 @@ export default function ProjectEditor() {
     }, 600);  // 600ms — vrijwel direct, maar voorkomt save bij elke toetsaanslag
   }
 
+  // Sync douches-analyse uit het trainingsschema — Bart wil niet 2x invullen.
+  // Wanneer trainingsSchema is ingevuld, wordt de douches-analyse-input automatisch
+  // afgeleid en in gekozenMaatregelen geplaatst (maar alleen als de gebruiker
+  // 'douches-analyse' heeft aangevinkt in stap 2).
+  useEffect(() => {
+    if (!draft) return;
+    const schema = draft.trainingsSchema;
+    if (!schema || schema.length === 0) return;
+    if (!('douches-analyse' in (draft.gekozenMaatregelen ?? {}))) return;
+
+    // Bouw douches-analyse input vanuit het schema
+    const dagenMap: Record<string, { training: number; wedstrijd: number }> = {};
+    for (const m of schema) {
+      const spelersO13 = (m.aantalTeamsOnder13 ?? 0) * 10;  // 10 sp/team
+      const spelersV13 = (m.aantalTeamsVanaf13 ?? 0) * 18;  // 18 sp/team
+      const douchesJeugd = spelersO13 * (m.type === 'wedstrijd' ? 0.50 : m.type === 'training' ? 0.25 : 0);
+      const douchesSen = spelersV13 * (m.type === 'wedstrijd' ? 1.00 : m.type === 'training' ? 0.95 : 0);
+      if (!dagenMap[m.dag]) dagenMap[m.dag] = { training: 0, wedstrijd: 0 };
+      if (m.type === 'training') {
+        dagenMap[m.dag].training += douchesJeugd + douchesSen;
+      } else if (m.type === 'wedstrijd') {
+        dagenMap[m.dag].wedstrijd += douchesJeugd + douchesSen;
+      }
+    }
+    const dagen = (['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'] as const)
+      .map(d => ({ dag: d, training: Math.round(dagenMap[d]?.training ?? 0), wedstrijd: Math.round(dagenMap[d]?.wedstrijd ?? 0) }));
+
+    const huidigeInput = draft.gekozenMaatregelen['douches-analyse'] as Record<string, unknown> | undefined;
+    const nieuweInput = {
+      ...(huidigeInput ?? {}),
+      modus: 'gedetailleerd',
+      dagen,
+      uitTrainingsSchema: true,  // markeer als auto-gevuld
+    };
+    // Alleen update als anders
+    if (JSON.stringify(huidigeInput?.dagen) !== JSON.stringify(dagen)) {
+      updateDraft(s => ({
+        ...s,
+        gekozenMaatregelen: { ...s.gekozenMaatregelen, 'douches-analyse': nieuweInput },
+      }));
+    }
+  }, [draft?.trainingsSchema, draft?.gekozenMaatregelen?.['douches-analyse'] ? 'aanwezig' : 'afwezig']);
+
   // Flush op unmount + tab-switch + browser-sluit
   useEffect(() => {
     function flushPending() {
@@ -231,7 +291,7 @@ export default function ProjectEditor() {
     };
   }, [id]);
 
-  function adresGekozen(adres: PdokAdres) {
+  async function adresGekozen(adres: PdokAdres) {
     if (!draft) return;
     const next: ProjectState = {
       ...draft,
@@ -254,6 +314,31 @@ export default function ProjectEditor() {
     pendingDraft.current = null;
     if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
     save.mutate(next);
+
+    // 3D BAG hoogte ophalen op de achtergrond (niet kritiek voor opslag)
+    if (adres.pandid) {
+      try {
+        const hoogte = await fetch3dBagHoogte(adres.pandid);
+        if (hoogte?.geschattePlafondhoogteM) {
+          const nextMetHoogte: ProjectState = {
+            ...next,
+            context: {
+              ...next.context,
+              gebouw: {
+                ...next.context.gebouw,
+                // Alleen plafondhoogte overschrijven als nog leeg (anders user-keuze respecteren)
+                plafondhoogteM: next.context.gebouw?.plafondhoogteM ?? hoogte.geschattePlafondhoogteM,
+                bouwhoogteM: hoogte.bouwhoogteM,
+              },
+            },
+          };
+          setDraft(nextMetHoogte);
+          save.mutate(nextMetHoogte);
+        }
+      } catch {
+        // Niet kritiek
+      }
+    }
   }
 
   function gaNaarFase(nieuweFase: 1 | 2) {
@@ -284,19 +369,16 @@ export default function ProjectEditor() {
       {/* Sticky sub-header met titel + actieknoppen */}
       <div className="bg-white/90 backdrop-blur border-b border-primary-100 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h1 className="text-xl font-bold text-primary-900">{draft.context.club?.naam || 'Nieuw project'}</h1>
-            <p className="text-xs flex items-center gap-1">
-              {save.isPending ? (
-                <span className="text-gray-500">⏳ Bezig met opslaan…</span>
-              ) : pendingDraft.current ? (
-                <span className="text-accent-orange">● Niet opgeslagen — wacht even</span>
-              ) : save.isSuccess || projectQuery.data?.updatedAt ? (
-                <span className="text-primary-700">✓ Alles opgeslagen</span>
-              ) : (
-                <span className="text-gray-500">Wijzig om automatisch op te slaan</span>
-              )}
-            </p>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-primary-900 truncate">{draft.context.club?.naam || 'Nieuw project'}</h1>
+            <SaveIndicator
+              status={
+                save.isPending ? 'saving' :
+                save.isError ? 'error' :
+                save.isSuccess ? 'saved' : 'idle'
+              }
+              laatsteFout={save.error instanceof Error ? save.error.message : undefined}
+            />
           </div>
           <div className="flex gap-2 flex-wrap">
             <button
@@ -413,22 +495,38 @@ interface Stap1Props {
 }
 
 function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCompleet }: Stap1Props) {
+  // Wordt 3D BAG-data getoond?
+  const bouwhoogte = draft.context.gebouw?.bouwhoogteM;
+  const trainAnalyse = (draft.trainingsSchema && draft.trainingsSchema.length > 0)
+    ? analyseSchema(draft.trainingsSchema) : null;
+
   return (
     <div className="grid lg:grid-cols-[3fr_2fr] gap-6">
       <div className="space-y-5">
-        <Sectie titel="Project">
-          <Veld label="Naam van de club of organisatie" tooltip="Komt op alle slides van het rapport.">
-            <input
-              className="input"
-              placeholder="Bijvoorbeeld: VV Oranje Boys"
-              value={draft.context.club?.naam ?? ''}
-              onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, club: { ...s.context.club, naam: e.target.value } } }))}
-            />
-          </Veld>
+
+        {/* 1. Identiteit van de club */}
+        <Sectie titel="1. Club">
+          <div className="space-y-3">
+            <Veld label="Naam van de club" tooltip="Komt op alle slides van het rapport en op het voorblad van de PowerPoint.">
+              <input
+                className="input"
+                placeholder="Bijvoorbeeld: VV Oranje Boys"
+                value={draft.context.club?.naam ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, club: { ...s.context.club, naam: e.target.value } } }))}
+              />
+            </Veld>
+            <Veld label="Logo (optioneel)" tooltip="PNG, JPG of SVG met transparante achtergrond komt het mooist uit in het rapport. Max 500 KB.">
+              <LogoUpload
+                logo={draft.logo}
+                onChange={(logo) => updateDraft(s => ({ ...s, logo }))}
+              />
+            </Veld>
+          </div>
         </Sectie>
 
-        <Sectie titel="Locatie">
-          <Veld label="Adres opzoeken" tooltip="Typ postcode + huisnummer of straatnaam + plaats. Bouwjaar en oppervlakte worden automatisch uit BAG opgehaald.">
+        {/* 2. Locatie — direct na club, vult bouwjaar/oppervlakte/hoogte */}
+        <Sectie titel="2. Locatie" tooltipTekst="Adres ophalen → BAG-bouwjaar, BVO en 3D-BAG-hoogte worden automatisch ingevuld.">
+          <Veld label="Adres opzoeken" tooltip="Typ postcode + huisnummer of straatnaam + plaats.">
             <AdresZoeker initieel={draft.locatie?.adres ?? ''} onAdresGekozen={adresGekozen} />
           </Veld>
           {draft.locatie?.adres && (
@@ -436,28 +534,93 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
           )}
         </Sectie>
 
-        <Sectie titel="Gebouw">
+        {/* 3. Gebouw — komt uit BAG, met 3D BAG hoogte */}
+        <Sectie titel="3. Gebouw" tooltipTekst="Velden zijn uit BAG/3D BAG voorgevuld. Controleer en pas aan indien nodig.">
           <div className="grid grid-cols-2 gap-3">
-            <Veld label="Bouwjaar" tooltip="Automatisch ingevuld uit BAG na adres-keuze. Overschrijfbaar.">
+            <Veld label="Bouwjaar" tooltip="Uit BAG na adres-keuze. Bepaalt de standaard Rc-waardes voor dak/gevel/vloer.">
               <input type="number" className="input" placeholder="bv. 1985"
                 value={draft.context.gebouw?.bouwjaar ?? ''}
                 onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, bouwjaar: e.target.value ? Number(e.target.value) : undefined } } }))} />
             </Veld>
-            <Veld label="BVO (m²)" tooltip="Bruto vloeroppervlak. Uit BAG; controleer of het echt het clubhuis is.">
+            <Veld label="Bruto vloeroppervlak (m²)" tooltip="BVO uit BAG. Controleer of dit het clubhuis is, niet eventuele bijgebouwen.">
               <input type="number" className="input" placeholder="bv. 450"
                 value={draft.context.gebouw?.bvoTotaalM2 ?? ''}
                 onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, bvoTotaalM2: e.target.value ? Number(e.target.value) : undefined } } }))} />
             </Veld>
           </div>
-          <Veld label="Plafondhoogte (m)" tooltip="Gemiddelde vrije hoogte. Niet uit BAG — zelf meten of schatten (typisch 2,7-3,5m).">
+          <Veld
+            label="Plafondhoogte (m)"
+            tooltip="Vrije binnenhoogte. Wordt geschat uit 3D BAG na adres-keuze; pas aan voor jouw situatie."
+          >
             <input type="number" step="0.1" className="input" placeholder="bv. 3,0"
               value={draft.context.gebouw?.plafondhoogteM ?? ''}
               onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, plafondhoogteM: e.target.value ? Number(e.target.value) : undefined } } }))} />
+            {bouwhoogte && (
+              <p className="text-xs text-gray-500 mt-1">
+                📐 Bouwhoogte uit 3D BAG: <strong>{bouwhoogte.toFixed(1)} m</strong>
+                {draft.context.gebouw?.plafondhoogteM && (
+                  <span className="text-gray-400"> · geschat plafondhoogte op {((bouwhoogte - 0.5) / Math.max(1, Math.round(bouwhoogte/3))).toFixed(1)} m bij {Math.max(1, Math.round(bouwhoogte/3))} verdieping(en)</span>
+                )}
+              </p>
+            )}
           </Veld>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3 pt-3 border-t border-gray-100">
+            <Veld label="Type sportvereniging" tooltip="Heeft invloed op aanbevelingen (bv. teamsporten = douche-intensief; tennis = minder).">
+              <select
+                className="input"
+                value={(draft.context.gebouw?.typeSport as string) ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, typeSport: e.target.value || undefined } } }))}
+              >
+                <option value="">— kies —</option>
+                <option value="voetbal">Voetbal</option>
+                <option value="hockey">Hockey</option>
+                <option value="korfbal">Korfbal</option>
+                <option value="rugby">Rugby</option>
+                <option value="tennis">Tennis</option>
+                <option value="atletiek">Atletiek</option>
+                <option value="multisport">Multisport</option>
+                <option value="overig">Overig</option>
+              </select>
+            </Veld>
+            <Veld label="Aantal velden/banen" tooltip="Voor sportaccommodaties met buitenverlichting. Beïnvloedt aanbeveling LED-veldverlichting.">
+              <input type="number" className="input" placeholder="bv. 4"
+                value={draft.context.gebouw?.aantalVeldenBanen ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, aantalVeldenBanen: e.target.value ? Number(e.target.value) : undefined } } }))} />
+            </Veld>
+            <Veld label="Aantal leden" tooltip="Voor algemene inschatting (warmwatervraag, kantine-gebruik).">
+              <input type="number" className="input" placeholder="bv. 350"
+                value={draft.context.gebouw?.aantalLeden ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, aantalLeden: e.target.value ? Number(e.target.value) : undefined } } }))} />
+            </Veld>
+            <Veld label="Aantal kleedkamers" tooltip="Voor de gas-verdeling kleedkamers vs. kantine vs. overige ruimtes.">
+              <input type="number" className="input" placeholder="bv. 8"
+                value={draft.context.gebouw?.aantalKleedkamers ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, aantalKleedkamers: e.target.value ? Number(e.target.value) : undefined } } }))} />
+            </Veld>
+            <Veld label="Aantal douchekoppen" tooltip="Belangrijk voor boiler-dimensionering (warmtepompboiler, e-boiler).">
+              <input type="number" className="input" placeholder="bv. 24"
+                value={draft.context.gebouw?.aantalDouchekoppen ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, aantalDouchekoppen: e.target.value ? Number(e.target.value) : undefined } } }))} />
+            </Veld>
+            <Veld label="Eigendom" tooltip="DUMAVA-subsidie vereist eigen accommodatie. Bij huur: ga via de gemeente.">
+              <select
+                className="input"
+                value={(draft.context.gebouw?.eigendom as string) ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, eigendom: e.target.value || undefined } } }))}
+              >
+                <option value="">— kies —</option>
+                <option value="eigen">Eigen accommodatie</option>
+                <option value="huur-gemeente">Huur van gemeente</option>
+                <option value="huur-overig">Huur overig</option>
+              </select>
+            </Veld>
+          </div>
         </Sectie>
 
+        {/* 4. Energieverbruik — VEREIST */}
         <Sectie
-          titel={`Energieverbruik ${energieCompleet ? '✓' : '(vereist)'}`}
+          titel={`4. Energieverbruik ${energieCompleet ? '✓' : '(vereist)'}`}
           tooltipTekst="Vul ofwel het laatste jaar in, ofwel de afgelopen 3 jaar voor een betrouwbaarder gemiddelde. Te vinden op de jaarafrekening of via Mijn Energieleverancier."
           accent={!energieCompleet}
         >
@@ -467,28 +630,28 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
           />
 
           <div className="grid grid-cols-2 gap-3 mt-4">
-            <Veld label="Gasprijs (€/m³)" tooltip="Werkelijke prijs incl. BTW + heffingen. Klik 'Actueel' om CBS-gemiddelde te gebruiken.">
+            <Veld label="Gasprijs (€/m³)" tooltip="Werkelijke prijs incl. BTW + heffingen. Klik 'Actueel' voor CBS-gemiddelde 2025.">
               <div className="flex gap-1">
-                <input type="number" step="0.01" className="input flex-1" placeholder="bv. 1,35"
+                <input type="number" step="0.01" className="input flex-1 min-w-0" placeholder="bv. 1,35"
                   value={draft.context.energie?.gasprijsPerM3 ?? ''}
                   onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, gasprijsPerM3: e.target.value ? Number(e.target.value) : undefined } } }))} />
                 <button type="button"
                   onClick={() => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, gasprijsPerM3: 1.35 } } }))}
-                  className="px-2 text-xs text-primary-700 hover:bg-primary-50 rounded border border-primary-200"
-                  title="Vul CBS-gemiddelde 2025 in (~€1,35)">
+                  className="shrink-0 px-2 text-xs text-primary-700 hover:bg-primary-50 rounded border border-primary-200"
+                  title="Vul CBS-gemiddelde 2025 in (€1,35)">
                   Actueel
                 </button>
               </div>
             </Veld>
-            <Veld label="Stroomprijs (€/kWh)" tooltip="Kale stroomprijs (zonder energiebelasting/netbeheer). Klik 'Actueel' om CBS-gemiddelde te gebruiken.">
+            <Veld label="Stroomprijs (€/kWh)" tooltip="Kale stroomprijs zonder energiebelasting/netbeheer. Klik 'Actueel' voor CBS-gemiddelde 2025.">
               <div className="flex gap-1">
-                <input type="number" step="0.01" className="input flex-1" placeholder="bv. 0,30"
+                <input type="number" step="0.01" className="input flex-1 min-w-0" placeholder="bv. 0,30"
                   value={draft.context.energie?.stroomprijsKaalPerKwh ?? ''}
                   onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, stroomprijsKaalPerKwh: e.target.value ? Number(e.target.value) : undefined } } }))} />
                 <button type="button"
                   onClick={() => updateDraft(s => ({ ...s, context: { ...s.context, energie: { ...s.context.energie, stroomprijsKaalPerKwh: 0.30 } } }))}
-                  className="px-2 text-xs text-primary-700 hover:bg-primary-50 rounded border border-primary-200"
-                  title="Vul CBS-gemiddelde 2025 in (~€0,30)">
+                  className="shrink-0 px-2 text-xs text-primary-700 hover:bg-primary-50 rounded border border-primary-200"
+                  title="Vul CBS-gemiddelde 2025 in (€0,30)">
                   Actueel
                 </button>
               </div>
@@ -496,14 +659,16 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
           </div>
         </Sectie>
 
-        <Sectie titel="Huidige situatie" tooltipTekst="Inventarisatie wat er al is en wat verbeterd kan worden. Beïnvloedt direct welke maatregelen in stap 2 worden aanbevolen.">
+        {/* 5. Huidige situatie — inventarisatie */}
+        <Sectie titel="5. Huidige situatie" tooltipTekst="Inventariseer wat er al is en wat verbeterd kan worden. Beïnvloedt direct welke maatregelen in stap 2 worden aanbevolen.">
           <HuidigeSituatie
             data={draft.huidigeSituatie ?? {}}
             onChange={(data) => updateDraft(s => ({ ...s, huidigeSituatie: data }))}
           />
         </Sectie>
 
-        <Sectie titel="Trainingsschema (optioneel)" tooltipTekst="Voeg trainings- en wedstrijdmomenten toe. Hoe vollediger, hoe nauwkeuriger de gas/water-verdeling in stap 2.">
+        {/* 6. Trainingsschema — bepaalt gas/water-verdeling */}
+        <Sectie titel="6. Trainingsschema" tooltipTekst="Aantal voetbalteams per moment. Bepaalt gas/water-verdeling (kantine vs. douches) in stap 2. Hoe vollediger, hoe nauwkeuriger.">
           <TrainingsSchemaInvoer
             schema={draft.trainingsSchema ?? []}
             onChange={(s) => updateDraft(d => ({ ...d, trainingsSchema: s }))}
@@ -512,15 +677,15 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
 
         {/* CTA naar stap 2 */}
         <div className="card p-4 bg-primary-50/60 border-primary-200 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-primary-900">Klaar met invoer?</p>
-            <p className="text-xs text-gray-600">Ga door naar stap 2 voor de voorgestelde maatregelen.</p>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-primary-900">Klaar met de invoer?</p>
+            <p className="text-xs text-gray-600">Stap 2 toont de aanbevolen maatregelen en businesscase.</p>
           </div>
           <button
             onClick={onNaarStap2}
             disabled={!energieCompleet}
-            className="btn-accent"
-            title={!energieCompleet ? 'Vul eerst de 4 energievelden' : 'Door naar maatregelen'}
+            className="btn-accent shrink-0"
+            title={!energieCompleet ? 'Vul eerst gas, stroom, gasprijs en stroomprijs in' : 'Door naar maatregelen'}
           >
             Naar maatregelen →
           </button>
@@ -528,7 +693,8 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
       </div>
 
       <div className="space-y-5">
-        <Sectie titel="Luchtfoto" tooltipTekst="Bron: Kadaster luchtfoto. Bekijk het dak voor PV-potentieel, oriëntatie en bestaande panelen.">
+        {/* Visueel: luchtfoto van het clubhuis */}
+        <Sectie titel="Luchtfoto" tooltipTekst="Bron: Kadaster luchtfoto. Bekijk het dak voor PV-potentieel, oriëntatie en bestaande zonnepanelen.">
           <Luchtfoto
             rdX={draft.locatie?.rd_x ?? 0}
             rdY={draft.locatie?.rd_y ?? 0}
@@ -538,12 +704,27 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
           />
         </Sectie>
 
-        <Sectie titel="Foto's" tooltipTekst="Voeg foto's van de scan toe. Max 10 per project.">
+        {/* Foto's: pas relevant later, dus in zijbalk */}
+        <Sectie titel="Foto's" tooltipTekst="Foto's van het clubhuis, dak, ketel, ledverlichting etc. Max 10 per project; verschijnen ook in het rapport.">
           <FotoUpload
             fotos={draft.fotos ?? []}
             onChange={(fotos) => updateDraft(s => ({ ...s, fotos }))}
           />
         </Sectie>
+
+        {/* Live samenvatting van trainingsschema */}
+        {trainAnalyse && trainAnalyse.totaalDoucheBeurtenPerWeek > 0 && (
+          <Sectie titel="Schema-overzicht">
+            <div className="text-xs text-gray-700 space-y-1">
+              <p><strong>{trainAnalyse.totaalDoucheBeurtenPerWeek}</strong> douche-beurten per week</p>
+              <p>≈ <strong>{(trainAnalyse.totaalLitersPerWeek / 1000).toFixed(1)} m³</strong> warm water per week</p>
+              <p>{trainAnalyse.urenPerWeek} uur gebruik per week, ≈ {trainAnalyse.totaalPersonenPerWeek} persoon-bezoeken</p>
+              <p className="text-gray-500 text-[10px] pt-1">
+                Jeugd: {trainAnalyse.doucheBeurtenJeugdPerWeek} · Senioren: {trainAnalyse.doucheBeurtenSeniorenPerWeek}
+              </p>
+            </div>
+          </Sectie>
+        )}
       </div>
     </div>
   );
@@ -792,46 +973,34 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
 
 const DAGEN_VOLGORDE = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'] as const;
 const LITERS_PER_DOUCHE = 35;
+const SPELERS_PER_TEAM = { onder13: 10, vanaf13: 18 };
 
-// Douche-percentage o.b.v. leeftijd en dag (uit Excel Rekenmodel)
-function douchePct(leeftijd: 'onder13' | 'vanaf13', dag: string): number {
-  if (leeftijd === 'onder13') {
-    if (dag === 'zaterdag') return 0.50;
-    if (dag === 'zondag') return 1.00;
-    return 0.25;
-  }
-  if (dag === 'zaterdag' || dag === 'zondag') return 1.00;
-  return 0.95;
+// Douche-percentage o.b.v. leeftijd, type activiteit en dag (uit Excel Rekenmodel)
+function douchePct(leeftijd: 'onder13' | 'vanaf13', type: string, _dag: string): number {
+  if (type === 'sociaal') return 0;
+  const isWedstrijd = type === 'wedstrijd';
+  if (leeftijd === 'onder13') return isWedstrijd ? 0.50 : 0.25;
+  return isWedstrijd ? 1.00 : 0.95;
 }
 
 function bouwWaterverbruikData(draft: ProjectState) {
   const schema = draft.trainingsSchema;
   if (schema && schema.length > 0) {
-    const perDag: Record<string, { jeugdL: number; volwassenL: number }> = {};
+    const perDag: Record<string, { jeugdL: number; senL: number }> = {};
     for (const m of schema) {
-      if (!m.metDouche) continue;
-      if (!perDag[m.dag]) perDag[m.dag] = { jeugdL: 0, volwassenL: 0 };
-      const o13 = m.aantalOnder13 ?? 0;
-      const v13 = m.aantalVanaf13 ?? 0;
-      perDag[m.dag].jeugdL += o13 * douchePct('onder13', m.dag) * LITERS_PER_DOUCHE;
-      perDag[m.dag].volwassenL += v13 * douchePct('vanaf13', m.dag) * LITERS_PER_DOUCHE;
+      if (!perDag[m.dag]) perDag[m.dag] = { jeugdL: 0, senL: 0 };
+      const spelersO13 = (m.aantalTeamsOnder13 ?? 0) * SPELERS_PER_TEAM.onder13;
+      const spelersV13 = (m.aantalTeamsVanaf13 ?? 0) * SPELERS_PER_TEAM.vanaf13;
+      perDag[m.dag].jeugdL += spelersO13 * douchePct('onder13', m.type, m.dag) * LITERS_PER_DOUCHE;
+      perDag[m.dag].senL += spelersV13 * douchePct('vanaf13', m.type, m.dag) * LITERS_PER_DOUCHE;
     }
     return DAGEN_VOLGORDE.filter(d => perDag[d]).map(d => ({
       dag: d,
       trainingL: Math.round(perDag[d].jeugdL),
-      wedstrijdL: Math.round(perDag[d].volwassenL),
+      wedstrijdL: Math.round(perDag[d].senL),
     }));
   }
-  // Fallback: douches-analyse module input
-  const douches = draft.gekozenMaatregelen['douches-analyse'] as Record<string, unknown> | undefined;
-  if (!douches || douches.modus !== 'gedetailleerd') return [];
-  const dagen = douches.dagen as Array<{ dag: string; training: number; wedstrijd: number }> | undefined;
-  if (!dagen) return [];
-  return dagen.map(d => ({
-    dag: d.dag,
-    trainingL: (d.training ?? 0) * LITERS_PER_DOUCHE,
-    wedstrijdL: (d.wedstrijd ?? 0) * LITERS_PER_DOUCHE,
-  }));
+  return [];
 }
 
 /** Waterverbruik per uur-van-de-dag (0–23), met leeftijdsspecifiek douche-percentage */
@@ -839,10 +1008,9 @@ function bouwWaterPerUurData(schema?: TrainingsSchema) {
   if (!schema || schema.length === 0) return [];
   const perUur: number[] = new Array(24).fill(0);
   for (const m of schema) {
-    if (!m.metDouche) continue;
-    const o13 = (m.aantalOnder13 ?? 0) * douchePct('onder13', m.dag);
-    const v13 = (m.aantalVanaf13 ?? 0) * douchePct('vanaf13', m.dag);
-    const liters = (o13 + v13) * LITERS_PER_DOUCHE;
+    const spelersO13 = (m.aantalTeamsOnder13 ?? 0) * SPELERS_PER_TEAM.onder13 * douchePct('onder13', m.type, m.dag);
+    const spelersV13 = (m.aantalTeamsVanaf13 ?? 0) * SPELERS_PER_TEAM.vanaf13 * douchePct('vanaf13', m.type, m.dag);
+    const liters = (spelersO13 + spelersV13) * LITERS_PER_DOUCHE;
     const startU = parseInt(m.startTijd.split(':')[0] ?? '0', 10);
     const eindU = parseInt(m.eindTijd.split(':')[0] ?? '0', 10);
     const laatste = Math.max(startU, eindU - 1);
@@ -880,7 +1048,7 @@ function bouwEnergiebalansData(draft: ProjectState) {
   if (schema && schema.length > 0) {
     const analyse = analyseSchema(schema);
     // Tapwater-gas: 2 m³ per 10 doucheboeben (HR-ketel ~80% rend), per week × 52
-    const tapwaterM3PerJaar = (analyse.doucheBeurtenPerWeek * 0.2) * 52;
+    const tapwaterM3PerJaar = (analyse.totaalDoucheBeurtenPerWeek * 0.2) * 52;
     // Ruimteverwarming-gas: rest minus 10% overig
     const tapwaterShare = Math.min(0.6, tapwaterM3PerJaar / gas);
     const overigShare = 0.10;

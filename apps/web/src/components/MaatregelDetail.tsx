@@ -60,7 +60,37 @@ export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, o
           {maatregelId === 'glasisolatie' && (
             <GlasSegmenten input={input} onChange={onChange} />
           )}
-          {maatregelId === 'douches-analyse' && (
+          {maatregelId === 'douches-analyse' && input.uitTrainingsSchema ? (
+            <div className="bg-primary-50/60 border border-primary-200 rounded-md p-3 text-sm space-y-1">
+              <p className="font-medium text-primary-900">
+                ✓ Automatisch ingevuld uit het trainingsschema (stap 1)
+              </p>
+              <p className="text-gray-700 text-xs">
+                De douche-beurten per dag zijn berekend uit teams × spelers × douche-%. Wijzig het trainingsschema
+                in stap 1 om deze waardes aan te passen.
+              </p>
+              {(input.dagen as Array<{ dag: string; training: number; wedstrijd: number }> | undefined) && (
+                <table className="w-full text-xs mt-2">
+                  <thead>
+                    <tr className="border-b border-primary-200">
+                      <th className="text-left py-1 text-gray-600">Dag</th>
+                      <th className="text-right py-1 text-gray-600">Training</th>
+                      <th className="text-right py-1 text-gray-600">Wedstrijd</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(input.dagen as Array<{ dag: string; training: number; wedstrijd: number }>).map(d => (
+                      <tr key={d.dag} className="border-b border-primary-100/40">
+                        <td className="py-1 capitalize text-gray-700">{d.dag}</td>
+                        <td className="text-right py-1 text-gray-900">{d.training}</td>
+                        <td className="text-right py-1 text-gray-900">{d.wedstrijd}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          ) : maatregelId === 'douches-analyse' && (
             <DouchesSegmenten input={input} onChange={onChange} />
           )}
 

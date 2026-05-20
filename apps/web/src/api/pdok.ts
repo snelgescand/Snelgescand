@@ -139,3 +139,73 @@ export function luchtfotoUrl(rdX: number, rdY: number, breedteMeter = 50, pixelB
 
   return `https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0?${params.toString()}`;
 }
+
+/**
+ * Haal 3D BAG-hoogtegegevens op voor een pand.
+ *
+ * Bron: 3DBAG REST API (TU Delft, gratis open data).
+ * Endpoint: https://api.3dbag.nl/collections/pand/items/NL.IMBAG.Pand.{pandid}
+ *
+ * Retourneert hoogte tot mediane dakhoogte (b3_h_dak_50p) en max dakhoogte,
+ * en een geschatte plafondhoogte (gebouwhoogte - 0,5 m dak-marge,
+ * gedeeld door aantal verdiepingen — voor sportclubhuis meestal 1).
+ */
+export interface Bag3dHoogte {
+  /** Maaiveld-hoogte t.o.v. NAP (m) */
+  hMaaiveld?: number;
+  /** Mediane dakhoogte t.o.v. NAP (m) */
+  hDakMediaan?: number;
+  /** Maximale dakhoogte t.o.v. NAP (m) — nokhoogte */
+  hDakMax?: number;
+  /** Berekende bouwhoogte (dak - maaiveld), in meter */
+  bouwhoogteM?: number;
+  /** Geschatte plafondhoogte voor 1-verdieping clubhuis (bouwhoogte - 0,5 m dak) */
+  geschattePlafondhoogteM?: number;
+  /** Aantal verdiepingen (heuristiek: bouwhoogte / 3) */
+  geschatteVerdiepingen?: number;
+}
+
+export async function fetch3dBagHoogte(pandid: string): Promise<Bag3dHoogte | null> {
+  if (!pandid) return null;
+  // 3D BAG ID-format: NL.IMBAG.Pand.{pandid}
+  const formattedId = pandid.startsWith('NL.IMBAG.Pand.') ? pandid : `NL.IMBAG.Pand.${pandid}`;
+  const url = `https://api.3dbag.nl/collections/pand/items/${encodeURIComponent(formattedId)}`;
+
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    // CityJSONFeature structuur — attributen zitten op city_objects niveau
+    const feature = data?.feature ?? data?.features?.[0] ?? data;
+    const cityObjects = feature?.CityObjects ?? {};
+    const firstObj = Object.values(cityObjects)[0] as { attributes?: Record<string, number> } | undefined;
+    const attr = firstObj?.attributes ?? {};
+
+    const hMaaiveld = attr.h_maaiveld;
+    // Mediane dakhoogte: b3_h_dak_50p, max: b3_h_dak_max (oude naam: b3_h_dak_70p ook mogelijk)
+    const hDakMediaan = attr.b3_h_dak_50p ?? attr['b3_h_dak_50p'];
+    const hDakMax = attr.b3_h_dak_max ?? attr['b3_h_dak_max'] ?? attr.b3_h_dak_70p;
+
+    if (typeof hMaaiveld !== 'number' || typeof hDakMediaan !== 'number') {
+      return { hMaaiveld, hDakMediaan, hDakMax };
+    }
+
+    const bouwhoogte = Math.max(0, hDakMediaan - hMaaiveld);
+    // Heuristiek: typische verdiepingshoogte 3 m, plafond = bouwhoogte - 0,5m dak
+    const verdiepingen = Math.max(1, Math.round(bouwhoogte / 3));
+    const plafondPerVerdieping = Math.max(2.2, (bouwhoogte - 0.5) / verdiepingen);
+
+    return {
+      hMaaiveld,
+      hDakMediaan,
+      hDakMax,
+      bouwhoogteM: Math.round(bouwhoogte * 10) / 10,
+      geschattePlafondhoogteM: Math.round(plafondPerVerdieping * 10) / 10,
+      geschatteVerdiepingen: verdiepingen,
+    };
+  } catch (e) {
+    console.warn('3D BAG fetch mislukt:', e);
+    return null;
+  }
+}

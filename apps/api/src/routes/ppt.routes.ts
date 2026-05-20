@@ -35,25 +35,38 @@ export default async function pptRoutes(app: FastifyInstance) {
     });
     if (!project) return reply.code(404).send({ error: 'Niet gevonden' });
 
-    let berekend;
-    try {
-      berekend = berekenProject(project.state as unknown);
-    } catch (err: unknown) {
-      if (err instanceof BerekenValidatieFout) {
+    let berekend: any;
+    const state = project.state as Record<string, unknown>;
+
+    // 1. Voorkeur: gebruik het door de frontend opgeslagen berekendResultaat.
+    //    Dit voorkomt dat we calc-core opnieuw moeten draaien (en daar potentieel op crashen).
+    if (state.berekendResultaat && typeof state.berekendResultaat === 'object') {
+      const cached = state.berekendResultaat as Record<string, unknown>;
+      if (cached.rollup && cached.perMaatregel) {
+        berekend = cached;
+      }
+    }
+
+    // 2. Geen cached: probeer opnieuw te berekenen op de backend (fallback).
+    if (!berekend) {
+      try {
+        berekend = berekenProject(state);
+      } catch (err: unknown) {
+        if (err instanceof BerekenValidatieFout) {
+          return reply.code(400).send({
+            error: 'Vul eerst alle vereiste velden in voordat je exporteert',
+            message: err.message,
+          });
+        }
+        app.log.error({ err, projectId: id }, 'PPT bereken-stap mislukt');
         return reply.code(400).send({
-          error: 'Vul eerst alle vereiste velden in voordat je exporteert',
-          message: err.message,
+          error: 'Geen berekening beschikbaar — klik eerst op Bereken in de UI',
+          message: err instanceof Error ? err.message : String(err),
         });
       }
-      app.log.error({ err, projectId: id }, 'PPT bereken-stap mislukt');
-      return reply.code(500).send({
-        error: 'Berekening voor PPT mislukt',
-        message: err instanceof Error ? err.message : String(err),
-      });
     }
 
     try {
-      const state = project.state as Record<string, unknown>;
       const buffer = await maakPresentatie({
         clubNaam: project.clubNaam,
         state,
@@ -104,12 +117,27 @@ async function maakPresentatie({ clubNaam, state, berekend }: PresentatieInput):
   const locatie = (state.locatie as Record<string, unknown> | undefined) ?? {};
   const huidigeSituatie = (state.huidigeSituatie as Record<string, { status: string; notitie?: string }> | undefined) ?? {};
   const gekozen = (state.gekozenMaatregelen as Record<string, Record<string, unknown>> | undefined) ?? {};
+  const logo = state.logo as { dataUrl?: string; bestandsnaam?: string } | undefined;
 
   // ============ Slide 1: Voorblad ============
   const s1 = pres.addSlide();
   s1.background = { color: ONN_CREME };
-  s1.addText('Verduurzamingsplan', { x: 0.5, y: 0.5, w: 12, h: 0.6, fontSize: 18, color: ONN_GRIJS });
-  s1.addText(clubNaam, { x: 0.5, y: 1.2, w: 12, h: 1.5, fontSize: 54, bold: true, color: ONN_TEAL });
+
+  // Clublogo rechtsboven (indien aanwezig)
+  if (logo?.dataUrl) {
+    try {
+      s1.addImage({
+        data: logo.dataUrl,
+        x: 10.5, y: 0.5, w: 2.2, h: 2.2,
+        sizing: { type: 'contain', w: 2.2, h: 2.2 },
+      });
+    } catch {
+      // logo-formaat ongeldig — slide gewoon zonder logo doorgaan
+    }
+  }
+
+  s1.addText('Verduurzamingsplan', { x: 0.5, y: 0.5, w: 9.5, h: 0.6, fontSize: 18, color: ONN_GRIJS });
+  s1.addText(clubNaam, { x: 0.5, y: 1.2, w: 9.5, h: 1.5, fontSize: 54, bold: true, color: ONN_TEAL });
   if (locatie.adres) {
     s1.addText(String(locatie.adres), { x: 0.5, y: 2.6, w: 12, h: 0.4, fontSize: 14, color: ONN_DONKER });
   }
@@ -288,8 +316,13 @@ async function maakPresentatie({ clubNaam, state, berekend }: PresentatieInput):
   sEinde.addText('Rapport gegenereerd door Snelgescand.nl · Website: Bart Cornelissen',
     { x: 0.5, y: 7.0, w: 12, h: 0.3, fontSize: 10, color: ONN_GRIJS });
 
-  const data = (await pres.write({ outputType: 'nodebuffer' })) as Buffer;
-  return data;
+  // pptxgenjs kan in verschillende contexts verschillende types retourneren —
+  // we accepteren Buffer, Uint8Array of base64-string en normaliseren naar Buffer.
+  const raw = await pres.write({ outputType: 'nodebuffer' });
+  if (Buffer.isBuffer(raw)) return raw;
+  if (raw instanceof Uint8Array) return Buffer.from(raw);
+  if (typeof raw === 'string') return Buffer.from(raw, 'base64');
+  throw new Error(`Onverwacht PPT-buffertype: ${typeof raw}`);
 }
 
 function addSlideHeader(slide: PptxGenJS.Slide, titel: string) {

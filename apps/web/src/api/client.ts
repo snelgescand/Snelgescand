@@ -91,9 +91,15 @@ export const projectsApi = {
     if (!res.ok) {
       let body: { error?: string; message?: string } = {};
       try { body = await res.json(); } catch { /* ignore */ }
-      throw new ApiError(res.status, body.error ?? `${res.status} ${res.statusText}`, body);
+      // Toon zowel error als message indien beschikbaar, voor diagnostiek
+      const fullMessage = [body.error, body.message].filter(Boolean).join(' — ')
+        || `${res.status} ${res.statusText}`;
+      throw new ApiError(res.status, fullMessage, body);
     }
     const blob = await res.blob();
+    if (blob.size === 0) {
+      throw new ApiError(500, 'Lege PowerPoint-respons ontvangen (0 bytes)');
+    }
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = blobUrl;

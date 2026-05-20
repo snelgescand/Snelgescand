@@ -20,7 +20,7 @@ import { berekenProject } from '../services/bereken.service.js';
 const projectStateSchema = z.object({
   context: z.any(),       // ProjectContext — calc-core valideert ons niet, we vertrouwen JSONB
   gekozenMaatregelen: z.record(z.string(), z.any()),  // { [maatregelId]: input }
-});
+}).passthrough();  // ⚠️ KRITIEK: laat overige velden door (locatie, huidigeSituatie, trainingsSchema, fotos, fase, berekendResultaat, logo)
 
 const createProjectSchema = z.object({
   clubNaam: z.string().min(1).max(200),
