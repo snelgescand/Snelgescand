@@ -15,6 +15,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { projectsApi, modulesApi, ApiError } from '../api/client';
+import { berekenLokaal, BerekenValidatieFout } from '../util/lokaal-bereken';
 import { AppHeader } from '../components/AppHeader';
 import { Footer } from '../components/Footer';
 import { AdresZoeker } from '../components/AdresZoeker';
@@ -46,6 +47,8 @@ interface ProjectState {
   huidigeSituatie?: HuidigeSituatieData;
   gekozenMaatregelen: Record<string, unknown>;
   fase?: 1 | 2;
+  /** Opgeslagen lokaal berekend resultaat — zodat backend het ook heeft voor PPT */
+  berekendResultaat?: Record<string, unknown>;
 }
 
 const LEGE_STATE: ProjectState = {
@@ -120,21 +123,36 @@ export default function ProjectEditor() {
     },
   });
 
+  // Lokale berekening — gebruikt calc-core direct in de browser, geen
+  // afhankelijkheid van backend-deploy. Het resultaat wordt in de project-state
+  // gesaved zodat de backend het kan gebruiken voor PPT-export.
+  const [lokaalResultaat, setLokaalResultaat] = useState<ReturnType<typeof berekenLokaal> | null>(null);
+
   const bereken = useMutation({
-    mutationFn: async () => {
-      if (draft) await save.mutateAsync(draft);
-      return projectsApi.bereken(id!);
+    mutationFn: async (): Promise<ReturnType<typeof berekenLokaal>> => {
+      if (!draft) throw new Error('Geen project geladen');
+      // Eerst opslaan zodat de backend de laatste state heeft (voor PPT)
+      await save.mutateAsync(draft);
+      // Reken LOKAAL — werkt onafhankelijk van backend versie
+      const r = berekenLokaal(draft);
+      // Save het resultaat ook naar backend (in state.berekendResultaat),
+      // zodat de PPT-route het kan gebruiken zonder zelf te rekenen
+      const nextWithResult: ProjectState = {
+        ...draft,
+        berekendResultaat: r as unknown as Record<string, unknown>,
+      };
+      await save.mutateAsync(nextWithResult);
+      return r;
     },
-    onSuccess: () => {
+    onSuccess: (r) => {
       setBerekenFout(null);
-      qc.invalidateQueries({ queryKey: ['project', id] });
+      setLokaalResultaat(r);
     },
     onError: (err: unknown) => {
-      if (err instanceof ApiError) {
-        const detail = (err.details as { message?: string; ontbrekendeVelden?: string[] })?.message;
-        setBerekenFout(err.message + (detail ? ` — ${detail}` : ''));
-      } else if (err instanceof Error) {
+      if (err instanceof BerekenValidatieFout) {
         setBerekenFout(err.message);
+      } else if (err instanceof Error) {
+        setBerekenFout('Berekening mislukt: ' + err.message);
       } else {
         setBerekenFout('Berekening mislukt — onbekende fout');
       }
@@ -233,7 +251,9 @@ export default function ProjectEditor() {
   const energieCompleet = ['gasverbruikM3', 'stroomverbruikTotaalKwh', 'gasprijsPerM3', 'stroomprijsKaalPerKwh']
     .every(k => typeof (energie as Record<string, unknown>)[k] === 'number' && (energie as Record<string, number>)[k] > 0);
   const kanBerekenen = energieCompleet && Object.keys(draft.gekozenMaatregelen).length > 0;
-  const cached = projectQuery.data?.cachedResult;
+  // Resultaat komt eerst uit lokale berekening (zojuist gedaan), anders uit
+  // opgeslagen state (oude berekening die met het project mee is geladen).
+  const cached = lokaalResultaat ?? (draft.berekendResultaat as ReturnType<typeof berekenLokaal> | undefined) ?? projectQuery.data?.cachedResult;
 
   return (
     <div className="min-h-screen pb-12">
@@ -564,6 +584,7 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
                     maatregelId={modId}
                     maatregelNaam={mod?.naam ?? modId}
                     input={draft.gekozenMaatregelen[modId] as Record<string, unknown> ?? {}}
+                    bouwjaar={draft.context.gebouw?.bouwjaar}
                     onChange={(input) => updateDraft(s => ({ ...s, gekozenMaatregelen: { ...s.gekozenMaatregelen, [modId]: input } }))}
                     onRemove={() => updateDraft(s => {
                       const next = { ...s.gekozenMaatregelen };

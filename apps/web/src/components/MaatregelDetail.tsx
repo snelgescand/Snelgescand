@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react';
+import { rcDefault } from '@sportief-opgewekt/calc-core';
 import { InfoTooltip } from './InfoTooltip';
 import { MAATREGEL_META, GLAS_OPTIES, DAG_NAMEN, type VeldDef } from '../data/maatregel-velden';
 
@@ -16,9 +17,18 @@ interface MaatregelDetailProps {
   input: Record<string, unknown>;
   onChange: (input: Record<string, unknown>) => void;
   onRemove: () => void;
+  /** Bouwjaar uit project — gebruikt om Rc-waardes te suggereren */
+  bouwjaar?: number;
 }
 
-export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove }: MaatregelDetailProps) {
+// Maatregel-ID → welke constructie-deel voor rcDefault lookup
+const RC_DEEL: Record<string, 'dak' | 'gevel' | 'vloer'> = {
+  'dakisolatie': 'dak',
+  'spouwmuurisolatie': 'gevel',
+  'vloerisolatie': 'vloer',
+};
+
+export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove, bouwjaar }: MaatregelDetailProps) {
   const [open, setOpen] = useState(false);
   const meta = MAATREGEL_META[maatregelId];
 
@@ -55,14 +65,24 @@ export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, o
           )}
 
           {/* Standaard velden */}
-          {meta && meta.velden.map(veld => (
-            <VeldInput
-              key={veld.pad}
-              veld={veld}
-              waarde={input[veld.pad]}
-              onChange={(w) => updateVeld(veld.pad, w)}
-            />
-          ))}
+          {meta && meta.velden.map(veld => {
+            // Voor Rc-velden: bereken een suggestie o.b.v. bouwjaar
+            let rcSuggestie: number | undefined = undefined;
+            const deel = RC_DEEL[maatregelId];
+            if (veld.pad === 'huidigeRcWaarde' && deel && bouwjaar) {
+              try { rcSuggestie = rcDefault(bouwjaar, deel); } catch { /* ignore */ }
+            }
+            return (
+              <VeldInput
+                key={veld.pad}
+                veld={veld}
+                waarde={input[veld.pad]}
+                onChange={(w) => updateVeld(veld.pad, w)}
+                suggestie={rcSuggestie}
+                suggestieLabel={rcSuggestie ? `Op basis van bouwjaar ${bouwjaar}: ${rcSuggestie.toFixed(2)} — klik om in te vullen` : undefined}
+              />
+            );
+          })}
 
           <div className="pt-2 flex justify-end">
             <button
@@ -78,7 +98,13 @@ export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, o
   );
 }
 
-function VeldInput({ veld, waarde, onChange }: { veld: VeldDef; waarde: unknown; onChange: (w: unknown) => void }) {
+function VeldInput({ veld, waarde, onChange, suggestie, suggestieLabel }: {
+  veld: VeldDef;
+  waarde: unknown;
+  onChange: (w: unknown) => void;
+  suggestie?: number;
+  suggestieLabel?: string;
+}) {
   return (
     <div>
       <label className="label flex items-center text-sm">
@@ -86,13 +112,24 @@ function VeldInput({ veld, waarde, onChange }: { veld: VeldDef; waarde: unknown;
         {veld.tooltip && <InfoTooltip>{veld.tooltip}</InfoTooltip>}
       </label>
       {veld.type === 'number' && (
-        <input
-          type="number"
-          step={veld.stap}
-          className="input"
-          value={waarde as number ?? ''}
-          onChange={e => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
-        />
+        <>
+          <input
+            type="number"
+            step={veld.stap}
+            className="input"
+            value={waarde as number ?? ''}
+            onChange={e => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+          />
+          {suggestie !== undefined && (
+            <button
+              type="button"
+              onClick={() => onChange(suggestie)}
+              className="text-xs text-primary-700 hover:text-primary-900 hover:underline mt-1"
+            >
+              ↻ {suggestieLabel}
+            </button>
+          )}
+        </>
       )}
       {veld.type === 'text' && (
         <input

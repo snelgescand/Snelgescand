@@ -36,9 +36,8 @@ export default {
         'sunrise-gradient': 'linear-gradient(180deg, #FFF8E7 0%, #FFEFCE 100%)',
       },
       fontFamily: {
-        // Nexa als primair, met Montserrat als visueel zeer dichte fallback
-        sans: ['Nexa', 'Montserrat', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
-        display: ['Nexa', 'Montserrat', 'sans-serif'],
+        sans: ['Montserrat', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+        display: ['Montserrat', 'sans-serif'],
       },
       boxShadow: {
         'card': '0 1px 3px rgba(4, 45, 52, 0.06), 0 4px 12px rgba(4, 45, 52, 0.04)',

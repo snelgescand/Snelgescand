@@ -1,40 +1,13 @@
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
 
 /*
- * Nexa is een commercieel font (Fontfabric). Wanneer de licentiebestanden
- * aanwezig zijn onder /fonts/, gebruiken we Nexa. Anders valt de browser
- * automatisch terug op Montserrat — een Google Font dat zeer dicht bij
- * Nexa staat qua karakter (geometrische sans-serif).
+ * Hoofdfont is Montserrat (Google Fonts) — een geometrische sans-serif die
+ * sterk lijkt op Nexa, het oorspronkelijke wensfont van Op Naar Nul.
  *
- * Plaats om Nexa te activeren:
- *   apps/web/public/fonts/Nexa-Regular.woff2
- *   apps/web/public/fonts/Nexa-Bold.woff2
- *   (eventueel Light en Heavy varianten)
+ * Wil je echte Nexa gebruiken? Upload de .woff2-bestanden in
+ * apps/web/public/fonts/ en voeg de @font-face declaraties toe.
+ * Voor nu houden we de styles schoon — geen console-warnings meer.
  */
-@font-face {
-  font-family: 'Nexa';
-  src: url('/fonts/Nexa-Regular.woff2') format('woff2'),
-       url('/fonts/Nexa-Regular.woff') format('woff');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Nexa';
-  src: url('/fonts/Nexa-Bold.woff2') format('woff2'),
-       url('/fonts/Nexa-Bold.woff') format('woff');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Nexa';
-  src: url('/fonts/Nexa-Heavy.woff2') format('woff2'),
-       url('/fonts/Nexa-Heavy.woff') format('woff');
-  font-weight: 800;
-  font-style: normal;
-  font-display: swap;
-}
 
 @tailwind base;
 @tailwind components;
@@ -42,7 +15,7 @@
 
 @layer base {
   html {
-    font-family: 'Nexa', 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -55,7 +28,7 @@
   }
 
   h1, h2, h3, h4 {
-    font-family: 'Nexa', 'Montserrat', sans-serif;
+    font-family: 'Montserrat', sans-serif;
     letter-spacing: -0.01em;
     font-weight: 700;
   }
