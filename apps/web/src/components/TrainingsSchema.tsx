@@ -1,5 +1,5 @@
 /**
- * Trainingsschema — vul aantal teams per dag en moment in.
+ * Trainingsschema — vul aantal teams per dag in.
  *
  * Gebaseerd op het originele Excel-rekenmodel (sheet "Douchen (teamsporten)"):
  *
@@ -115,7 +115,7 @@ export function TrainingsSchemaInvoer({ schema, onChange }: Props) {
   return (
     <div className="space-y-2">
       <p className="text-sm text-gray-600">
-        Vul per moment het aantal <strong>teams</strong> in. Het systeem rekent zelf met spelers per team,
+        Vul per dag het aantal <strong>teams</strong> in. Het systeem rekent zelf met spelers per team,
         douche-percentage en water-verbruik (uit Excel-rekenmodel).
         <InfoTooltip>
           <div className="space-y-1">
@@ -129,7 +129,7 @@ export function TrainingsSchemaInvoer({ schema, onChange }: Props) {
 
       {sorted.length === 0 && (
         <p className="text-sm text-gray-500 italic bg-gray-50 p-3 rounded-md">
-          Nog geen schema. Klik hieronder om een eerste trainings-/wedstrijdmoment toe te voegen.
+          Nog geen schema. Klik hieronder om een eerste trainings- of wedstrijddag toe te voegen.
         </p>
       )}
 
@@ -200,7 +200,7 @@ export function TrainingsSchemaInvoer({ schema, onChange }: Props) {
       )}
 
       <button type="button" onClick={addMoment} className="btn-secondary text-sm">
-        + Voeg moment toe
+        + Voeg dag toe
       </button>
     </div>
   );

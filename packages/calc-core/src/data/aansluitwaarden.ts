@@ -26,6 +26,16 @@ export const AANSLUITINGEN: AansluitingRow[] = [
   { label: '3x50 A', fase: 3, ampere: 50, vermogenKw: 34.5, capaciteitstariefEur: 2623.4 },
   { label: '3x63 A', fase: 3, ampere: 63, vermogenKw: 43.47, capaciteitstariefEur: 3497.868 },
   { label: '3x80 A', fase: 3, ampere: 80, vermogenKw: 55.2, capaciteitstariefEur: 4372.335 },
+  // Grootverbruik — uit Excel Batterij-sheet (tarieven 2025).
+  // Bij grootverbruik is het kW-contract gangbaarder dan ampere.
+  // We modelleren ze als virtuele "3xN A"-rijen voor consistentie.
+  { label: 'Grootverbruik 80 kW',  fase: 3, ampere: 116, vermogenKw: 80 },
+  { label: 'Grootverbruik 100 kW', fase: 3, ampere: 144, vermogenKw: 100 },
+  { label: 'Grootverbruik 136 kW', fase: 3, ampere: 196, vermogenKw: 136 },
+  { label: 'Grootverbruik 175 kW', fase: 3, ampere: 252, vermogenKw: 175 },
+  { label: 'Grootverbruik 250 kW', fase: 3, ampere: 360, vermogenKw: 250 },
+  { label: 'Grootverbruik 500 kW', fase: 3, ampere: 720, vermogenKw: 500 },
+  { label: 'Grootverbruik 1000 kW', fase: 3, ampere: 1440, vermogenKw: 1000 },
 ];
 
 /** Grootverbruik: vanaf 3x80A — geldt apart tarief (zie ACM-tarieven) */

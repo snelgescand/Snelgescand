@@ -104,9 +104,17 @@ export function berekenLokaal(rawState: unknown): BerekendProject {
   }
 
   // === Rollup met try/catch fallback ===
+  // Batterij-vermogen verzamelen om door te geven aan de aansluitwaarde-check.
+  const batterijEenvInput = gekozen['batterij-eenvoudig'] as { vermogenKw?: number } | undefined;
+  const batterijUitgInput = gekozen['batterij-uitgebreid'] as { vermogenKw?: number } | undefined;
+  const batterijVermogenKw = Math.max(
+    batterijEenvInput?.vermogenKw ?? 0,
+    batterijUitgInput?.vermogenKw ?? 0,
+  );
+
   let rollup: ProjectResultaat;
   try {
-    rollup = rollupProject({ context, resultaten });
+    rollup = rollupProject({ context, resultaten, batterijVermogenKw });
   } catch (err) {
     const totaalInv = Object.values(resultaten).reduce((s, r) => s + (r?.brutoInvestering ?? 0), 0);
     const totaalSub = Object.values(resultaten).reduce((s, r) => s + (r?.totaleSubsidie ?? 0), 0);

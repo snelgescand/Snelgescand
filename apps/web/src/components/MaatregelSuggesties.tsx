@@ -30,7 +30,11 @@ interface MaatregelSuggestiesProps {
   };
   huidigeSituatie: HuidigeSituatieData;
   gekozenIds: string[];
+  /** Input van gekozen maatregelen (voor inline-bewerk-knop) */
+  gekozenInputs?: Record<string, Record<string, unknown>>;
   onToggle: (id: string, defaultInput: unknown) => void;
+  /** Open een maatregel-detail panel direct (i.p.v. naar onderaan scrollen) */
+  onOpenDetail?: (id: string) => void;
 }
 
 /**
@@ -72,6 +76,7 @@ export function MaatregelSuggesties({
   huidigeSituatie,
   gekozenIds,
   onToggle,
+  onOpenDetail,
 }: MaatregelSuggestiesProps) {
   const scores = useMemo(() => {
     const ctx: AanbevelingContext = { ...context, huidigeSituatie };
@@ -109,6 +114,7 @@ export function MaatregelSuggesties({
           gekozenIds={gekozenIds}
           previews={previews}
           onToggle={onToggle}
+          onOpenDetail={onOpenDetail}
         />
       )}
 
@@ -122,6 +128,7 @@ export function MaatregelSuggesties({
           gekozenIds={gekozenIds}
           previews={previews}
           onToggle={onToggle}
+          onOpenDetail={onOpenDetail}
         />
       )}
 
@@ -135,6 +142,7 @@ export function MaatregelSuggesties({
           gekozenIds={gekozenIds}
           previews={previews}
           onToggle={onToggle}
+          onOpenDetail={onOpenDetail}
         />
       )}
     </div>
@@ -142,7 +150,7 @@ export function MaatregelSuggesties({
 }
 
 function Groep({
-  titel, ondertitel, kleur, maatregelen, modules, gekozenIds, previews, onToggle,
+  titel, ondertitel, kleur, maatregelen, modules, gekozenIds, previews, onToggle, onOpenDetail,
 }: {
   titel: string;
   ondertitel: string;
@@ -152,6 +160,7 @@ function Groep({
   gekozenIds: string[];
   previews: Record<string, { investering: number; besparingPerJaar: number; tvt: number } | null>;
   onToggle: (id: string, defaultInput: unknown) => void;
+  onOpenDetail?: (id: string) => void;
 }) {
   const styles = {
     primary: { rand: 'border-primary-300', dot: 'bg-primary-500', label: 'text-primary-900' },
@@ -207,6 +216,16 @@ function Groep({
                     )}
                   </div>
                 </label>
+                {gekozen && onOpenDetail && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onOpenDetail(score.maatregelId); }}
+                    className="shrink-0 px-2 py-1 text-xs text-primary-700 hover:bg-primary-100 rounded border border-primary-200 whitespace-nowrap"
+                    title="Aannames van deze maatregel aanpassen"
+                  >
+                    ✏️ Aanpassen
+                  </button>
+                )}
               </div>
             </div>
           );

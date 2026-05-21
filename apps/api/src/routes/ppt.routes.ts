@@ -118,12 +118,19 @@ async function maakPresentatie({ clubNaam, state, berekend }: PresentatieInput):
   const huidigeSituatie = (state.huidigeSituatie as Record<string, { status: string; notitie?: string }> | undefined) ?? {};
   const gekozen = (state.gekozenMaatregelen as Record<string, Record<string, unknown>> | undefined) ?? {};
   const logo = state.logo as { dataUrl?: string; bestandsnaam?: string } | undefined;
+  const trainingsSchema = (state.trainingsSchema as Array<Record<string, unknown>> | undefined) ?? [];
 
-  // ============ Slide 1: Voorblad ============
+  const r = berekend.rollup;
+  const gasM3 = (energie.gasverbruikM3 as number) ?? 0;
+  const stroomKwh = (energie.stroomverbruikTotaalKwh as number) ?? 0;
+  const gasprijs = (energie.gasprijsPerM3 as number) ?? 1.35;
+  const stroomprijs = (energie.stroomprijsKaalPerKwh as number) ?? 0.30;
+
+  // ============================================================
+  // Slide 1: Voorblad
+  // ============================================================
   const s1 = pres.addSlide();
   s1.background = { color: ONN_CREME };
-
-  // Clublogo rechtsboven (indien aanwezig)
   if (logo?.dataUrl) {
     try {
       s1.addImage({
@@ -131,181 +138,448 @@ async function maakPresentatie({ clubNaam, state, berekend }: PresentatieInput):
         x: 10.5, y: 0.5, w: 2.2, h: 2.2,
         sizing: { type: 'contain', w: 2.2, h: 2.2 },
       });
-    } catch {
-      // logo-formaat ongeldig — slide gewoon zonder logo doorgaan
-    }
+    } catch { /* ongeldig logo-formaat */ }
   }
-
-  s1.addText('Verduurzamingsplan', { x: 0.5, y: 0.5, w: 9.5, h: 0.6, fontSize: 18, color: ONN_GRIJS });
-  s1.addText(clubNaam, { x: 0.5, y: 1.2, w: 9.5, h: 1.5, fontSize: 54, bold: true, color: ONN_TEAL });
+  s1.addText('Een duurzaam plan voor', { x: 0.5, y: 1.5, w: 9.5, h: 0.5, fontSize: 22, color: ONN_GRIJS });
+  s1.addText(clubNaam, { x: 0.5, y: 2.1, w: 9.5, h: 1.4, fontSize: 52, bold: true, color: ONN_TEAL });
   if (locatie.adres) {
-    s1.addText(String(locatie.adres), { x: 0.5, y: 2.6, w: 12, h: 0.4, fontSize: 14, color: ONN_DONKER });
+    s1.addText(String(locatie.adres), { x: 0.5, y: 3.6, w: 12, h: 0.4, fontSize: 16, color: ONN_DONKER });
   }
-  s1.addText(`Opgesteld: ${new Date().toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })}`,
-    { x: 0.5, y: 6.8, w: 12, h: 0.3, fontSize: 11, color: ONN_GRIJS });
-  s1.addText('Op Naar Nul · Snelgescand.nl', { x: 0.5, y: 7.1, w: 12, h: 0.3, fontSize: 11, color: ONN_TEAL });
+  s1.addText(`in vervolg op locatiebezoek ${new Date().toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' })}`,
+    { x: 0.5, y: 4.1, w: 12, h: 0.4, fontSize: 14, color: ONN_GRIJS, italic: true });
+  s1.addText('Op Naar Nul · Snelgescand.nl', { x: 0.5, y: 7.1, w: 12, h: 0.3, fontSize: 12, color: ONN_TEAL, bold: true });
 
-  // ============ Slide 2: Uitgangspunten ============
+  // ============================================================
+  // Slide 2: Uitgangspunten
+  // ============================================================
   const s2 = pres.addSlide();
-  addSlideHeader(s2, 'Uitgangspunten');
-  const ugRows: Array<[string, string]> = [
-    ['Bouwjaar clubhuis', gebouw.bouwjaar ? String(gebouw.bouwjaar) : '—'],
-    ['Bruto vloeroppervlak', gebouw.bvoTotaalM2 ? `${gebouw.bvoTotaalM2} m²` : '—'],
+  addSlideHeader(s2, `Uitgangspunten ${clubNaam}`);
+  s2.addText('Alle prijzen in dit voorstel zijn inclusief BTW, en waar van toepassing ODE en Energiebelasting.',
+    { x: 0.5, y: 1.2, w: 12.3, h: 0.4, fontSize: 11, color: ONN_GRIJS, italic: true });
+
+  // Twee kolommen: Gebouw + Energie
+  s2.addText('Gebouw', { x: 0.7, y: 1.8, w: 5.5, h: 0.4, fontSize: 16, bold: true, color: ONN_TEAL });
+  const gebouwRows: Array<[string, string]> = [
+    ['Bouwjaar', gebouw.bouwjaar ? String(gebouw.bouwjaar) : '—'],
+    ['Bruto vloeroppervlak', gebouw.bvoTotaalM2 ? `${formatGetal(gebouw.bvoTotaalM2 as number)} m²` : '—'],
     ['Plafondhoogte', gebouw.plafondhoogteM ? `${gebouw.plafondhoogteM} m` : '—'],
-    ['Gasverbruik per jaar', energie.gasverbruikM3 ? `${formatGetal(energie.gasverbruikM3 as number)} m³` : '—'],
-    ['Stroomverbruik per jaar', energie.stroomverbruikTotaalKwh ? `${formatGetal(energie.stroomverbruikTotaalKwh as number)} kWh` : '—'],
-    ['Gasprijs', energie.gasprijsPerM3 ? `€ ${(energie.gasprijsPerM3 as number).toFixed(2)} / m³` : '—'],
-    ['Stroomprijs', energie.stroomprijsKaalPerKwh ? `€ ${(energie.stroomprijsKaalPerKwh as number).toFixed(2)} / kWh` : '—'],
+    ['Type sportvereniging', String(gebouw.typeSport ?? '—')],
+    ['Aantal velden/banen', gebouw.aantalVeldenBanen ? String(gebouw.aantalVeldenBanen) : '—'],
+    ['Aantal leden', gebouw.aantalLeden ? String(gebouw.aantalLeden) : '—'],
+    ['Aantal kleedkamers', gebouw.aantalKleedkamers ? String(gebouw.aantalKleedkamers) : '—'],
+    ['Aantal douchekoppen', gebouw.aantalDouchekoppen ? String(gebouw.aantalDouchekoppen) : '—'],
   ];
-  addLabelValueRows(s2, ugRows, 0.7, 1.6, 5.5);
+  addLabelValueRows(s2, gebouwRows, 0.7, 2.3, 5.5);
 
-  // ============ Slide 3: Huidige situatie ============
-  const ingevuld = Object.values(huidigeSituatie).filter(v => v?.status && v.status !== 'onbekend');
-  if (ingevuld.length > 0) {
-    const s3 = pres.addSlide();
-    addSlideHeader(s3, 'Huidige situatie');
-    const goed = Object.entries(huidigeSituatie).filter(([, v]) => v?.status === 'goed').map(([k]) => k);
-    const aandacht = Object.entries(huidigeSituatie).filter(([, v]) => v?.status === 'matig' || v?.status === 'slecht');
+  s2.addText('Energie', { x: 7.2, y: 1.8, w: 5.5, h: 0.4, fontSize: 16, bold: true, color: ONN_TEAL });
+  const energieRows: Array<[string, string]> = [
+    ['Gasverbruik per jaar', gasM3 ? `${formatGetal(gasM3)} m³` : '—'],
+    ['Stroomverbruik per jaar', stroomKwh ? `${formatGetal(stroomKwh)} kWh` : '—'],
+    ['Gasprijs', `€ ${gasprijs.toFixed(2)} / m³`],
+    ['Stroomprijs', `€ ${stroomprijs.toFixed(2)} / kWh`],
+    ['Aansluitwaarde', String(energie.aansluitwaardeLabel ?? '—')],
+    ['Huidige gaskosten/jaar', `€ ${formatGetal(gasM3 * gasprijs)}`],
+    ['Huidige stroomkosten/jaar', `€ ${formatGetal(stroomKwh * stroomprijs)}`],
+    ['Totale energiekosten/jaar', `€ ${formatGetal(gasM3 * gasprijs + stroomKwh * stroomprijs)}`],
+  ];
+  addLabelValueRows(s2, energieRows, 7.2, 2.3, 5.5);
 
-    if (goed.length > 0) {
-      s3.addText('✓ Wat al goed gaat', { x: 0.7, y: 1.6, w: 6, h: 0.4, fontSize: 16, bold: true, color: ONN_TEAL });
-      s3.addText(goed.map(k => `• ${formatItemId(k)}`).join('\n'),
-        { x: 0.7, y: 2.0, w: 6, h: 4.5, fontSize: 13, color: ONN_DONKER, valign: 'top' });
-    }
-    if (aandacht.length > 0) {
-      s3.addText('⚠ Aandachtspunten', { x: 7.0, y: 1.6, w: 6, h: 0.4, fontSize: 16, bold: true, color: ONN_ORANJE });
-      const aandachtTekst = aandacht.map(([k, v]) => {
-        const notitie = v.notitie ? ` — ${v.notitie}` : '';
-        return `• ${formatItemId(k)}${notitie}`;
-      }).join('\n');
-      s3.addText(aandachtTekst, { x: 7.0, y: 2.0, w: 6, h: 4.5, fontSize: 13, color: ONN_DONKER, valign: 'top' });
+  // ============================================================
+  // Slide 3: De verduurzamingsroute (overview)
+  // ============================================================
+  const s3 = pres.addSlide();
+  addSlideHeader(s3, 'De verduurzamingsroute');
+  s3.addText('Een overzicht van de maatregelen die we voor jullie hebben uitgewerkt:',
+    { x: 0.5, y: 1.2, w: 12.3, h: 0.5, fontSize: 14, color: ONN_DONKER });
+
+  const aantalMaatregelen = Object.keys(berekend.perMaatregel).filter(k => berekend.perMaatregel[k as keyof typeof berekend.perMaatregel]).length;
+  s3.addText(`${aantalMaatregelen} maatregelen geanalyseerd`,
+    { x: 0.5, y: 1.8, w: 12.3, h: 0.5, fontSize: 24, bold: true, color: ONN_TEAL });
+
+  // Vier hoeken: Warmte besparen / Warmte opwekken / Stroom besparen / Stroom opwekken
+  const cats: Array<{ titel: string; ids: string[]; x: number; y: number; kleur: string }> = [
+    { titel: '🔥 Warmte besparen', ids: ['dakisolatie', 'spouwmuurisolatie', 'vloerisolatie', 'glasisolatie', 'waterzijdig-inregelen', 'wtw'], x: 0.5, y: 2.5, kleur: ONN_TEAL },
+    { titel: '♨️ Warmte opwekken', ids: ['warmtepompboiler', 'qton-warmtepomp', 'lmnt-warmtepomp', 'eboiler', 'pvt-tapwater', 'lucht-water-warmtepomp', 'lucht-lucht-warmtepomp', 'hybride-warmtepomp'], x: 6.7, y: 2.5, kleur: ONN_ORANJE },
+    { titel: '💡 Stroom besparen', ids: ['binnenverlichting', 'ledveldverlichting'], x: 0.5, y: 5.0, kleur: ONN_TEAL },
+    { titel: '☀️ Stroom opwekken & opslaan', ids: ['zonnepanelen', 'batterij-eenvoudig', 'batterij-uitgebreid'], x: 6.7, y: 5.0, kleur: ONN_ORANJE },
+  ];
+  for (const cat of cats) {
+    const gekozenInCat = cat.ids.filter(id => id in berekend.perMaatregel && berekend.perMaatregel[id as keyof typeof berekend.perMaatregel]);
+    s3.addText(cat.titel, { x: cat.x, y: cat.y, w: 6, h: 0.4, fontSize: 16, bold: true, color: cat.kleur });
+    if (gekozenInCat.length > 0) {
+      const tekst = gekozenInCat.map(id => `✓ ${formatItemId(id)}`).join('\n');
+      s3.addText(tekst, { x: cat.x, y: cat.y + 0.5, w: 6, h: 1.8, fontSize: 12, color: ONN_DONKER, valign: 'top' });
+    } else {
+      s3.addText('(geen maatregelen gekozen in deze categorie)',
+        { x: cat.x, y: cat.y + 0.5, w: 6, h: 0.4, fontSize: 11, color: ONN_GRIJS, italic: true });
     }
   }
 
-  // ============ Slide 4: Energiebalans (pie chart) ============
-  const gasM3 = (energie.gasverbruikM3 as number) ?? 0;
+  // ============================================================
+  // Slide 4-5: Goed gedaan / Dit kan beter (uit huidigeSituatie)
+  // ============================================================
+  const goed = Object.entries(huidigeSituatie).filter(([, v]) => v?.status === 'goed');
+  const aandacht = Object.entries(huidigeSituatie).filter(([, v]) => v?.status === 'matig' || v?.status === 'slecht');
+
+  if (goed.length > 0) {
+    const sg = pres.addSlide();
+    addSlideHeader(sg, 'Goed gedaan');
+    sg.addText('Dit is al uitstekend voor elkaar:', { x: 0.5, y: 1.2, w: 12, h: 0.4, fontSize: 14, color: ONN_DONKER });
+    const tekst = goed.map(([k, v]) => {
+      const notitie = v.notitie ? ` — ${v.notitie}` : '';
+      return `✓ ${formatItemId(k)}${notitie}`;
+    }).join('\n');
+    sg.addText(tekst, { x: 0.7, y: 1.9, w: 12, h: 5.5, fontSize: 16, color: ONN_TEAL, valign: 'top' });
+    sg.addText('Allemaal prima voor elkaar!', { x: 0.5, y: 7.0, w: 12, h: 0.4, fontSize: 14, bold: true, color: ONN_TEAL, italic: true });
+  }
+
+  if (aandacht.length > 0) {
+    const sa = pres.addSlide();
+    addSlideHeader(sa, 'Dit kan beter');
+    sa.addText('Hier zien we ruimte voor verbetering:', { x: 0.5, y: 1.2, w: 12, h: 0.4, fontSize: 14, color: ONN_DONKER });
+    const tekst = aandacht.map(([k, v]) => {
+      const notitie = v.notitie ? ` — ${v.notitie}` : '';
+      return `⚠ ${formatItemId(k)}${notitie}`;
+    }).join('\n');
+    sa.addText(tekst, { x: 0.7, y: 1.9, w: 12, h: 5.5, fontSize: 16, color: ONN_ORANJE, valign: 'top' });
+    sa.addText('Werk aan de winkel!', { x: 0.5, y: 7.0, w: 12, h: 0.4, fontSize: 14, bold: true, color: ONN_ORANJE, italic: true });
+  }
+
+  // ============================================================
+  // Slide 6: Bouwkundig — start situatie + energielabel-inschatting
+  // ============================================================
+  if (gasM3 > 0 && stroomKwh > 0 && gebouw.bvoTotaalM2) {
+    const sLabel = pres.addSlide();
+    addSlideHeader(sLabel, 'Bouwkundig: start situatie');
+    sLabel.addText(`${clubNaam} wil stappen zetten richting een duurzamer gebouw. We beginnen met het inzichtelijk maken waar we nu staan.`,
+      { x: 0.5, y: 1.2, w: 12.3, h: 0.8, fontSize: 13, color: ONN_DONKER, valign: 'top' });
+
+    // Paris Proof berekening (eenvoudig)
+    const bvo = gebouw.bvoTotaalM2 as number;
+    const totaalKwhEquivalent = stroomKwh + gasM3 * 9.769; // 1 m³ gas ≈ 9,769 kWh
+    const kwhPerM2 = totaalKwhEquivalent / bvo;
+    const parisProofGrens = 70; // kWh/m²/jaar voor sportgebouw
+    const verschil = kwhPerM2 - parisProofGrens;
+
+    sLabel.addText('Energieverbruik per m²', { x: 0.7, y: 2.3, w: 5.5, h: 0.4, fontSize: 16, bold: true, color: ONN_TEAL });
+    sLabel.addText(`${kwhPerM2.toFixed(0)} kWh/m²/jaar`,
+      { x: 0.7, y: 2.8, w: 5.5, h: 0.8, fontSize: 36, bold: true, color: verschil > 30 ? ONN_ORANJE : verschil > 0 ? '#D97706' : ONN_TEAL });
+    sLabel.addText(`Paris Proof grens: ${parisProofGrens} kWh/m²/jaar`,
+      { x: 0.7, y: 3.7, w: 5.5, h: 0.4, fontSize: 12, color: ONN_GRIJS });
+
+    sLabel.addText(verschil > 0 ? `${verschil.toFixed(0)} kWh/m² boven de norm` : `${Math.abs(verschil).toFixed(0)} kWh/m² onder de norm — top!`,
+      { x: 0.7, y: 4.2, w: 5.5, h: 0.4, fontSize: 13, color: verschil > 0 ? ONN_ORANJE : ONN_TEAL, bold: true });
+
+    sLabel.addText('Het energielabel is een theoretische inschatting van de energieprestatie. De WEii toont het werkelijke energieverbruik. Deze combinatie helpt te bepalen of het gebouw op weg is naar een Paris Proof-gebouw.',
+      { x: 7.0, y: 2.3, w: 5.7, h: 4.0, fontSize: 12, color: ONN_DONKER, valign: 'top' });
+    sLabel.addText('NB: Dit energielabel is niet definitief bepaald. Een EPA-U adviseur kan voor jullie een definitief energielabel afgeven.',
+      { x: 0.5, y: 6.7, w: 12.3, h: 0.5, fontSize: 11, color: ONN_GRIJS, italic: true });
+  }
+
+  // ============================================================
+  // Slide 7: Gas — waar gaat het naartoe?
+  // ============================================================
   if (gasM3 > 0) {
-    const s4 = pres.addSlide();
-    addSlideHeader(s4, 'Verdeling huidig gasverbruik');
-    const pieData = [{
+    const sGas = pres.addSlide();
+    addSlideHeader(sGas, 'Gas — waar gaat het naartoe?');
+
+    // BVO verdeling als beschikbaar
+    const bvoTotaal = (gebouw.bvoTotaalM2 as number) ?? 0;
+    const aantalKleed = (gebouw.aantalKleedkamers as number) ?? 0;
+    // Schatting: kleedkamer ~12 m², kantine ~50% rest, overig 50%
+    const bvoKleed = aantalKleed * 12;
+    const bvoRest = Math.max(0, bvoTotaal - bvoKleed);
+    const bvoKantine = bvoRest * 0.6;
+    const bvoOverig = bvoRest * 0.4;
+
+    // Gasverdeling: 30% douchen (douche-zwaartepunt) + rest over ruimtes naar BVO
+    const douchen = 0.30;
+    const verwarming = 0.65;
+    const keuken = 0.05;
+    const gasDouchen = gasM3 * douchen;
+    const gasKeuken = gasM3 * keuken;
+    const gasVerwarming = gasM3 * verwarming;
+    const gasKantine = bvoRest > 0 ? gasVerwarming * (bvoKantine / bvoRest) : gasVerwarming * 0.6;
+    const gasKleed = bvoTotaal > 0 ? gasVerwarming * (bvoKleed / bvoTotaal) : gasVerwarming * 0.2;
+    const gasOverig = gasVerwarming - gasKantine - gasKleed;
+
+    sGas.addChart(pres.ChartType.doughnut, [{
       name: 'Gasverbruik',
-      labels: ['Ruimteverwarming', 'Tapwater (douches)', 'Keuken / overig'],
-      values: [Math.round(gasM3 * 0.55), Math.round(gasM3 * 0.35), Math.round(gasM3 * 0.10)],
-    }];
-    s4.addChart(pres.ChartType.doughnut, pieData, {
-      x: 1.0, y: 1.6, w: 6.5, h: 5.5,
-      chartColors: [ONN_TEAL, ONN_ORANJE, ONN_TEAL_LIGHT],
-      showLegend: true,
-      legendPos: 'r',
-      legendFontSize: 12,
-      showPercent: true,
-      dataLabelFontSize: 11,
-      dataLabelColor: 'FFFFFF',
+      labels: ['Kantine', 'Kleedkamers', 'Overige ruimtes', 'Douchen', 'Keuken'],
+      values: [Math.round(gasKantine), Math.round(gasKleed), Math.round(gasOverig), Math.round(gasDouchen), Math.round(gasKeuken)],
+    }], {
+      x: 0.5, y: 1.5, w: 6.5, h: 5.5,
+      chartColors: [ONN_TEAL, ONN_TEAL_LIGHT, '#94A3B8', ONN_ORANJE, '#FCD34D'],
+      showLegend: true, legendPos: 'b', legendFontSize: 11,
+      showPercent: true, dataLabelFontSize: 10, dataLabelColor: 'FFFFFF',
     });
-    s4.addText('Heuristische verdeling op basis van een standaardprofiel sportclub.\nVoor preciezere uitsplitsing: gedetailleerde douches-analyse invullen.',
-      { x: 8.0, y: 1.8, w: 4.5, h: 2.0, fontSize: 12, color: ONN_GRIJS, valign: 'top' });
+
+    // Tabel rechts
+    sGas.addText('Verdeling gasverbruik', { x: 7.5, y: 1.7, w: 5.3, h: 0.4, fontSize: 16, bold: true, color: ONN_TEAL });
+    const gasRows: Array<[string, string]> = [
+      ['Kantine', `${formatGetal(gasKantine)} m³ (€ ${formatGetal(gasKantine * gasprijs)})`],
+      ['Kleedkamers', `${formatGetal(gasKleed)} m³ (€ ${formatGetal(gasKleed * gasprijs)})`],
+      ['Overige ruimtes', `${formatGetal(gasOverig)} m³ (€ ${formatGetal(gasOverig * gasprijs)})`],
+      ['Douchen (warmwater)', `${formatGetal(gasDouchen)} m³ (€ ${formatGetal(gasDouchen * gasprijs)})`],
+      ['Keuken', `${formatGetal(gasKeuken)} m³ (€ ${formatGetal(gasKeuken * gasprijs)})`],
+      ['Totaal', `${formatGetal(gasM3)} m³ (€ ${formatGetal(gasM3 * gasprijs)})`],
+    ];
+    addLabelValueRows(sGas, gasRows, 7.5, 2.3, 5.3);
   }
 
-  // ============ Slide 5: Voor de penningmeester ============
-  const r = berekend.rollup;
-  const s5 = pres.addSlide();
-  addSlideHeader(s5, 'Voor de penningmeester');
-  const penRows: Array<[string, string]> = [
-    ['Bruto investering', `€ ${formatGetal(r.totaleInvestering)}`],
-    ['Totale subsidies', `€ ${formatGetal(r.totaleSubsidie)}`],
-    ['Netto investering', `€ ${formatGetal(r.nettoInvestering)}`],
-    ['Besparing per jaar', `€ ${formatGetal(r.totaleBesparingPerJaar)}`],
-    ['Gemiddelde TVT', formatTVT(r.gemiddeldeTerugverdientijdJaren)],
-    ['CO₂-besparing', `${(r.totaleCo2BesparingKg / 1000).toFixed(1)} ton/jaar`],
-    ['Aansluitwaarde voldoende?', r.aansluitwaardeVoldoende ? 'Ja' : 'Nee'],
-  ];
-  addLabelValueRows(s5, penRows, 0.7, 1.6, 5.5, true);
+  // ============================================================
+  // Slide 8: Water & douchen (uit trainingsschema)
+  // ============================================================
+  if (trainingsSchema.length > 0) {
+    const sDouch = pres.addSlide();
+    addSlideHeader(sDouch, 'Douchen op de club');
 
-  // ============ Slide 6: Kasstroom-grafiek ============
+    // Totaal douches per week + liters
+    const SPELERS_O13 = 10;
+    const SPELERS_V13 = 18;
+    const LITERS = 35;
+    let totaalDoucheBeurtenWk = 0;
+    let totaalLitersWk = 0;
+    for (const m of trainingsSchema) {
+      const o13 = ((m.aantalTeamsOnder13 as number) ?? (m.aantalOnder13 as number) ?? 0) *
+                  (m.aantalTeamsOnder13 !== undefined ? SPELERS_O13 : 1);
+      const v13 = ((m.aantalTeamsVanaf13 as number) ?? (m.aantalVanaf13 as number) ?? 0) *
+                  (m.aantalTeamsVanaf13 !== undefined ? SPELERS_V13 : 1);
+      const type = m.type as string;
+      const dag = m.dag as string;
+      const pctO13 = type === 'wedstrijd' ? (dag === 'zondag' ? 1.0 : 0.5) : 0.25;
+      const pctV13 = type === 'wedstrijd' ? 1.0 : (dag === 'zaterdag' || dag === 'zondag' ? 1.0 : 0.95);
+      const douches = (m.metDouche === false) ? 0 : o13 * pctO13 + v13 * pctV13;
+      totaalDoucheBeurtenWk += douches;
+      totaalLitersWk += douches * LITERS;
+    }
+    const doucheBeurtenPerJr = totaalDoucheBeurtenWk * 48;  // 48 actieve weken
+    const litersPerJr = totaalLitersWk * 48;
+    const m3PerJr = litersPerJr / 1000;
+    const gasDouchenSchatting = m3PerJr * 0.093; // ~0,093 m³ gas / liter warmwater (37→10°C met 80% rendement)
+
+    sDouch.addText('Op basis van het trainings- en wedstrijdschema:',
+      { x: 0.5, y: 1.2, w: 12, h: 0.5, fontSize: 13, color: ONN_DONKER });
+
+    const douchRows: Array<[string, string]> = [
+      ['Douchebeurten per week', formatGetal(totaalDoucheBeurtenWk)],
+      ['Liter warmwater per week', `${formatGetal(totaalLitersWk)} L`],
+      ['Douchebeurten per jaar', formatGetal(doucheBeurtenPerJr)],
+      ['Liter warmwater per jaar', `${formatGetal(litersPerJr)} L (${m3PerJr.toFixed(1)} m³)`],
+      ['Geschat gasverbruik douchen', `${formatGetal(gasDouchenSchatting)} m³ / jaar`],
+      ['Gaskosten douchen', `€ ${formatGetal(gasDouchenSchatting * gasprijs)} / jaar`],
+      ['Aandeel van gasverbruik', gasM3 > 0 ? `${((gasDouchenSchatting / gasM3) * 100).toFixed(0)} %` : '—'],
+    ];
+    addLabelValueRows(sDouch, douchRows, 0.7, 1.9, 6.0);
+
+    sDouch.addText('Douchen is duur — maar door over te stappen van direct gas-gestookte boiler naar warmtepompboiler, Q-ton of PVT kan dit gas (en dus deze kosten) drastisch omlaag.',
+      { x: 7.0, y: 1.9, w: 5.8, h: 3.0, fontSize: 12, color: ONN_DONKER, valign: 'top' });
+    sDouch.addText('Met 7 liter water per minuut en 5 minuten douchen haal je 28 douchebeurten uit 1 m³ water. Per kuub warm tapwater is ongeveer 0,1 m³ gas nodig.',
+      { x: 7.0, y: 5.0, w: 5.8, h: 1.5, fontSize: 11, color: ONN_GRIJS, italic: true, valign: 'top' });
+  }
+
+  // ============================================================
+  // Sectie-tussenslides + per-maatregel slides
+  // ============================================================
+  const groepen: Array<{ kop: string; subkop: string; ids: string[] }> = [
+    { kop: 'Slim Besparen', subkop: 'Warmte', ids: ['waterzijdig-inregelen', 'dakisolatie', 'spouwmuurisolatie', 'vloerisolatie', 'glasisolatie', 'wtw'] },
+    { kop: 'Slim Opwekken', subkop: 'Warmte', ids: ['warmtepompboiler', 'qton-warmtepomp', 'lmnt-warmtepomp', 'eboiler', 'pvt-tapwater', 'lucht-water-warmtepomp', 'lucht-lucht-warmtepomp', 'hybride-warmtepomp'] },
+    { kop: 'Slim Besparen', subkop: 'Stroom', ids: ['binnenverlichting', 'ledveldverlichting'] },
+    { kop: 'Slim Opwekken & Opslaan', subkop: 'Stroom', ids: ['zonnepanelen', 'batterij-eenvoudig', 'batterij-uitgebreid'] },
+  ];
+
+  for (const groep of groepen) {
+    const heeftMaatregelen = groep.ids.some(id => berekend.perMaatregel[id as keyof typeof berekend.perMaatregel]);
+    if (!heeftMaatregelen) continue;
+
+    // Tussenslide
+    const sTussen = pres.addSlide();
+    sTussen.background = { color: ONN_TEAL };
+    sTussen.addText(groep.kop, { x: 0.5, y: 2.5, w: 12, h: 1.2, fontSize: 60, bold: true, color: 'FFFFFF' });
+    sTussen.addText(groep.subkop, { x: 0.5, y: 3.8, w: 12, h: 0.8, fontSize: 40, color: ONN_CREME });
+
+    // Per-maatregel slide
+    for (const id of groep.ids) {
+      const resultaat = berekend.perMaatregel[id as keyof typeof berekend.perMaatregel];
+      if (!resultaat) continue;
+
+      const sM = pres.addSlide();
+      addSlideHeader(sM, formatItemId(id));
+
+      // Tekst-blok links: korte uitleg
+      const uitleg = MAATREGEL_UITLEG[id] ?? 'Een verduurzamingsmaatregel uit de catalogus.';
+      sM.addText(uitleg, { x: 0.5, y: 1.3, w: 6.5, h: 5.3, fontSize: 12, color: ONN_DONKER, valign: 'top' });
+
+      // Tabel rechts: bedragen
+      sM.addText('Businesscase', { x: 7.3, y: 1.3, w: 5.5, h: 0.4, fontSize: 16, bold: true, color: ONN_TEAL });
+      const matRows: Array<[string, string]> = [
+        ['Bruto investering', `€ ${formatGetal(resultaat.brutoInvestering)}`],
+        ['Subsidies', `€ ${formatGetal(resultaat.totaleSubsidie)}`],
+        ['Netto investering', `€ ${formatGetal(resultaat.nettoInvestering)}`],
+        ['Besparing per jaar', `€ ${formatGetal(resultaat.besparingPerJaar)}`],
+        ['Terugverdientijd', formatTVT(resultaat.terugverdientijdJaren)],
+        ['CO₂-besparing', `${formatGetal(resultaat.co2BesparingKg)} kg/jaar`],
+      ];
+      addLabelValueRows(sM, matRows, 7.3, 1.8, 5.5, true);
+
+      // Waarschuwingen (indien)
+      if (resultaat.warnings.length > 0) {
+        const warnsTekst = resultaat.warnings.map(w => `⚠ ${w.message}`).join('\n');
+        sM.addText(warnsTekst, { x: 0.5, y: 6.6, w: 12.3, h: 0.8, fontSize: 10, color: ONN_ORANJE, italic: true, valign: 'top' });
+      }
+    }
+  }
+
+  // ============================================================
+  // Aansluitwaarde-slide
+  // ============================================================
+  if (energie.aansluitwaardeElektra) {
+    const aw = energie.aansluitwaardeElektra as { vermogenKw: number };
+    const sAansl = pres.addSlide();
+    addSlideHeader(sAansl, 'Aansluitwaarde');
+    sAansl.addText('Als je meer gaat verwarmen met warmtepompen, ga je meer stroom gebruiken. De meterkast moet dit wel aankunnen.',
+      { x: 0.5, y: 1.3, w: 12.3, h: 0.6, fontSize: 13, color: ONN_DONKER });
+
+    const awRows: Array<[string, string]> = [
+      ['Huidige aansluitwaarde', `${energie.aansluitwaardeLabel ?? '—'} (${aw.vermogenKw} kW)`],
+      ['Aansluiting voldoende?', r.aansluitwaardeVoldoende ? '✓ Ja' : '✗ Nee — verzwaring of batterij nodig'],
+    ];
+    addLabelValueRows(sAansl, awRows, 0.7, 2.2, 6.0);
+
+    if (!r.aansluitwaardeVoldoende) {
+      sAansl.addText('💡 Tip: een batterij kan piekvraag opvangen zonder dat er een nieuwe netaansluiting nodig is. ' +
+                     'Vaak goedkoper én sneller gerealiseerd (gem. wachttijd netverzwaring 1–3 jaar bij netbeheerders).',
+        { x: 7.0, y: 2.2, w: 5.8, h: 4.5, fontSize: 12, color: ONN_ORANJE, valign: 'top' });
+    }
+  }
+
+  // ============================================================
+  // Voor de penningmeester — totaaltabel
+  // ============================================================
+  const sPen = pres.addSlide();
+  addSlideHeader(sPen, 'Voor de penningmeester');
+  sPen.addText('Prijzen zijn ramingen, definitieve prijzen bij uitvraag offertes na engineering.',
+    { x: 0.5, y: 1.1, w: 12.3, h: 0.3, fontSize: 11, color: ONN_GRIJS, italic: true });
+
+  // Tabel-headers
+  sPen.addText('Maatregel',           { x: 0.5,  y: 1.6, w: 4.5, h: 0.4, fontSize: 12, bold: true, color: ONN_TEAL });
+  sPen.addText('Bruto investering',   { x: 5.0,  y: 1.6, w: 2.0, h: 0.4, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
+  sPen.addText('Subsidies',           { x: 7.1,  y: 1.6, w: 1.5, h: 0.4, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
+  sPen.addText('Netto invest.',       { x: 8.7,  y: 1.6, w: 1.7, h: 0.4, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
+  sPen.addText('Besparing/jr',        { x: 10.5, y: 1.6, w: 1.5, h: 0.4, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
+  sPen.addText('TVT',                 { x: 12.1, y: 1.6, w: 0.8, h: 0.4, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
+
+  // Tabel-rijen
+  let yPos = 2.05;
+  const rowH = 0.38;
+  for (const [id, resultaat] of Object.entries(berekend.perMaatregel)) {
+    if (!resultaat) continue;
+    if (yPos > 6.5) break;
+    sPen.addText(formatItemId(id),                               { x: 0.5,  y: yPos, w: 4.5, h: rowH, fontSize: 11, color: ONN_DONKER });
+    sPen.addText(`€ ${formatGetal(resultaat.brutoInvestering)}`, { x: 5.0,  y: yPos, w: 2.0, h: rowH, fontSize: 11, align: 'right' });
+    sPen.addText(`€ ${formatGetal(resultaat.totaleSubsidie)}`,   { x: 7.1,  y: yPos, w: 1.5, h: rowH, fontSize: 11, align: 'right' });
+    sPen.addText(`€ ${formatGetal(resultaat.nettoInvestering)}`, { x: 8.7,  y: yPos, w: 1.7, h: rowH, fontSize: 11, align: 'right', bold: true });
+    sPen.addText(`€ ${formatGetal(resultaat.besparingPerJaar)}`, { x: 10.5, y: yPos, w: 1.5, h: rowH, fontSize: 11, align: 'right' });
+    sPen.addText(formatTVT(resultaat.terugverdientijdJaren),     { x: 12.1, y: yPos, w: 0.8, h: rowH, fontSize: 11, align: 'right' });
+    yPos += rowH;
+  }
+
+  // Totaal-rij
+  yPos = Math.max(yPos, 6.6);
+  sPen.addShape('rect' as never, { x: 0.5, y: yPos, w: 12.4, h: 0.04, fill: { color: ONN_TEAL }, line: { color: ONN_TEAL } });
+  yPos += 0.05;
+  sPen.addText('TOTAAL',                                          { x: 0.5,  y: yPos, w: 4.5, h: rowH, fontSize: 12, bold: true, color: ONN_TEAL });
+  sPen.addText(`€ ${formatGetal(r.totaleInvestering)}`,          { x: 5.0,  y: yPos, w: 2.0, h: rowH, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
+  sPen.addText(`€ ${formatGetal(r.totaleSubsidie)}`,             { x: 7.1,  y: yPos, w: 1.5, h: rowH, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
+  sPen.addText(`€ ${formatGetal(r.nettoInvestering)}`,           { x: 8.7,  y: yPos, w: 1.7, h: rowH, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
+  sPen.addText(`€ ${formatGetal(r.totaleBesparingPerJaar)}`,     { x: 10.5, y: yPos, w: 1.5, h: rowH, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
+  sPen.addText(formatTVT(r.gemiddeldeTerugverdientijdJaren),     { x: 12.1, y: yPos, w: 0.8, h: rowH, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
+
+  // ============================================================
+  // Kasstroom 15 jaar
+  // ============================================================
   const netto = r.nettoInvestering ?? 0;
   const besparingPerJr = r.totaleBesparingPerJaar ?? 0;
   if (besparingPerJr > 0) {
-    const s6 = pres.addSlide();
-    addSlideHeader(s6, 'Cumulatief netto rendement (15 jaar)');
+    const sKas = pres.addSlide();
+    addSlideHeader(sKas, 'Cumulatief netto rendement (15 jaar)');
     const jaren = Array.from({ length: 16 }, (_, i) => i);
-    const cumulatief: number[] = [];
+    const cum: number[] = [];
     let saldo = -netto;
-    cumulatief.push(Math.round(saldo));
+    cum.push(Math.round(saldo));
     for (let j = 1; j <= 15; j++) {
       saldo += besparingPerJr;
-      cumulatief.push(Math.round(saldo));
+      cum.push(Math.round(saldo));
     }
-    s6.addChart(pres.ChartType.area, [{
+    sKas.addChart(pres.ChartType.area, [{
       name: 'Cumulatief netto (€)',
       labels: jaren.map(j => `Jaar ${j}`),
-      values: cumulatief,
+      values: cum,
     }], {
-      x: 0.7, y: 1.6, w: 11.5, h: 5.5,
-      chartColors: [ONN_TEAL],
-      showLegend: false,
-      catAxisLabelFontSize: 10,
-      valAxisLabelFontSize: 10,
-      catAxisLabelColor: ONN_DONKER,
-      valAxisLabelColor: ONN_DONKER,
-      showValue: false,
-      lineSize: 2,
+      x: 0.7, y: 1.6, w: 11.5, h: 5.2,
+      chartColors: [ONN_TEAL], showLegend: false,
+      catAxisLabelFontSize: 10, valAxisLabelFontSize: 10,
+      catAxisLabelColor: ONN_DONKER, valAxisLabelColor: ONN_DONKER, lineSize: 2,
     });
-  }
 
-  // ============ Slide 7: Waterverbruik per dag ============
-  const douches = gekozen['douches-analyse'];
-  if (douches && douches.modus === 'gedetailleerd' && Array.isArray(douches.dagen)) {
-    const dagen = douches.dagen as Array<{ dag: string; training: number; wedstrijd: number }>;
-    if (dagen.length === 7) {
-      const liters = 35;
-      const s7 = pres.addSlide();
-      addSlideHeader(s7, 'Waterverbruik per dag');
-      s7.addChart(pres.ChartType.bar, [
-        {
-          name: 'Training',
-          labels: dagen.map(d => d.dag.charAt(0).toUpperCase() + d.dag.slice(1)),
-          values: dagen.map(d => (d.training ?? 0) * liters),
-        },
-        {
-          name: 'Wedstrijd',
-          labels: dagen.map(d => d.dag.charAt(0).toUpperCase() + d.dag.slice(1)),
-          values: dagen.map(d => (d.wedstrijd ?? 0) * liters),
-        },
-      ], {
-        x: 0.7, y: 1.6, w: 11.5, h: 5.5,
-        chartColors: [ONN_TEAL, ONN_ORANJE],
-        barDir: 'col',
-        barGrouping: 'stacked',
-        showLegend: true,
-        legendPos: 'b',
-        legendFontSize: 11,
-        catAxisLabelFontSize: 11,
-        valAxisLabelFontSize: 11,
-        valAxisTitle: 'Liters per dag',
-        showValAxisTitle: true,
-        valAxisTitleFontSize: 11,
-        valAxisTitleColor: ONN_GRIJS,
-      });
+    // Break-even tekst
+    const breakEvenJaar = jaren.find(j => cum[j] >= 0);
+    if (breakEvenJaar !== undefined && breakEvenJaar > 0) {
+      sKas.addText(`📈 Break-even na ${breakEvenJaar} jaar. Daarna pure winst: € ${formatGetal(besparingPerJr)} per jaar besparing.`,
+        { x: 0.7, y: 6.9, w: 11.5, h: 0.4, fontSize: 13, bold: true, color: ONN_TEAL });
     }
   }
 
-  // ============ Slide(s) per maatregel ============
-  for (const [maatregelId, resultaat] of Object.entries(berekend.perMaatregel)) {
-    if (!resultaat) continue;
-    const s = pres.addSlide();
-    addSlideHeader(s, `Maatregel: ${formatItemId(maatregelId)}`);
-    const rows: Array<[string, string]> = [
-      ['Bruto investering', `€ ${formatGetal(resultaat.brutoInvestering)}`],
-      ['Subsidies', `€ ${formatGetal(resultaat.totaleSubsidie)}`],
-      ['Netto investering', `€ ${formatGetal(resultaat.nettoInvestering)}`],
-      ['Besparing per jaar', `€ ${formatGetal(resultaat.besparingPerJaar)}`],
-      ['Terugverdientijd', formatTVT(resultaat.terugverdientijdJaren)],
-      ['CO₂-besparing', `${formatGetal(resultaat.co2BesparingKg)} kg/jaar`],
+  // ============================================================
+  // CO2-impact slide
+  // ============================================================
+  if (r.totaleCo2BesparingKg > 0) {
+    const sCo2 = pres.addSlide();
+    addSlideHeader(sCo2, 'CO₂-impact');
+    const co2Ton = r.totaleCo2BesparingKg / 1000;
+    sCo2.addText(`${co2Ton.toFixed(1)} ton CO₂ per jaar`,
+      { x: 0.5, y: 1.7, w: 12, h: 1.0, fontSize: 48, bold: true, color: ONN_TEAL });
+    sCo2.addText('Dat is gelijk aan:', { x: 0.5, y: 3.0, w: 12, h: 0.4, fontSize: 14, color: ONN_DONKER });
+
+    // Vergelijkingen
+    const bomen = co2Ton * 45;  // 1 ton CO2 = ~45 bomen 1 jaar
+    const auto = co2Ton * 5000; // ~5000 km/auto/ton
+    const vluchten = co2Ton * 2.4; // AMS-PAR ~420 kg
+    const vergelijkRows: Array<[string, string]> = [
+      ['🌳 Bomen 1 jaar laten groeien', formatGetal(bomen)],
+      ['🚗 Autokilometers vermeden', `${formatGetal(auto)} km`],
+      ['✈️ Vluchten AMS → Parijs', formatGetal(vluchten)],
     ];
-    addLabelValueRows(s, rows, 0.7, 1.6, 5.5);
+    addLabelValueRows(sCo2, vergelijkRows, 0.7, 3.5, 6.0);
   }
 
-  // ============ Slide laatste: Colofon ============
+  // ============================================================
+  // Conclusie / vervolgstappen
+  // ============================================================
+  const sConcl = pres.addSlide();
+  addSlideHeader(sConcl, 'Conclusie & vervolgstappen');
+  sConcl.addText(`Op basis van deze quickscan kan ${clubNaam} met een netto investering van € ${formatGetal(r.nettoInvestering)} jaarlijks € ${formatGetal(r.totaleBesparingPerJaar)} besparen en ${(r.totaleCo2BesparingKg/1000).toFixed(1)} ton CO₂ uitstoot voorkomen.`,
+    { x: 0.5, y: 1.3, w: 12.3, h: 1.0, fontSize: 14, color: ONN_DONKER, valign: 'top' });
+
+  sConcl.addText('Vervolgstappen', { x: 0.5, y: 2.5, w: 12, h: 0.4, fontSize: 18, bold: true, color: ONN_TEAL });
+  const stappen = [
+    '1. Bespreek dit voorstel intern met bestuur, sponsors en gemeente',
+    '2. Vraag DUMAVA-subsidie aan vóór start (verplicht vooraf!)',
+    '3. Vraag offertes op bij erkende installateurs voor de gekozen maatregelen',
+    '4. Voer een Blowerdoortest uit om luchtdichtheid in kaart te brengen',
+    '5. Plan de uitvoering in een logische volgorde (eerst isolatie, dan opwekking)',
+  ];
+  sConcl.addText(stappen.join('\n'),
+    { x: 0.7, y: 3.0, w: 12, h: 3.0, fontSize: 13, color: ONN_DONKER, valign: 'top' });
+
+  sConcl.addText('Hulp nodig? Op Naar Nul ondersteunt sportclubs met de uitvoering van verduurzamingsplannen.',
+    { x: 0.5, y: 6.2, w: 12, h: 0.4, fontSize: 12, italic: true, color: ONN_GRIJS });
+  sConcl.addText('opnaarnul.nl · info@opnaarnul.nl',
+    { x: 0.5, y: 6.7, w: 12, h: 0.4, fontSize: 14, bold: true, color: ONN_TEAL });
+
+  // ============================================================
+  // Slide laatste: Colofon
+  // ============================================================
   const sEinde = pres.addSlide();
   sEinde.background = { color: ONN_CREME };
   sEinde.addText('Aan de slag?', { x: 0.5, y: 2.0, w: 12, h: 0.8, fontSize: 36, bold: true, color: ONN_TEAL });
@@ -313,17 +587,76 @@ async function maakPresentatie({ clubNaam, state, berekend }: PresentatieInput):
     { x: 0.5, y: 3.0, w: 12, h: 0.6, fontSize: 14, color: ONN_DONKER });
   sEinde.addText('opnaarnul.nl  ·  info@opnaarnul.nl',
     { x: 0.5, y: 6.6, w: 12, h: 0.4, fontSize: 14, color: ONN_TEAL });
-  sEinde.addText('Rapport gegenereerd door Snelgescand.nl · Website: Bart Cornelissen',
+  sEinde.addText('Rapport gegenereerd door Snelgescand.nl',
     { x: 0.5, y: 7.0, w: 12, h: 0.3, fontSize: 10, color: ONN_GRIJS });
 
-  // pptxgenjs kan in verschillende contexts verschillende types retourneren —
-  // we accepteren Buffer, Uint8Array of base64-string en normaliseren naar Buffer.
+  // pptxgenjs return-type normaliseren
   const raw = await pres.write({ outputType: 'nodebuffer' });
   if (Buffer.isBuffer(raw)) return raw;
   if (raw instanceof Uint8Array) return Buffer.from(raw);
   if (typeof raw === 'string') return Buffer.from(raw, 'base64');
   throw new Error(`Onverwacht PPT-buffertype: ${typeof raw}`);
 }
+
+// Uitleg-teksten per maatregel — krijgt eigen slide in de PPT
+const MAATREGEL_UITLEG: Record<string, string> = {
+  'waterzijdig-inregelen':
+    'Waterzijdig inregelen betekent dat het CV-systeem wordt uitgebalanceerd. Door de radiatoren te voorzien van slimme thermostaatknoppen krijgt elke radiator precies de juiste hoeveelheid water. ' +
+    'Daardoor hoeft de CV-ketel niet zo vaak op volle kracht te draaien — minder gasverbruik én meer comfort. Bij een ongelijk afgestelde installatie worden niet alle radiatoren even warm; de ketel blijft maar branden om de koudste plek te verwarmen.',
+  'dakisolatie':
+    'De meeste warmte gaat verloren via het dak — hier valt dus ook de meeste besparing te realiseren. Met dakisolatie naar Rc 3,5 of hoger voldoe je aan het Bouwbesluit; Rc 6,0 is BENG-niveau. ' +
+    'Dakisolatie is over het algemeen een dure maatregel, maar het voorkomt ook toekomstige problemen zoals lekkages en zorgt ervoor dat warmte beter binnen blijft.',
+  'spouwmuurisolatie':
+    'Spouwmuurisolatie is een snelle en relatief eenvoudige oplossing. Door parels of schuim in de spouw te blazen krijg je een isolatiewaarde van Rc 1,3 — een prima boost voor weinig geld. ' +
+    'Voorwaarden: geen vocht in de spouw, geen vervuiling, geen beschadigingen aan de gevel. De dagelijkse gang van zaken op de club gaat gewoon door.',
+  'vloerisolatie':
+    'Een ouder clubgebouw met kruipruimte verliest warmte via de vloer. Door de vloer te isoleren voorkom je een koude val en tocht over de vloer. ' +
+    'Bespaart tot 15% op je gas! Combineer met bodemfolie, kierdichting en luchtdichte vloerdoorvoeren voor maximaal effect.',
+  'glasisolatie':
+    'Bij glasisolatie geldt: hoe lager de U-waarde, hoe beter. Enkelglas 5,8 U → dubbel 2,8 → HR 2,0 → HR+ 1,5 → HR++ 1,2 → HR+++ 0,7 U. ' +
+    'Naast warmtebehoud voorkomt nieuw glas ook tocht langs bewegende delen in kozijnen — comfort en besparing in één.',
+  'wtw':
+    'WTW (Warmte Terug Winning) wint warmte uit afgevoerde lucht terug naar verse aanvoerlucht. ' +
+    'Moderne units halen 85% rendement. Op warme zomerdagen koelt een WTW juist de binnenkomende warme lucht af. Voorwaarde: goede isolatie — anders ontsnapt de warmte alsnog.',
+  'warmtepompboiler':
+    'Een warmtepompboiler heeft een rendement van ~300% (COP 3) — voor elke kWh stroom levert hij 3 kWh warmte. ' +
+    '75% van de warmte komt uit een onuitputtelijke bron (lucht). Aanschafprijs is hoger dan een elektrische boiler, maar de operationele kosten zijn veel lager.',
+  'qton-warmtepomp':
+    'De Q-ton is een hoog-temperatuur warmtepomp die werkt met CO₂ als koudemiddel — ook bij -25°C levert hij 90°C uitgaand water. ' +
+    'Ideaal voor het verwarmen van douchewater op sportclubs. Met buffervaten zorg je dat ook de piekvraag bij wedstrijden wordt afgevangen. NB: prijzen verschillen per leverancier; ga uit van offertes.',
+  'lmnt-warmtepomp':
+    'LMNT is een Nederlandse propaan-warmtepomp die hoge temperaturen (tot 75°C) haalt — geschikt voor bestaande radiatoren zonder ze te hoeven vervangen. ' +
+    'Werkt ook bij lage buitentemperaturen. Geluidsarme uitvoering geschikt voor woongebieden.',
+  'eboiler':
+    'Een elektrische boiler heeft 100% rendement — niet héél efficiënt vergeleken met een warmtepomp, maar wel goedkoop in aanschaf en bij overschot-PV een prima oplossing als noodboiler.',
+  'pvt-tapwater':
+    'PVT-panelen wekken tegelijk stroom én warmte op. De voorkant is een gewoon PV-paneel, de achterkant heeft een warmtewisselaar. ' +
+    'Door de dubbelfunctie minder dakoppervlak nodig. Vaak een goede optie voor sportclubs met krappe daken.',
+  'lucht-water-warmtepomp':
+    'Een lucht-water warmtepomp gebruikt buitenlucht als warmtebron en geeft warmte af aan water (vloerverwarming/radiatoren). ' +
+    'Kan ook koelen — dat scheelt extra apparatuur in de zomer. Combinatie met WTW verhoogt het rendement van de pomp aanzienlijk.',
+  'lucht-lucht-warmtepomp':
+    'Lucht-lucht warmtepomp blaast warme of koude lucht direct in de ruimte — vergelijkbaar met een airco met verwarmingsfunctie. ' +
+    'Voor clubs met wisselend gebruik handig: directe verwarming bij piekuren. Geen tapwater-functie.',
+  'hybride-warmtepomp':
+    'Een hybride warmtepomp werkt náást een bestaande CV-ketel. Tot ~-3°C werkt alleen de warmtepomp; daaronder springt de ketel bij. ' +
+    'Ideaal als er net een nieuwe CV-ketel is geïnstalleerd: leg een basis voor een duurzame toekomst zonder grote investering ineens.',
+  'binnenverlichting':
+    'Een halogeen verbruikt ~20 W, een LED slechts ~4 W. Bewegingsmelders in kleedkamers en toiletten voorkomen dat lampen onnodig branden. ' +
+    'Investering is laag, terugverdientijd vaak < 2 jaar.',
+  'ledveldverlichting':
+    'De grootste stroomverbruiker op buitensportaccommodaties. Conventionele gas-ontbrandingslampen ~2150 W; LED-veldarmaturen ~1500 W (en op trainingsstand dimbaar tot 1050 W = 70%). ' +
+    'Door betere lichtspreiding kunnen vaak minder armaturen volstaan voor hetzelfde lichtniveau.',
+  'zonnepanelen':
+    'PV-panelen op het dak van het clubhuis (en eventueel een sportveld-overkapping). Zomaar het dak volleggen is vaak niet het meest rendabel — ' +
+    'kijk naar wat je zelf gebruikt als de zon schijnt, en de aansluiting in de meterkast.',
+  'batterij-eenvoudig':
+    'Een snelle batterij-indicatie op basis van jaartotalen. Voor de complete businesscase: kies "Batterij — volledige berekening".',
+  'batterij-uitgebreid':
+    'Een batterij levert vijf voordelen tegelijk: (1) meer eigen verbruik van PV-stroom, (2) vermijden van boete op teruglevering, (3) EPEX-handelsvoordeel ’s zomers, ' +
+    '(4) opvangen van piekvraag waardoor netverzwaring vermeden kan worden, (5) noodstroom bij stroomuitval. ' +
+    'Met name peakshaving en het optimaliseren van eigen stroombehoefte zijn voor sportclubs zeer interessant.',
+};
 
 function addSlideHeader(slide: PptxGenJS.Slide, titel: string) {
   slide.background = { color: 'FFFFFF' };

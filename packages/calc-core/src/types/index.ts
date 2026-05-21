@@ -94,7 +94,7 @@ export interface GebouwKenmerken {
 
 export interface AansluitingType {
   fase: 1 | 3;
-  ampere: 16 | 25 | 35 | 40 | 50 | 63 | 80 | 100 | 125 | 160 | 200;
+  ampere: number;  // gangbaar 16-200 voor kleinverbruik, hoger voor grootverbruik
   /** afgeleid uit fase × ampere, gecached */
   vermogenKw: number;
 }

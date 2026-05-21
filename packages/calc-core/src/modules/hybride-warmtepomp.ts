@@ -76,6 +76,8 @@ export const hybrideWarmtepompModule: MaatregelModule<HybrideWarmtepompInput, Hy
   defaultInput(context: ProjectContext): HybrideWarmtepompInput {
     // Default-verdeling als geen ruimte-info beschikbaar: 60% club, 25% kleedkamers, 15% overig
     const totaal = context.energie.gasverbruikM3 * 0.7; // 30% naar douches/keuken (ruwe schatting)
+    // Default investering: ~€12.000-€18.000 incl. installatie. We pakken
+    // een conservatief gemiddelde dat overschrijfbaar is per project.
     return {
       perRuimte: {
         clubgebouw: { gasverbruikM3: totaal * 0.6, heeftWtw: false },
@@ -84,7 +86,7 @@ export const hybrideWarmtepompModule: MaatregelModule<HybrideWarmtepompInput, Hy
       },
       beta: HYBRIDE_DEFAULT_BETA,
       cop: HYBRIDE_DEFAULT_COP,
-      brutoInvestering: 0,
+      brutoInvestering: 14_000,  // typisch €12-18k voor sportclub-formaat
     };
   },
 

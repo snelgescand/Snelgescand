@@ -30,6 +30,8 @@ export interface RollupInput {
   bestaandePiekKw?: number;
   /** Veiligheidsmarge voor aansluitwaarde-check (default 1.2) */
   aansluitwaardeMarge?: number;
+  /** Optioneel: vermogen (kW) van gekozen batterij — telt mee als extra capaciteit */
+  batterijVermogenKw?: number;
 }
 
 export function rollupProject(input: RollupInput): ProjectResultaat {
@@ -77,22 +79,53 @@ export function rollupProject(input: RollupInput): ProjectResultaat {
   const aansluiting = context.energie?.aansluitwaardeElektra
     ?? { fase: 3 as 1 | 3, ampere: 25, vermogenKw: 17.2 };
 
+  // Een batterij kan piekvraag opvangen — het vermogen telt mee bij de
+  // effectieve aansluitcapaciteit. Wordt via RollupInput meegegeven.
+  const batterijVermogenKw = input.batterijVermogenKw ?? 0;
+
+  // Effectieve capaciteit = fysieke aansluiting + batterij-vermogen.
+  // Reden: tijdens piekuren kan de batterij ontladen om de last op te vangen.
+  const effectieveCapaciteit = {
+    ...aansluiting,
+    vermogenKw: aansluiting.vermogenKw + batterijVermogenKw,
+  };
+
   const aansluitcheck = controleerAansluitwaarde({
-    huidigeAansluiting: aansluiting,
+    huidigeAansluiting: effectieveCapaciteit,
     extraPiekvermogenKw: totaalPiek,
     bestaandePiekKw: bestaandePiek,
     veiligheidsmarge: input.aansluitwaardeMarge ?? 1.2,
   });
 
   if (!aansluitcheck.voldoende) {
+    const opwaardLabel = aansluitcheck.benodigdeOpwaardering
+      ? `Opwaarderen naar ${aansluitcheck.benodigdeOpwaardering.label} (~€${aansluitcheck.geschatteOpwaarderingsKosten}).`
+      : 'Geen passende aansluiting gevonden — grootverbruik nodig.';
+
+    // Alternatief: nog meer batterij-capaciteit voor piekafvlakking
+    const batterijAdvies = batterijVermogenKw > 0
+      ? ` Een batterij van ${batterijVermogenKw} kW staat al ingerekend. Overweeg een zwaardere batterij om netverzwaring te vermijden.`
+      : ' Overweeg een batterij — die kan piekvraag opvangen zonder dat er een nieuwe ' +
+        'net­aansluiting nodig is, vaak goedkoper en sneller gerealiseerd dan netverzwaring ' +
+        '(gem. wachttijd 1–3 jaar bij netbeheerders).';
+
     warnings.push({
       level: 'warning',
       code: 'AANSLUITWAARDE',
-      message: `Aansluitwaarde ${aansluiting.vermogenKw} kW ` +
-        `is onvoldoende voor nieuwe piek ${aansluitcheck.nieuwePiekKw.toFixed(1)} kW. ` +
-        (aansluitcheck.benodigdeOpwaardering
-          ? `Opwaarderen naar ${aansluitcheck.benodigdeOpwaardering.label} (~€${aansluitcheck.geschatteOpwaarderingsKosten}).`
-          : 'Geen passende aansluiting gevonden — grootverbruik nodig.'),
+      message: `Aansluitwaarde ${aansluiting.vermogenKw} kW` +
+        (batterijVermogenKw > 0 ? ` (+ ${batterijVermogenKw} kW batterij = ${effectieveCapaciteit.vermogenKw.toFixed(1)} kW effectief)` : '') +
+        ` is onvoldoende voor nieuwe piek ${aansluitcheck.nieuwePiekKw.toFixed(1)} kW. ` +
+        opwaardLabel + batterijAdvies,
+    });
+  } else if (batterijVermogenKw > 0 && effectieveCapaciteit.vermogenKw > aansluiting.vermogenKw * 1.5) {
+    // De batterij maakt de aansluiting royaal voldoende — wijs erop dat
+    // dit ruimte geeft voor afschaling van de aansluiting.
+    warnings.push({
+      level: 'info',
+      code: 'AANSLUITWAARDE_AFSCHALEN',
+      message: `Met de batterij (${batterijVermogenKw} kW) heb je veel reserve. ` +
+        `Bij volledige benutting kun je mogelijk een lichtere aansluiting overwegen ` +
+        `(scheelt jaarlijks capaciteitstarief).`,
     });
   }
 

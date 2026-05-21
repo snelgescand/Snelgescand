@@ -47,7 +47,7 @@ export interface BatterijEenvoudigResultaat extends MaatregelResultaat {
 
 export const batterijEenvoudigModule: MaatregelModule<BatterijEenvoudigInput, BatterijEenvoudigResultaat> = {
   id: 'batterij-eenvoudig',
-  naam: 'Batterij (vereenvoudigd)',
+  naam: 'Batterij — snelle indicatie',
 
   defaultInput(_context: ProjectContext): BatterijEenvoudigInput {
     return {

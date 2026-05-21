@@ -91,7 +91,7 @@ export interface BatterijUitgebreidResultaat extends MaatregelResultaat {
 
 export const batterijUitgebreidModule: MaatregelModule<BatterijUitgebreidInput, BatterijUitgebreidResultaat> = {
   id: 'batterij-uitgebreid',
-  naam: 'Batterij (uitgebreid — uit Excel)',
+  naam: 'Batterij — volledige berekening',
 
   defaultInput(context: ProjectContext): BatterijUitgebreidInput {
     return {

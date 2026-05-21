@@ -80,6 +80,17 @@ export async function pdokLookup(id: string): Promise<PdokAdres | null> {
   const rd = parseWktPoint(doc.centroide_rd);
   const ll = parseWktPoint(doc.centroide_ll);
 
+  // KRITIEK: PDOK retourneert bouwjaar en oppervlakte als ARRAY
+  // (omdat een adres uit meerdere panden kan bestaan). We nemen het eerste
+  // ofwel het maximum, afhankelijk van wat zinnig is.
+  const eerste = <T,>(v: T | T[] | undefined): T | undefined =>
+    Array.isArray(v) ? v[0] : v;
+
+  const som = (v: number | number[] | undefined): number | undefined => {
+    if (Array.isArray(v)) return v.reduce((a, b) => a + (b || 0), 0);
+    return v;
+  };
+
   return {
     id: doc.id,
     weergavenaam: doc.weergavenaam,
@@ -93,10 +104,12 @@ export async function pdokLookup(id: string): Promise<PdokAdres | null> {
     rd_y: rd?.y ?? 0,
     lat: ll?.y ?? 0,
     lon: ll?.x ?? 0,
-    bouwjaar: doc.bouwjaar,
-    oppervlakte: doc.oppervlakte,
-    adresseerbaarobject_id: doc.adresseerbaarobject_id,
-    pandid: Array.isArray(doc.pandid) ? doc.pandid[0] : doc.pandid,
+    // bouwjaar: meestal één getal, pak het eerste als array
+    bouwjaar: eerste<number>(doc.bouwjaar),
+    // oppervlakte: bij meerdere panden tellen we op (= totaal BVO)
+    oppervlakte: som(doc.oppervlakte),
+    adresseerbaarobject_id: eerste<string>(doc.adresseerbaarobject_id),
+    pandid: eerste<string>(doc.pandid),
   };
 }
 

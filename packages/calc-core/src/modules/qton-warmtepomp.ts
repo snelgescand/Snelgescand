@@ -46,7 +46,10 @@ const QTON_SPECS: Record<QtonModel, QtonSpec> = {
     vermogenKw: 30,
     scop65: 3.8,
     scop90: 3.0,
-    prijsInclBtw: 28_500,
+    // In de praktijk eindigt een complete Q-ton-installatie incl. boilervat,
+    // bekabeling en montage tussen €35.000–€55.000 (afhankelijk van boilervat
+    // 300/500/1000 L). We pakken een realistisch midden.
+    prijsInclBtw: 42_000,
     isdeBedrag: 2_500,
   },
   HMA45A: {
@@ -54,7 +57,7 @@ const QTON_SPECS: Record<QtonModel, QtonSpec> = {
     vermogenKw: 45,
     scop65: 3.7,
     scop90: 2.9,
-    prijsInclBtw: 38_500,
+    prijsInclBtw: 55_000,
     isdeBedrag: 3_700,
   },
 };

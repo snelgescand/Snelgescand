@@ -6,7 +6,7 @@
  * een speciaal sub-component getoond.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { rcDefault } from '@sportief-opgewekt/calc-core';
 import { InfoTooltip } from './InfoTooltip';
 import { MAATREGEL_META, GLAS_OPTIES, DAG_NAMEN, type VeldDef } from '../data/maatregel-velden';
@@ -19,6 +19,8 @@ interface MaatregelDetailProps {
   onRemove: () => void;
   /** Bouwjaar uit project — gebruikt om Rc-waardes te suggereren */
   bouwjaar?: number;
+  /** Of dit paneel meteen open moet zijn */
+  defaultOpen?: boolean;
 }
 
 // Maatregel-ID → welke constructie-deel voor rcDefault lookup
@@ -28,8 +30,14 @@ const RC_DEEL: Record<string, 'dak' | 'gevel' | 'vloer'> = {
   'vloerisolatie': 'vloer',
 };
 
-export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove, bouwjaar }: MaatregelDetailProps) {
-  const [open, setOpen] = useState(false);
+export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove, bouwjaar, defaultOpen = false }: MaatregelDetailProps) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  // Wanneer defaultOpen verandert (na klik op "✏️ Aanpassen"), het paneel openen
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
+
   const meta = MAATREGEL_META[maatregelId];
 
   function updateVeld(pad: string, waarde: unknown) {

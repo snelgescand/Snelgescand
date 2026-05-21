@@ -213,7 +213,7 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
     ],
   },
   'batterij-uitgebreid': {
-    kort: 'Uitgebreide accu-berekening volgens het originele Excel-rekenmodel — bevat EPEX-handelsvoordeel, vermeden boete op teruglevering, BOSA-subsidie en restwaarde. Voor een sportclub met (geplande) PV-installatie.',
+    kort: 'Een batterij levert vijf voordelen tegelijk: (1) meer eigen verbruik van PV-stroom, (2) vermijden van boete op teruglevering, (3) EPEX-handelsvoordeel ’s zomers, (4) opvangen van piekvraag waardoor netverzwaring vermeden kan worden, (5) noodstroom bij stroomuitval. Berekening volgt het originele Excel-rekenmodel met BOSA-subsidie, restwaarde en EMS-kosten.',
     velden: [
       { pad: 'capaciteitKwh', label: 'Capaciteit accu', type: 'number', eenheid: 'kWh',
         tooltip: 'Bruikbare capaciteit. Voor middelgrote sportclub typisch 30-100 kWh.', placeholder: 'bv. 100' },
@@ -242,7 +242,7 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
     ],
   },
   'batterij-eenvoudig': {
-    kort: 'Stationaire batterij voor zelfconsumptie van PV en/of EPEX-arbitrage. Berekening gebruikt jaartotalen (cycli × spread). Voor tijdreeks-simulatie: contact opnemen.',
+    kort: 'Snelle batterij-indicatie op basis van jaartotalen — voor een eerste sanity check. Kies "Batterij — volledige berekening" voor de complete businesscase met alle voordelen (eigen verbruik, EPEX-handel, vermeden boete, piekafvlakking, noodstroom).',
     velden: [
       { pad: 'capaciteitKwh', label: 'Capaciteit', type: 'number', eenheid: 'kWh',
         tooltip: 'Bruikbare capaciteit. Voor sportclubs typisch 50-200 kWh. Vuistregel: 1× gemiddeld dagverbruik voor zelfconsumptie, 2-3× voor arbitrage.', placeholder: 'bv. 30' },

@@ -161,14 +161,26 @@ export default async function projectsRoutes(app: FastifyInstance) {
       } : {}),
     };
 
+    // Ook de top-level kolommen postcode/huisnummer updaten zodat het
+    // adres zichtbaar is in het projectenoverzicht
+    const lokatieRec = body.locatie as { postcode?: string; huisnummer?: number | string };
+    const topLevelUpdates: Record<string, string> = {};
+    if (lokatieRec.postcode && typeof lokatieRec.postcode === 'string') {
+      topLevelUpdates.postcode = lokatieRec.postcode;
+    }
+    if (lokatieRec.huisnummer !== undefined && lokatieRec.huisnummer !== null) {
+      topLevelUpdates.huisnummer = String(lokatieRec.huisnummer);
+    }
+
     const updated = await prisma.project.update({
       where: { id },
       data: {
+        ...topLevelUpdates,
         state: nieuweState as Json,
         cachedResult: null as Json,
         cachedAt: null,
       },
-      select: { id: true, state: true, updatedAt: true },
+      select: { id: true, state: true, postcode: true, huisnummer: true, updatedAt: true },
     });
 
     app.log.info(

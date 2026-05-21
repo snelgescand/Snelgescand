@@ -701,6 +701,13 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
                     '3x50 A': { fase: 3, ampere: 50, vermogenKw: 34.5 },
                     '3x63 A': { fase: 3, ampere: 63, vermogenKw: 43.47 },
                     '3x80 A': { fase: 3, ampere: 80, vermogenKw: 55.2 },
+                    'GV 80 kW':  { fase: 3, ampere: 116, vermogenKw: 80 },
+                    'GV 100 kW': { fase: 3, ampere: 144, vermogenKw: 100 },
+                    'GV 136 kW': { fase: 3, ampere: 196, vermogenKw: 136 },
+                    'GV 175 kW': { fase: 3, ampere: 252, vermogenKw: 175 },
+                    'GV 250 kW': { fase: 3, ampere: 360, vermogenKw: 250 },
+                    'GV 500 kW': { fase: 3, ampere: 720, vermogenKw: 500 },
+                    'GV 1000 kW': { fase: 3, ampere: 1440, vermogenKw: 1000 },
                   };
                   const conf = lookup[label];
                   updateDraft(s => ({
@@ -717,15 +724,26 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
                 }}
               >
                 <option value="">— onbekend (default 3x25A) —</option>
-                <option value="1x25 A">1×25 A (5,75 kW)</option>
-                <option value="1x35 A">1×35 A (8,05 kW)</option>
-                <option value="1x40 A">1×40 A (9,2 kW)</option>
-                <option value="3x25 A">3×25 A (17,2 kW) — meest voorkomend</option>
-                <option value="3x35 A">3×35 A (24,1 kW)</option>
-                <option value="3x40 A">3×40 A (27,6 kW)</option>
-                <option value="3x50 A">3×50 A (34,5 kW)</option>
-                <option value="3x63 A">3×63 A (43,5 kW)</option>
-                <option value="3x80 A">3×80 A (55,2 kW) — grens grootverbruik</option>
+                <optgroup label="Kleinverbruik">
+                  <option value="1x25 A">1×25 A (5,75 kW)</option>
+                  <option value="1x35 A">1×35 A (8,05 kW)</option>
+                  <option value="1x40 A">1×40 A (9,2 kW)</option>
+                  <option value="3x25 A">3×25 A (17,2 kW) — meest voorkomend</option>
+                  <option value="3x35 A">3×35 A (24,1 kW)</option>
+                  <option value="3x40 A">3×40 A (27,6 kW)</option>
+                  <option value="3x50 A">3×50 A (34,5 kW)</option>
+                  <option value="3x63 A">3×63 A (43,5 kW)</option>
+                  <option value="3x80 A">3×80 A (55,2 kW) — grens kleinverbruik</option>
+                </optgroup>
+                <optgroup label="Grootverbruik">
+                  <option value="GV 80 kW">Grootverbruik 80 kW</option>
+                  <option value="GV 100 kW">Grootverbruik 100 kW</option>
+                  <option value="GV 136 kW">Grootverbruik 136 kW</option>
+                  <option value="GV 175 kW">Grootverbruik 175 kW</option>
+                  <option value="GV 250 kW">Grootverbruik 250 kW</option>
+                  <option value="GV 500 kW">Grootverbruik 500 kW</option>
+                  <option value="GV 1000 kW">Grootverbruik 1 MW</option>
+                </optgroup>
               </select>
             </Veld>
           </div>
@@ -820,6 +838,19 @@ interface Stap2Props {
 function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFout, pptFout, kanBerekenen, onTerugStap1 }: Stap2Props) {
   const gekozenIds = Object.keys(draft.gekozenMaatregelen);
 
+  // Welk maatregel-detail-paneel is uitgeklapt? (één tegelijk voor focus)
+  const [openDetailId, setOpenDetailId] = useState<string | null>(null);
+
+  // Bij klik op "✏️ Aanpassen": open het detail-paneel én scroll ernaartoe.
+  const openDetail = (id: string) => {
+    setOpenDetailId(id);
+    // Wacht één frame zodat het paneel gerenderd is, dan scrollen
+    setTimeout(() => {
+      const el = document.getElementById(`detail-${id}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  };
+
   // Bouw waterverbruik-grafiekdata uit trainingsschema (of detail-input als fallback)
   const waterData = useMemo(() => bouwWaterverbruikData(draft), [draft]);
   const waterPerUurData = useMemo(() => bouwWaterPerUurData(draft.trainingsSchema), [draft.trainingsSchema]);
@@ -881,33 +912,40 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
               onToggle={(id, defaults) => updateDraft(s => {
                 const next = { ...s.gekozenMaatregelen };
                 if (id in next) delete next[id];
-                else next[id] = defaults;
+                else {
+                  next[id] = defaults;
+                  // bij selectie direct het detail-paneel openen
+                  setTimeout(() => openDetail(id), 100);
+                }
                 return { ...s, gekozenMaatregelen: next };
               })}
+              onOpenDetail={openDetail}
             />
           </Sectie>
         )}
 
         {/* Details per gekozen maatregel */}
         {gekozenIds.length > 0 && modulesQuery.data && (
-          <Sectie titel="Details per gekozen maatregel" tooltipTekst="Klap een paneel uit om de aannames voor die maatregel aan te passen.">
+          <Sectie titel="Details per gekozen maatregel" tooltipTekst="Pas hier de aannames per maatregel aan.">
             <div className="space-y-2">
               {gekozenIds.map(modId => {
                 const mod = modulesQuery.data?.modules.find(m => m.id === modId);
                 return (
-                  <MaatregelDetail
-                    key={modId}
-                    maatregelId={modId}
-                    maatregelNaam={mod?.naam ?? modId}
-                    input={draft.gekozenMaatregelen[modId] as Record<string, unknown> ?? {}}
-                    bouwjaar={draft.context.gebouw?.bouwjaar}
-                    onChange={(input) => updateDraft(s => ({ ...s, gekozenMaatregelen: { ...s.gekozenMaatregelen, [modId]: input } }))}
-                    onRemove={() => updateDraft(s => {
-                      const next = { ...s.gekozenMaatregelen };
-                      delete next[modId];
-                      return { ...s, gekozenMaatregelen: next };
-                    })}
-                  />
+                  <div id={`detail-${modId}`} key={modId}>
+                    <MaatregelDetail
+                      maatregelId={modId}
+                      maatregelNaam={mod?.naam ?? modId}
+                      input={draft.gekozenMaatregelen[modId] as Record<string, unknown> ?? {}}
+                      bouwjaar={draft.context.gebouw?.bouwjaar}
+                      defaultOpen={openDetailId === modId}
+                      onChange={(input) => updateDraft(s => ({ ...s, gekozenMaatregelen: { ...s.gekozenMaatregelen, [modId]: input } }))}
+                      onRemove={() => updateDraft(s => {
+                        const next = { ...s.gekozenMaatregelen };
+                        delete next[modId];
+                        return { ...s, gekozenMaatregelen: next };
+                      })}
+                    />
+                  </div>
                 );
               })}
             </div>

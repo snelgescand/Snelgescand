@@ -116,9 +116,14 @@ export function berekenProject(rawState: unknown): BerekendProject {
   }
 
   // === Stap 4: rollup — ook in try/catch zodat één bug niet alles sloopt ===
+  // Batterij-vermogen voor aansluitwaarde-check
+  const batE = gekozen['batterij-eenvoudig'] as { vermogenKw?: number } | undefined;
+  const batU = gekozen['batterij-uitgebreid'] as { vermogenKw?: number } | undefined;
+  const batterijVermogenKw = Math.max(batE?.vermogenKw ?? 0, batU?.vermogenKw ?? 0);
+
   let rollup: ProjectResultaat;
   try {
-    rollup = rollupProject({ context, resultaten });
+    rollup = rollupProject({ context, resultaten, batterijVermogenKw });
   } catch (err) {
     // Fallback: lege rollup met waarschuwing
     const totaalInv = Object.values(resultaten).reduce((s, r) => s + (r?.brutoInvestering ?? 0), 0);
