@@ -68,12 +68,29 @@ export async function pdokSuggest(query: string): Promise<PdokSuggestie[]> {
  * Volledige adresgegevens ophalen voor een geselecteerde suggestie.
  */
 export async function pdokLookup(id: string): Promise<PdokAdres | null> {
-  const url = `${PDOK_BASE}/lookup?id=${encodeURIComponent(id)}&fl=*`;
+  // EXPLICIETE fl-parameter — `fl=*` geeft soms niet alle BAG-velden mee.
+  // Door specifiek bouwjaar/oppervlakte/pandid op te vragen forceren we PDOK
+  // die ook daadwerkelijk te retourneren.
+  const fields = [
+    'id', 'type', 'weergavenaam', 'score',
+    'straatnaam', 'huisnummer', 'huisletter', 'huisnummertoevoeging',
+    'postcode', 'woonplaatsnaam', 'gemeentenaam', 'provincienaam',
+    'centroide_ll', 'centroide_rd',
+    'bouwjaar', 'oppervlakte', 'gebruiksdoel',
+    'pandid', 'nummeraanduiding_id', 'adresseerbaarobject_id',
+  ].join(',');
+
+  const url = `${PDOK_BASE}/lookup?id=${encodeURIComponent(id)}&fl=${fields}`;
+  console.log('[PDOK] Lookup URL:', url);
   const res = await fetch(url);
-  if (!res.ok) return null;
+  if (!res.ok) {
+    console.warn('[PDOK] Lookup mislukt:', res.status, res.statusText);
+    return null;
+  }
 
   const data = await res.json();
   const doc = data?.response?.docs?.[0];
+  console.log('[PDOK] Volledige doc uit lookup:', doc);
   if (!doc) return null;
 
   // Centroide is een WKT POINT-string: "POINT(x y)"
@@ -81,17 +98,19 @@ export async function pdokLookup(id: string): Promise<PdokAdres | null> {
   const ll = parseWktPoint(doc.centroide_ll);
 
   // KRITIEK: PDOK retourneert bouwjaar en oppervlakte als ARRAY
-  // (omdat een adres uit meerdere panden kan bestaan). We nemen het eerste
-  // ofwel het maximum, afhankelijk van wat zinnig is.
+  // (omdat een adres uit meerdere panden kan bestaan).
   const eerste = <T,>(v: T | T[] | undefined): T | undefined =>
     Array.isArray(v) ? v[0] : v;
 
   const som = (v: number | number[] | undefined): number | undefined => {
-    if (Array.isArray(v)) return v.reduce((a, b) => a + (b || 0), 0);
-    return v;
+    if (Array.isArray(v)) {
+      const totaal = v.reduce((a, b) => a + (b || 0), 0);
+      return totaal > 0 ? totaal : undefined;
+    }
+    return v && v > 0 ? v : undefined;
   };
 
-  return {
+  const adres: PdokAdres = {
     id: doc.id,
     weergavenaam: doc.weergavenaam,
     postcode: doc.postcode,
@@ -104,13 +123,20 @@ export async function pdokLookup(id: string): Promise<PdokAdres | null> {
     rd_y: rd?.y ?? 0,
     lat: ll?.y ?? 0,
     lon: ll?.x ?? 0,
-    // bouwjaar: meestal één getal, pak het eerste als array
     bouwjaar: eerste<number>(doc.bouwjaar),
-    // oppervlakte: bij meerdere panden tellen we op (= totaal BVO)
     oppervlakte: som(doc.oppervlakte),
     adresseerbaarobject_id: eerste<string>(doc.adresseerbaarobject_id),
     pandid: eerste<string>(doc.pandid),
   };
+
+  console.log('[PDOK] Genormaliseerd:', {
+    bouwjaar: adres.bouwjaar,
+    oppervlakte: adres.oppervlakte,
+    pandid: adres.pandid,
+    coords: `${adres.rd_x}, ${adres.rd_y}`,
+  });
+
+  return adres;
 }
 
 function parseWktPoint(wkt: string | undefined): { x: number; y: number } | null {
@@ -118,6 +144,65 @@ function parseWktPoint(wkt: string | undefined): { x: number; y: number } | null
   const m = wkt.match(/POINT\(([^ ]+) ([^)]+)\)/);
   if (!m) return null;
   return { x: parseFloat(m[1]), y: parseFloat(m[2]) };
+}
+
+/**
+ * Fallback: zoek het pand direct op via de BAG2 OGC API (op coördinaten).
+ *
+ * Wordt gebruikt als PDOK Locatieserver geen bouwjaar of pandid teruggeeft
+ * (komt voor bij sommige nieuwere of incomplete BAG-records).
+ *
+ * Bron: https://api.pdok.nl/lv/bag/ogc/v1 — gratis, geen key nodig.
+ */
+export interface BagPand {
+  identificatie: string;
+  oorspronkelijkBouwjaar?: number;
+  oppervlakte?: number;
+  status?: string;
+}
+
+export async function fetchBagPandViaCoordinaten(rd_x: number, rd_y: number): Promise<BagPand | null> {
+  if (!rd_x || !rd_y) return null;
+
+  // Bbox van ~10m rondom het adres-centroïde
+  const d = 5;
+  const bbox = `${rd_x - d},${rd_y - d},${rd_x + d},${rd_y + d}`;
+  const url = `https://api.pdok.nl/lv/bag/ogc/v1/collections/pand/items?` +
+    `bbox=${bbox}&bbox-crs=https://www.opengis.net/def/crs/EPSG/0/28992&limit=10`;
+
+  console.log('[BAG-OGC] Fallback lookup URL:', url);
+
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/geo+json' } });
+    if (!res.ok) {
+      console.warn('[BAG-OGC] Failed:', res.status, res.statusText);
+      return null;
+    }
+    const data = await res.json();
+    const features = (data?.features ?? []) as Array<{ properties?: Record<string, unknown>; id?: string }>;
+    console.log('[BAG-OGC] Found', features.length, 'pand(en) in bbox');
+    if (features.length === 0) return null;
+
+    // Pak het pand met het hoogste bouwjaar (= meest waarschijnlijk bewoond/in gebruik)
+    const sorted = features.slice().sort((a, b) => {
+      const ja = Number(a.properties?.oorspronkelijk_bouwjaar ?? 0);
+      const jb = Number(b.properties?.oorspronkelijk_bouwjaar ?? 0);
+      return jb - ja;
+    });
+    const f = sorted[0];
+    const props = f.properties ?? {};
+    const result: BagPand = {
+      identificatie: String(props.identificatie ?? f.id ?? ''),
+      oorspronkelijkBouwjaar: Number(props.oorspronkelijk_bouwjaar) || undefined,
+      oppervlakte: Number(props.oppervlakte) || undefined,
+      status: props.status as string | undefined,
+    };
+    console.log('[BAG-OGC] Beste pand:', result);
+    return result;
+  } catch (e) {
+    console.warn('[BAG-OGC] Error:', e);
+    return null;
+  }
 }
 
 /**

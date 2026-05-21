@@ -60,11 +60,32 @@ export default async function projectsRoutes(app: FastifyInstance) {
         postcode: true,
         huisnummer: true,
         updatedAt: true,
+        state: true,  // bevat logo — alleen logo extraheren in mapping hieronder
         eigenaar: { select: { id: true, naam: true } },
       },
       take: 200,
     });
-    return { projecten: lijst };
+    // Extract logo, fase en woonplaats uit de state (rest blijft op de server).
+    const projecten = lijst.map((p: typeof lijst[number]) => {
+      const state = (p.state as {
+        logo?: { dataUrl?: string; bestandsnaam?: string };
+        locatie?: { woonplaats?: string; adres?: string };
+        lifecycle?: string;
+      }) ?? {};
+      return {
+        id: p.id,
+        clubNaam: p.clubNaam,
+        status: p.status,
+        postcode: p.postcode,
+        huisnummer: p.huisnummer,
+        updatedAt: p.updatedAt,
+        eigenaar: p.eigenaar,
+        logo: state.logo ? { dataUrl: state.logo.dataUrl, bestandsnaam: state.logo.bestandsnaam } : null,
+        woonplaats: state.locatie?.woonplaats ?? null,
+        lifecycle: state.lifecycle ?? null,
+      };
+    });
+    return { projecten };
   });
 
   app.post('/projects', async (req, reply) => {

@@ -69,8 +69,11 @@ export interface ProjectListItem {
   status: 'DRAFT' | 'IN_PROGRESS' | 'AFGEROND' | 'GEARCHIVEERD';
   postcode?: string;
   huisnummer?: string;
+  woonplaats?: string | null;
+  lifecycle?: string | null;
   updatedAt: string;
   eigenaar: { id: string; naam: string };
+  logo?: { dataUrl: string; bestandsnaam?: string } | null;
 }
 
 export const projectsApi = {
@@ -80,6 +83,8 @@ export const projectsApi = {
     api<any>('/api/projects', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: string, data: unknown) =>
     api<any>(`/api/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: string) =>
+    api<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
   bereken: (id: string) =>
     api<any>(`/api/projects/${id}/bereken`, { method: 'POST' }),
 
@@ -141,4 +146,29 @@ export const usersApi = {
     api<{ gebruiker: UserRow }>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id: string) =>
     api<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
+};
+
+export const logoApi = {
+  /** Probeer automatisch logo te vinden op basis van clubnaam */
+  zoek: (clubnaam: string) =>
+    api<{
+      gevonden: boolean;
+      domein?: string;
+      websiteUrl?: string;
+      logoUrl?: string;
+      dataUrl?: string;
+      mimeType?: string;
+      bytes?: number;
+      geprobeerd?: string[];
+    }>(`/api/logo/zoek?clubnaam=${encodeURIComponent(clubnaam)}`),
+
+  /** Download logo van een handmatig opgegeven URL */
+  download: (url: string) =>
+    api<{
+      gevonden: boolean;
+      logoUrl?: string;
+      dataUrl?: string;
+      mimeType?: string;
+      bytes?: number;
+    }>('/api/logo/download', { method: 'POST', body: JSON.stringify({ url }) }),
 };

@@ -33,7 +33,7 @@ import { EnergielabelKaart } from '../components/EnergielabelKaart';
 import { HistorischVerbruik } from '../components/HistorischVerbruik';
 import { berekenEnergielabel, berekenLabelNaMaatregelen, bepaalLabelSprong } from '../util/energielabel';
 import type { PdokAdres } from '../api/pdok';
-import { fetch3dBagHoogte } from '../api/pdok';
+import { fetch3dBagHoogte, fetchBagPandViaCoordinaten } from '../api/pdok';
 import type { HuidigeSituatieData } from '../data/huidige-situatie';
 
 const API_BASE_FOR_BEACON = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
@@ -81,6 +81,8 @@ interface ProjectState {
   trainingsSchema?: TrainingsSchema;
   /** Opgeslagen lokaal berekend resultaat — zodat backend het ook heeft voor PPT */
   berekendResultaat?: Record<string, unknown>;
+  /** Project-fase voor lifecycle (concept/scan-gepland/etc) — zie data/lifecycle.ts */
+  lifecycle?: string;
 }
 
 const LEGE_STATE: ProjectState = {
@@ -111,6 +113,7 @@ export default function ProjectEditor() {
   const [fase, setFase] = useState<1 | 2>(1);
   const [berekenFout, setBerekenFout] = useState<string | null>(null);
   const [pptFout, setPptFout] = useState<string | null>(null);
+  const [bevestigVerwijder, setBevestigVerwijder] = useState(false);
   const autoSaveTimer = useRef<number | null>(null);
   const pendingDraft = useRef<ProjectState | null>(null);
 
@@ -196,6 +199,17 @@ export default function ProjectEditor() {
     onError: (err: unknown) => {
       if (err instanceof ApiError) setPptFout(err.message);
       else setPptFout('PowerPoint-export mislukt');
+    },
+  });
+
+  const verwijder = useMutation({
+    mutationFn: () => projectsApi.delete(id!),
+    onSuccess: () => {
+      window.location.href = '/projecten';
+    },
+    onError: (err: unknown) => {
+      alert('Verwijderen mislukt: ' + (err instanceof Error ? err.message : 'onbekend'));
+      setBevestigVerwijder(false);
     },
   });
 
@@ -300,7 +314,7 @@ export default function ProjectEditor() {
     if (!draft) return;
     console.log('[BAG] PDOK lookup response:', adres);
 
-    const status: typeof bagStatus = { foutmeldingen: [], laatstGeprobeerd: adres.weergavenaam };
+    const status: BagStatusType = { foutmeldingen: [], laatstGeprobeerd: adres.weergavenaam };
 
     const locatie = {
       adres: adres.weergavenaam, postcode: adres.postcode, huisnummer: adres.huisnummer,
@@ -312,15 +326,45 @@ export default function ProjectEditor() {
     if (adres.bouwjaar && adres.bouwjaar > 1800) {
       gebouwPatch.bouwjaar = adres.bouwjaar;
       status.bouwjaar = { waarde: adres.bouwjaar, bron: 'PDOK' };
-    } else {
-      status.foutmeldingen.push('PDOK gaf geen bouwjaar terug');
     }
 
     if (adres.oppervlakte && adres.oppervlakte > 0) {
       gebouwPatch.bvoTotaalM2 = adres.oppervlakte;
       status.oppervlakte = { waarde: adres.oppervlakte, bron: 'PDOK' };
     }
-    // (Als PDOK geen oppervlakte gaf, probeer hieronder 3D BAG)
+
+    let pandid = adres.pandid;
+
+    // FALLBACK 1: BAG OGC API als PDOK geen bouwjaar/pandid had
+    if ((!gebouwPatch.bouwjaar || !pandid) && adres.rd_x && adres.rd_y) {
+      console.log('[BAG] PDOK incompleet — probeer BAG OGC API fallback');
+      try {
+        const pand = await fetchBagPandViaCoordinaten(adres.rd_x, adres.rd_y);
+        if (pand) {
+          if (!gebouwPatch.bouwjaar && pand.oorspronkelijkBouwjaar) {
+            gebouwPatch.bouwjaar = pand.oorspronkelijkBouwjaar;
+            status.bouwjaar = { waarde: pand.oorspronkelijkBouwjaar, bron: 'BAG-OGC' };
+          }
+          if (!gebouwPatch.bvoTotaalM2 && pand.oppervlakte) {
+            gebouwPatch.bvoTotaalM2 = pand.oppervlakte;
+            status.oppervlakte = { waarde: pand.oppervlakte, bron: 'BAG-OGC' };
+          }
+          if (!pandid && pand.identificatie) {
+            pandid = pand.identificatie;
+            console.log('[BAG] Pandid via OGC API:', pandid);
+          }
+        } else {
+          status.foutmeldingen.push('Geen pand gevonden in BAG OGC API op deze coördinaten');
+        }
+      } catch (e) {
+        console.warn('[BAG OGC] error:', e);
+        status.foutmeldingen.push(`BAG OGC error: ${e instanceof Error ? e.message : 'onbekend'}`);
+      }
+    }
+
+    if (!gebouwPatch.bouwjaar) status.foutmeldingen.push('Bouwjaar ook niet via BAG-OGC gevonden');
+    if (!gebouwPatch.bvoTotaalM2) status.foutmeldingen.push('Oppervlakte niet via PDOK of BAG-OGC gevonden');
+    if (!pandid) status.foutmeldingen.push('Geen pandid beschikbaar — 3D BAG fallback niet mogelijk');
 
     const next: ProjectState = {
       ...draft,
@@ -331,7 +375,6 @@ export default function ProjectEditor() {
     pendingDraft.current = null;
     if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
 
-    // Dedicated locatie-endpoint zodat locatie en BAG-data NIET verloren gaan
     try {
       await projectsApi.saveLocatie(id!, locatie, gebouwPatch);
       save.mutate(next);
@@ -340,12 +383,12 @@ export default function ProjectEditor() {
       save.mutate(next);
     }
 
-    // 3D BAG hoogte+oppervlakte ophalen op de achtergrond
+    // 3D BAG voor bouwhoogte (nu we evt. via fallback een pandid hebben)
     let huidigeNext = next;
-    if (adres.pandid) {
+    if (pandid) {
       try {
-        const bag3d = await fetch3dBagHoogte(adres.pandid);
-        console.log('[BAG] 3D BAG response:', bag3d);
+        const bag3d = await fetch3dBagHoogte(pandid);
+        console.log('[3D BAG] response:', bag3d);
         if (bag3d) {
           const extraGebouw: Record<string, unknown> = {};
           if (bag3d.bouwhoogteM) {
@@ -356,13 +399,9 @@ export default function ProjectEditor() {
             extraGebouw.plafondhoogteM = bag3d.geschattePlafondhoogteM;
             status.plafondhoogte = { waarde: bag3d.geschattePlafondhoogteM, bron: 'BAG3D-schatting' };
           }
-          // FALLBACK: als PDOK geen oppervlakte gaf, gebruik 3D BAG-schatting
           if (!gebouwPatch.bvoTotaalM2 && bag3d.geschatteOppervlakteM2 && bag3d.geschatteOppervlakteM2 > 10) {
             extraGebouw.bvoTotaalM2 = bag3d.geschatteOppervlakteM2;
             status.oppervlakte = { waarde: bag3d.geschatteOppervlakteM2, bron: 'BAG3D-schatting' };
-            status.foutmeldingen.push('BVO geschat via 3D BAG (volume/hoogte). Verifieer of dit klopt!');
-          } else if (!gebouwPatch.bvoTotaalM2) {
-            status.foutmeldingen.push('Geen oppervlakte gevonden — vul handmatig in.');
           }
 
           if (Object.keys(extraGebouw).length > 0) {
@@ -379,15 +418,11 @@ export default function ProjectEditor() {
             }
             save.mutate(nextMetExtra);
           }
-        } else {
-          status.foutmeldingen.push('3D BAG response leeg (pand niet gevonden in 3D BAG-dataset)');
         }
       } catch (err) {
         console.warn('[3D BAG fetch] mislukt', err);
-        status.foutmeldingen.push(`3D BAG fetch mislukt: ${err instanceof Error ? err.message : 'onbekend'}`);
+        status.foutmeldingen.push(`3D BAG: ${err instanceof Error ? err.message : 'onbekend'}`);
       }
-    } else {
-      status.foutmeldingen.push('Geen pandid van PDOK — 3D BAG fallback niet mogelijk');
     }
 
     setBagStatus(status);
@@ -432,7 +467,24 @@ export default function ProjectEditor() {
               laatsteFout={save.error instanceof Error ? save.error.message : undefined}
             />
           </div>
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-center">
+            {/* Lifecycle-fase selector */}
+            <select
+              value={(draft.lifecycle as string | undefined) ?? 'concept'}
+              onChange={e => updateDraft(s => ({ ...s, lifecycle: e.target.value }))}
+              className="input py-1.5 text-sm max-w-[180px]"
+              title="Fase van het project"
+            >
+              <option value="concept">📝 Concept</option>
+              <option value="scan-gepland">📅 Scan gepland</option>
+              <option value="scan-uitgevoerd">✓ Scan uitgevoerd</option>
+              <option value="rapport-opgesteld">📄 Rapport opgesteld</option>
+              <option value="offertes-aangevraagd">💰 Offertes aangevraagd</option>
+              <option value="in-uitvoering">🔨 In uitvoering</option>
+              <option value="opgeleverd">🎉 Opgeleverd</option>
+              <option value="archief">📦 Archief</option>
+            </select>
+
             <button
               onClick={() => { setBerekenFout(null); bereken.mutate(); }}
               className="btn-accent"
@@ -448,6 +500,13 @@ export default function ProjectEditor() {
               title={!cached ? 'Eerst berekenen' : 'Download PowerPoint'}
             >
               {exportPpt.isPending ? 'Exporteren…' : '↓ PowerPoint'}
+            </button>
+            <button
+              onClick={() => setBevestigVerwijder(true)}
+              className="text-sm text-gray-500 hover:text-red-600 px-2"
+              title="Project verwijderen"
+            >
+              🗑
             </button>
           </div>
         </div>
@@ -499,6 +558,32 @@ export default function ProjectEditor() {
         )}
       </main>
       <Footer />
+
+      {/* Bevestigingsmodal voor verwijderen */}
+      {bevestigVerwijder && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
+             onClick={() => setBevestigVerwijder(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-primary-900 mb-2">Project verwijderen?</h3>
+            <p className="text-sm text-gray-700 mb-4">
+              Weet je zeker dat je <strong>{draft.context.club?.naam || 'dit project'}</strong> definitief wilt verwijderen?
+              Deze actie kan niet ongedaan worden gemaakt.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button className="btn-secondary text-sm" onClick={() => setBevestigVerwijder(false)}>
+                Annuleer
+              </button>
+              <button
+                className="text-sm px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                disabled={verwijder.isPending}
+                onClick={() => verwijder.mutate()}
+              >
+                {verwijder.isPending ? 'Verwijderen…' : 'Ja, verwijder'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -540,8 +625,8 @@ function TabKnop({ actief, onClick, nummer, titel, ondertitel, disabled, disable
  * ============================================================ */
 
 interface BagStatusType {
-  bouwjaar?: { waarde: number; bron: 'PDOK' | 'BAG3D' };
-  oppervlakte?: { waarde: number; bron: 'PDOK' | 'BAG3D-schatting' };
+  bouwjaar?: { waarde: number; bron: 'PDOK' | 'BAG3D' | 'BAG-OGC' };
+  oppervlakte?: { waarde: number; bron: 'PDOK' | 'BAG3D-schatting' | 'BAG-OGC' };
   bouwhoogte?: { waarde: number; bron: 'BAG3D' };
   plafondhoogte?: { waarde: number; bron: 'BAG3D-schatting' };
   laatstGeprobeerd?: string;
@@ -578,9 +663,10 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
                 onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, club: { ...s.context.club, naam: e.target.value } } }))}
               />
             </Veld>
-            <Veld label="Logo (optioneel)" tooltip="PNG, JPG of SVG met transparante achtergrond komt het mooist uit in het rapport. Max 500 KB.">
+            <Veld label="Logo (optioneel)" tooltip="Auto-zoek probeert je clubsite te vinden. Anders upload of plak een URL. Max 500 KB.">
               <LogoUpload
                 logo={draft.logo}
+                clubnaam={draft.context.club?.naam}
                 onChange={(logo) => updateDraft(s => ({ ...s, logo }))}
               />
             </Veld>
