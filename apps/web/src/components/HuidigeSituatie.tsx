@@ -13,9 +13,44 @@ import { InfoTooltip } from './InfoTooltip';
 interface Props {
   data: HuidigeSituatieData;
   onChange: (data: HuidigeSituatieData) => void;
+  /** Bouwjaar uit project — wordt gebruikt voor suggesties bij isolatie-keuzes */
+  bouwjaar?: number;
 }
 
-export function HuidigeSituatie({ data, onChange }: Props) {
+/**
+ * Bepaal de meest waarschijnlijke "standaard" optie op basis van bouwjaar.
+ * Gebaseerd op de originele Op Naar Nul / Sportief Opgewekt-tabel:
+ *  - tot 1965: geen isolatie
+ *  - 1965-1975: beperkt
+ *  - 1975-1992: matig
+ *  - 1992-2012: modern
+ *  - vanaf 2012: goed
+ */
+function suggestieVoorBouwjaar(itemId: string, bouwjaar?: number): string | null {
+  if (!bouwjaar) return null;
+  if (itemId === 'dakisolatie' || itemId === 'vloerisolatie') {
+    if (bouwjaar < 1965) return 'geen';
+    if (bouwjaar < 1975) return 'beperkt';
+    if (bouwjaar < 1992) return 'matig';
+    if (bouwjaar < 2012) return 'modern';
+    return 'goed';
+  }
+  if (itemId === 'gevelisolatie') {
+    if (bouwjaar < 1920) return 'geen-spouw';
+    if (bouwjaar < 1975) return 'spouw-leeg';
+    if (bouwjaar < 1992) return 'spouw-gevuld';
+    return 'modern-bouw';
+  }
+  if (itemId === 'glas') {
+    if (bouwjaar < 1975) return 'enkel';
+    if (bouwjaar < 1995) return 'dubbel';
+    if (bouwjaar < 2005) return 'hr';
+    return 'hr-pp';
+  }
+  return null;
+}
+
+export function HuidigeSituatie({ data, onChange, bouwjaar }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({ gebouwschil: true });
 
   function updateItem(itemId: string, patch: Partial<{ keuze: string; notitie: string }>) {
@@ -78,6 +113,29 @@ export function HuidigeSituatie({ data, onChange }: Props) {
                           <option key={o.waarde} value={o.waarde}>{o.label}</option>
                         ))}
                       </select>
+
+                      {/* Suggestie op basis van bouwjaar */}
+                      {(() => {
+                        const sugg = suggestieVoorBouwjaar(item.id, bouwjaar);
+                        if (!sugg || sugg === keuze) return null;
+                        const optie = item.opties.find(o => o.waarde === sugg);
+                        if (!optie) return null;
+                        return (
+                          <div className="mb-2 text-xs flex items-start gap-2 bg-primary-50/60 border border-primary-100 rounded px-2 py-1.5">
+                            <span className="text-primary-700">💡</span>
+                            <span className="flex-1 text-gray-700">
+                              Bij bouwjaar {bouwjaar} verwacht: <strong>{optie.label}</strong>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => updateItem(item.id, { keuze: sugg })}
+                              className="text-primary-700 hover:underline font-medium whitespace-nowrap"
+                            >
+                              Gebruik
+                            </button>
+                          </div>
+                        );
+                      })()}
 
                       <input
                         type="text"

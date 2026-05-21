@@ -293,73 +293,104 @@ export default function ProjectEditor() {
     };
   }, [id]);
 
+  // Status van de BAG-lookup voor zichtbare feedback in UI
+  const [bagStatus, setBagStatus] = useState<BagStatusType>({ foutmeldingen: [] });
+
   async function adresGekozen(adres: PdokAdres) {
     if (!draft) return;
+    console.log('[BAG] PDOK lookup response:', adres);
+
+    const status: typeof bagStatus = { foutmeldingen: [], laatstGeprobeerd: adres.weergavenaam };
+
     const locatie = {
       adres: adres.weergavenaam, postcode: adres.postcode, huisnummer: adres.huisnummer,
       woonplaats: adres.woonplaatsnaam, rd_x: adres.rd_x, rd_y: adres.rd_y,
       lat: adres.lat, lon: adres.lon,
     };
     const gebouwPatch: Record<string, unknown> = {};
-    if (adres.bouwjaar) gebouwPatch.bouwjaar = adres.bouwjaar;
-    if (adres.oppervlakte) gebouwPatch.bvoTotaalM2 = adres.oppervlakte;
+
+    if (adres.bouwjaar && adres.bouwjaar > 1800) {
+      gebouwPatch.bouwjaar = adres.bouwjaar;
+      status.bouwjaar = { waarde: adres.bouwjaar, bron: 'PDOK' };
+    } else {
+      status.foutmeldingen.push('PDOK gaf geen bouwjaar terug');
+    }
+
+    if (adres.oppervlakte && adres.oppervlakte > 0) {
+      gebouwPatch.bvoTotaalM2 = adres.oppervlakte;
+      status.oppervlakte = { waarde: adres.oppervlakte, bron: 'PDOK' };
+    }
+    // (Als PDOK geen oppervlakte gaf, probeer hieronder 3D BAG)
 
     const next: ProjectState = {
       ...draft,
       locatie,
-      context: {
-        ...draft.context,
-        gebouw: { ...draft.context.gebouw, ...gebouwPatch },
-      },
+      context: { ...draft.context, gebouw: { ...draft.context.gebouw, ...gebouwPatch } },
     };
     setDraft(next);
     pendingDraft.current = null;
     if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
 
-    // KRITIEK: gebruik dedicated PATCH /api/projects/:id/locatie endpoint.
-    // Dit endpoint kan onmogelijk locatie verliezen (merget op de server zelf
-    // tegen de huidige opgeslagen state).
+    // Dedicated locatie-endpoint zodat locatie en BAG-data NIET verloren gaan
     try {
       await projectsApi.saveLocatie(id!, locatie, gebouwPatch);
-      // Forceer ook een save van de overige state via de normale PUT
       save.mutate(next);
     } catch (err) {
       console.error('[Locatie save] mislukt', err);
-      // Val terug op de normale save flow
       save.mutate(next);
     }
 
-    // 3D BAG hoogte ophalen op de achtergrond
+    // 3D BAG hoogte+oppervlakte ophalen op de achtergrond
+    let huidigeNext = next;
     if (adres.pandid) {
       try {
-        const hoogte = await fetch3dBagHoogte(adres.pandid);
-        if (hoogte?.bouwhoogteM) {
-          const extraGebouw: Record<string, unknown> = {
-            bouwhoogteM: hoogte.bouwhoogteM,
-          };
-          if (hoogte.geschattePlafondhoogteM && !next.context.gebouw?.plafondhoogteM) {
-            extraGebouw.plafondhoogteM = hoogte.geschattePlafondhoogteM;
+        const bag3d = await fetch3dBagHoogte(adres.pandid);
+        console.log('[BAG] 3D BAG response:', bag3d);
+        if (bag3d) {
+          const extraGebouw: Record<string, unknown> = {};
+          if (bag3d.bouwhoogteM) {
+            extraGebouw.bouwhoogteM = bag3d.bouwhoogteM;
+            status.bouwhoogte = { waarde: bag3d.bouwhoogteM, bron: 'BAG3D' };
           }
-          const nextMetHoogte: ProjectState = {
-            ...next,
-            context: {
-              ...next.context,
-              gebouw: { ...next.context.gebouw, ...extraGebouw },
-            },
-          };
-          setDraft(nextMetHoogte);
-          // Sla ook de hoogte op via locatie-endpoint
-          try {
-            await projectsApi.saveLocatie(id!, locatie, { ...gebouwPatch, ...extraGebouw });
-          } catch (err) {
-            console.error('[3D BAG save] mislukt', err);
+          if (bag3d.geschattePlafondhoogteM && !huidigeNext.context.gebouw?.plafondhoogteM) {
+            extraGebouw.plafondhoogteM = bag3d.geschattePlafondhoogteM;
+            status.plafondhoogte = { waarde: bag3d.geschattePlafondhoogteM, bron: 'BAG3D-schatting' };
           }
-          save.mutate(nextMetHoogte);
+          // FALLBACK: als PDOK geen oppervlakte gaf, gebruik 3D BAG-schatting
+          if (!gebouwPatch.bvoTotaalM2 && bag3d.geschatteOppervlakteM2 && bag3d.geschatteOppervlakteM2 > 10) {
+            extraGebouw.bvoTotaalM2 = bag3d.geschatteOppervlakteM2;
+            status.oppervlakte = { waarde: bag3d.geschatteOppervlakteM2, bron: 'BAG3D-schatting' };
+            status.foutmeldingen.push('BVO geschat via 3D BAG (volume/hoogte). Verifieer of dit klopt!');
+          } else if (!gebouwPatch.bvoTotaalM2) {
+            status.foutmeldingen.push('Geen oppervlakte gevonden — vul handmatig in.');
+          }
+
+          if (Object.keys(extraGebouw).length > 0) {
+            const nextMetExtra: ProjectState = {
+              ...huidigeNext,
+              context: { ...huidigeNext.context, gebouw: { ...huidigeNext.context.gebouw, ...extraGebouw } },
+            };
+            setDraft(nextMetExtra);
+            huidigeNext = nextMetExtra;
+            try {
+              await projectsApi.saveLocatie(id!, locatie, { ...gebouwPatch, ...extraGebouw });
+            } catch (err) {
+              console.error('[3D BAG save] mislukt', err);
+            }
+            save.mutate(nextMetExtra);
+          }
+        } else {
+          status.foutmeldingen.push('3D BAG response leeg (pand niet gevonden in 3D BAG-dataset)');
         }
       } catch (err) {
-        console.warn('[3D BAG fetch] mislukt — niet kritiek', err);
+        console.warn('[3D BAG fetch] mislukt', err);
+        status.foutmeldingen.push(`3D BAG fetch mislukt: ${err instanceof Error ? err.message : 'onbekend'}`);
       }
+    } else {
+      status.foutmeldingen.push('Geen pandid van PDOK — 3D BAG fallback niet mogelijk');
     }
+
+    setBagStatus(status);
   }
 
   function gaNaarFase(nieuweFase: 1 | 2) {
@@ -450,6 +481,7 @@ export default function ProjectEditor() {
             draft={draft}
             updateDraft={updateDraft}
             adresGekozen={adresGekozen}
+            bagStatus={bagStatus}
             onNaarStap2={() => gaNaarFase(2)}
             energieCompleet={energieCompleet}
           />
@@ -507,15 +539,25 @@ function TabKnop({ actief, onClick, nummer, titel, ondertitel, disabled, disable
  * STAP 1: Invoer
  * ============================================================ */
 
+interface BagStatusType {
+  bouwjaar?: { waarde: number; bron: 'PDOK' | 'BAG3D' };
+  oppervlakte?: { waarde: number; bron: 'PDOK' | 'BAG3D-schatting' };
+  bouwhoogte?: { waarde: number; bron: 'BAG3D' };
+  plafondhoogte?: { waarde: number; bron: 'BAG3D-schatting' };
+  laatstGeprobeerd?: string;
+  foutmeldingen: string[];
+}
+
 interface Stap1Props {
   draft: ProjectState;
   updateDraft: (u: (s: ProjectState) => ProjectState) => void;
   adresGekozen: (adres: PdokAdres) => void;
+  bagStatus: BagStatusType;
   onNaarStap2: () => void;
   energieCompleet: boolean;
 }
 
-function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCompleet }: Stap1Props) {
+function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2, energieCompleet }: Stap1Props) {
   // Wordt 3D BAG-data getoond?
   const bouwhoogte = draft.context.gebouw?.bouwhoogteM;
   const trainAnalyse = (draft.trainingsSchema && draft.trainingsSchema.length > 0)
@@ -552,6 +594,52 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
           </Veld>
           {draft.locatie?.adres && (
             <p className="text-xs text-primary-700 mt-2">✓ {draft.locatie.adres}</p>
+          )}
+
+          {/* BAG-status: laat zichtbaar zien wat is opgehaald */}
+          {bagStatus.laatstGeprobeerd && (
+            <div className="mt-3 p-3 rounded-md border bg-primary-50/30 border-primary-200 text-sm">
+              <p className="font-medium text-primary-900 mb-1">BAG-gegevens opgehaald:</p>
+              <ul className="space-y-1 text-xs">
+                <li className={bagStatus.bouwjaar ? 'text-primary-700' : 'text-gray-400'}>
+                  {bagStatus.bouwjaar ? '✓' : '✗'} Bouwjaar:
+                  {' '}{bagStatus.bouwjaar
+                    ? <span className="font-medium">{bagStatus.bouwjaar.waarde}</span>
+                    : <span className="italic">niet gevonden</span>}
+                  {bagStatus.bouwjaar && <span className="text-gray-500"> (uit {bagStatus.bouwjaar.bron})</span>}
+                </li>
+                <li className={bagStatus.oppervlakte ? 'text-primary-700' : 'text-gray-400'}>
+                  {bagStatus.oppervlakte ? '✓' : '✗'} Bruto vloeroppervlak:
+                  {' '}{bagStatus.oppervlakte
+                    ? <span className="font-medium">{bagStatus.oppervlakte.waarde} m²</span>
+                    : <span className="italic">niet gevonden — vul handmatig in</span>}
+                  {bagStatus.oppervlakte && <span className="text-gray-500"> (uit {bagStatus.oppervlakte.bron})</span>}
+                </li>
+                <li className={bagStatus.bouwhoogte ? 'text-primary-700' : 'text-gray-400'}>
+                  {bagStatus.bouwhoogte ? '✓' : '✗'} Bouwhoogte:
+                  {' '}{bagStatus.bouwhoogte
+                    ? <span className="font-medium">{bagStatus.bouwhoogte.waarde} m</span>
+                    : <span className="italic">niet beschikbaar</span>}
+                  {bagStatus.bouwhoogte && <span className="text-gray-500"> (uit 3D BAG)</span>}
+                </li>
+                <li className={bagStatus.plafondhoogte ? 'text-primary-700' : 'text-gray-400'}>
+                  {bagStatus.plafondhoogte ? '✓' : '✗'} Plafondhoogte:
+                  {' '}{bagStatus.plafondhoogte
+                    ? <span className="font-medium">~{bagStatus.plafondhoogte.waarde} m (schatting)</span>
+                    : <span className="italic">niet beschikbaar</span>}
+                </li>
+              </ul>
+              {bagStatus.foutmeldingen.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-accent-orange-dark">
+                    ⚠ {bagStatus.foutmeldingen.length} aandachtspunt(en)
+                  </summary>
+                  <ul className="mt-1 ml-3 text-xs text-gray-600 list-disc">
+                    {bagStatus.foutmeldingen.map((m, i) => <li key={i}>{m}</li>)}
+                  </ul>
+                </details>
+              )}
+            </div>
           )}
         </Sectie>
 
@@ -754,6 +842,7 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, onNaarStap2, energieCom
           <HuidigeSituatie
             data={draft.huidigeSituatie ?? {}}
             onChange={(data) => updateDraft(s => ({ ...s, huidigeSituatie: data }))}
+            bouwjaar={draft.context.gebouw?.bouwjaar}
           />
         </Sectie>
 
@@ -841,14 +930,32 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
   // Welk maatregel-detail-paneel is uitgeklapt? (één tegelijk voor focus)
   const [openDetailId, setOpenDetailId] = useState<string | null>(null);
 
+  // Counter zodat ELKE klik op "✏️ Aanpassen" een unieke re-render triggert,
+  // zelfs als hetzelfde paneel al openstond. Anders zou React de useEffect
+  // niet opnieuw runnen bij een tweede klik op dezelfde knop.
+  const [openTrigger, setOpenTrigger] = useState(0);
+
   // Bij klik op "✏️ Aanpassen": open het detail-paneel én scroll ernaartoe.
+  // Lange timeout zodat React tijd heeft om eerst het paneel uit te klappen
+  // VOORDAT we scrollen — anders scrollt hij naar de dichte versie en daarna
+  // duwt het uitklappen alles weer omlaag.
   const openDetail = (id: string) => {
     setOpenDetailId(id);
-    // Wacht één frame zodat het paneel gerenderd is, dan scrollen
-    setTimeout(() => {
-      const el = document.getElementById(`detail-${id}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 50);
+    setOpenTrigger(t => t + 1);
+    // Twee animatieframes wachten + 250ms zodat de DOM zeker geüpdatet is
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const el = document.getElementById(`detail-${id}`);
+          if (el) {
+            console.log('[InlineEdit] Scrolling to', `detail-${id}`);
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          } else {
+            console.warn('[InlineEdit] Element niet gevonden:', `detail-${id}`);
+          }
+        }, 250);
+      });
+    });
   };
 
   // Bouw waterverbruik-grafiekdata uit trainingsschema (of detail-input als fallback)
@@ -933,11 +1040,13 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
                 return (
                   <div id={`detail-${modId}`} key={modId}>
                     <MaatregelDetail
+                      // openTrigger als deel van een 'open-id' prop: elke klik
+                      // zorgt voor een nieuwe identifier ook bij dezelfde maatregel
+                      openSignal={openDetailId === modId ? `${modId}-${openTrigger}` : ''}
                       maatregelId={modId}
                       maatregelNaam={mod?.naam ?? modId}
                       input={draft.gekozenMaatregelen[modId] as Record<string, unknown> ?? {}}
                       bouwjaar={draft.context.gebouw?.bouwjaar}
-                      defaultOpen={openDetailId === modId}
                       onChange={(input) => updateDraft(s => ({ ...s, gekozenMaatregelen: { ...s.gekozenMaatregelen, [modId]: input } }))}
                       onRemove={() => updateDraft(s => {
                         const next = { ...s.gekozenMaatregelen };

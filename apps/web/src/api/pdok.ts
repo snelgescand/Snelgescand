@@ -176,6 +176,10 @@ export interface Bag3dHoogte {
   geschattePlafondhoogteM?: number;
   /** Aantal verdiepingen (heuristiek: bouwhoogte / 3) */
   geschatteVerdiepingen?: number;
+  /** Volume volgens 3D BAG (m³) */
+  volumeM3?: number;
+  /** Geschatte BVO uit 3D BAG: volume / bouwhoogte × aantal verdiepingen */
+  geschatteOppervlakteM2?: number;
 }
 
 export async function fetch3dBagHoogte(pandid: string): Promise<Bag3dHoogte | null> {
@@ -199,15 +203,25 @@ export async function fetch3dBagHoogte(pandid: string): Promise<Bag3dHoogte | nu
     // Mediane dakhoogte: b3_h_dak_50p, max: b3_h_dak_max (oude naam: b3_h_dak_70p ook mogelijk)
     const hDakMediaan = attr.b3_h_dak_50p ?? attr['b3_h_dak_50p'];
     const hDakMax = attr.b3_h_dak_max ?? attr['b3_h_dak_max'] ?? attr.b3_h_dak_70p;
+    // Volume in m³ — voor BVO-schatting bij meerdere verdiepingen
+    const volume = attr.b3_volume_lod22 ?? attr.b3_volume_lod12 ?? attr['b3_volume_lod22'];
 
     if (typeof hMaaiveld !== 'number' || typeof hDakMediaan !== 'number') {
-      return { hMaaiveld, hDakMediaan, hDakMax };
+      return { hMaaiveld, hDakMediaan, hDakMax, volumeM3: typeof volume === 'number' ? volume : undefined };
     }
 
     const bouwhoogte = Math.max(0, hDakMediaan - hMaaiveld);
     // Heuristiek: typische verdiepingshoogte 3 m, plafond = bouwhoogte - 0,5m dak
     const verdiepingen = Math.max(1, Math.round(bouwhoogte / 3));
     const plafondPerVerdieping = Math.max(2.2, (bouwhoogte - 0.5) / verdiepingen);
+
+    // BVO-schatting uit volume: volume / bouwhoogte × verdiepingen
+    // (volume / hoogte = grondoppervlak; × verdiepingen = totale BVO)
+    let geschatteBvo: number | undefined;
+    if (typeof volume === 'number' && bouwhoogte > 0.5) {
+      const grondoppervlak = volume / bouwhoogte;
+      geschatteBvo = Math.round(grondoppervlak * verdiepingen);
+    }
 
     return {
       hMaaiveld,
@@ -216,6 +230,8 @@ export async function fetch3dBagHoogte(pandid: string): Promise<Bag3dHoogte | nu
       bouwhoogteM: Math.round(bouwhoogte * 10) / 10,
       geschattePlafondhoogteM: Math.round(plafondPerVerdieping * 10) / 10,
       geschatteVerdiepingen: verdiepingen,
+      volumeM3: typeof volume === 'number' ? Math.round(volume) : undefined,
+      geschatteOppervlakteM2: geschatteBvo,
     };
   } catch (e) {
     console.warn('3D BAG fetch mislukt:', e);

@@ -19,8 +19,11 @@ interface MaatregelDetailProps {
   onRemove: () => void;
   /** Bouwjaar uit project — gebruikt om Rc-waardes te suggereren */
   bouwjaar?: number;
-  /** Of dit paneel meteen open moet zijn */
-  defaultOpen?: boolean;
+  /**
+   * Een unieke string die verandert bij elke "open" actie (bv. klik op "✏️ Aanpassen").
+   * Als de string non-empty is en verandert, klapt het paneel open. Lege string = niets.
+   */
+  openSignal?: string;
 }
 
 // Maatregel-ID → welke constructie-deel voor rcDefault lookup
@@ -30,13 +33,14 @@ const RC_DEEL: Record<string, 'dak' | 'gevel' | 'vloer'> = {
   'vloerisolatie': 'vloer',
 };
 
-export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove, bouwjaar, defaultOpen = false }: MaatregelDetailProps) {
-  const [open, setOpen] = useState(defaultOpen);
+export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove, bouwjaar, openSignal = '' }: MaatregelDetailProps) {
+  const [open, setOpen] = useState(!!openSignal);
 
-  // Wanneer defaultOpen verandert (na klik op "✏️ Aanpassen"), het paneel openen
+  // Wanneer openSignal verandert (nieuwe klik op Aanpassen), het paneel openen.
+  // Gebruik de signal-string zelf als dependency zodat ELKE wijziging triggert.
   useEffect(() => {
-    if (defaultOpen) setOpen(true);
-  }, [defaultOpen]);
+    if (openSignal) setOpen(true);
+  }, [openSignal]);
 
   const meta = MAATREGEL_META[maatregelId];
 
