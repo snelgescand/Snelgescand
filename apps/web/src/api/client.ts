@@ -103,7 +103,6 @@ export const projectsApi = {
     if (!res.ok) {
       let body: { error?: string; message?: string } = {};
       try { body = await res.json(); } catch { /* ignore */ }
-      // Toon zowel error als message indien beschikbaar, voor diagnostiek
       const fullMessage = [body.error, body.message].filter(Boolean).join(' — ')
         || `${res.status} ${res.statusText}`;
       throw new ApiError(res.status, fullMessage, body);
@@ -112,6 +111,36 @@ export const projectsApi = {
     if (blob.size === 0) {
       throw new ApiError(500, 'Lege PowerPoint-respons ontvangen (0 bytes)');
     }
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(blobUrl);
+  },
+
+  /**
+   * Exporteer PPT op basis van de ORIGINELE Sportief Opgewekt template
+   * (86 slides incl. plaatjes en branding). Placeholders worden vervangen
+   * met de club-data, maar er wordt verder NIETS dynamisch berekend —
+   * Bart moet zelf slides verwijderen die niet relevant zijn.
+   */
+  exporteerPptTemplate: async (id: string, filename: string): Promise<void> => {
+    const res = await fetch(url(`/api/projects/${id}/ppt-template`), {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      let body: { error?: string; message?: string } = {};
+      try { body = await res.json(); } catch { /* ignore */ }
+      const fullMessage = [body.error, body.message].filter(Boolean).join(' — ')
+        || `${res.status} ${res.statusText}`;
+      throw new ApiError(res.status, fullMessage, body);
+    }
+    const blob = await res.blob();
+    if (blob.size === 0) throw new ApiError(500, 'Lege PowerPoint-respons ontvangen');
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = blobUrl;

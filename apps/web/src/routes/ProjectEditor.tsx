@@ -204,6 +204,18 @@ export default function ProjectEditor() {
     },
   });
 
+  const exportPptTemplate = useMutation({
+    mutationFn: () => projectsApi.exporteerPptTemplate(
+      id!,
+      `Verduurzamingsplan_${(draft?.context.club?.naam ?? 'project').replace(/[^a-zA-Z0-9]/g, '_')}_SO.pptx`,
+    ),
+    onSuccess: () => setPptFout(null),
+    onError: (err: unknown) => {
+      if (err instanceof ApiError) setPptFout(err.message);
+      else setPptFout('PPT-template-export mislukt');
+    },
+  });
+
   const verwijder = useMutation({
     mutationFn: () => projectsApi.delete(id!),
     onSuccess: () => {
@@ -459,9 +471,17 @@ export default function ProjectEditor() {
               onClick={() => { setPptFout(null); exportPpt.mutate(); }}
               className="btn-secondary"
               disabled={exportPpt.isPending || !cached}
-              title={!cached ? 'Eerst berekenen' : 'Download PowerPoint'}
+              title={!cached ? 'Eerst berekenen' : 'Download PowerPoint (Snelgescand stijl)'}
             >
               {exportPpt.isPending ? 'Exporteren…' : '↓ PowerPoint'}
+            </button>
+            <button
+              onClick={() => { setPptFout(null); exportPptTemplate.mutate(); }}
+              className="btn-secondary"
+              disabled={exportPptTemplate.isPending}
+              title="Download op basis van originele Sportief Opgewekt template (86 slides, club-naam ingevuld)"
+            >
+              {exportPptTemplate.isPending ? 'Genereren…' : '↓ PPT (origineel)'}
             </button>
             <button
               onClick={() => setBevestigVerwijder(true)}
@@ -1192,13 +1212,15 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             titel="Waterverbruik per uur (gemiddelde week)"
             ondertitel="Berekend uit het trainingsschema in stap 1"
             hoogte={220}
+            toelichting={
+              <>
+                <strong>Hoe is dit berekend?</strong> Voor elk trainings-/wedstrijdmoment uit het schema rekenen we met
+                35 liter warm water per persoon-met-douche, gespreid over de duur van het moment.
+                Vul het trainingsschema in stap 1 nauwkeuriger in voor een specifieker beeld.
+              </>
+            }
           >
             <WaterverbruikPerUurChart data={waterPerUurData} />
-            <p className="text-xs text-gray-500 mt-2 leading-snug">
-              <strong>Hoe is dit berekend?</strong> Voor elk trainings-/wedstrijdmoment uit het schema rekenen we met
-              35 liter warm water per persoon-met-douche, gespreid over de duur van het moment.
-              Vul het trainingsschema in stap 1 nauwkeuriger in voor een specifieker beeld.
-            </p>
           </ChartCard>
         )}
 
@@ -1207,11 +1229,9 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             titel="Waterverbruik per dag"
             ondertitel="Op basis van trainingsschema (of douches-analyse)"
             hoogte={240}
+            toelichting="Gestapelde balken: kindertijd vs. volwassenen-tijd. 35 L warm water per persoon-met-douche."
           >
             <WaterverbruikChart data={waterData} />
-            <p className="text-xs text-gray-500 mt-2 leading-snug">
-              Gestapelde balken: kindertijd vs. volwassenen-tijd. 35 L warm water per persoon-met-douche.
-            </p>
           </ChartCard>
         )}
 
@@ -1220,12 +1240,9 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             titel="Cumulatief netto rendement"
             ondertitel="Over 15 jaar, na aftrek netto investering"
             hoogte={240}
+            toelichting="Cumulatieve som van jaarlijkse besparingen, minus de netto-investering in jaar 0. Conservatief gerekend zonder energieprijs-stijging."
           >
             <KasstroomChart data={kasstroomData} />
-            <p className="text-xs text-gray-500 mt-2 leading-snug">
-              Cumulatieve som van jaarlijkse besparingen, minus de netto-investering in jaar 0.
-              Conservatief gerekend zonder energieprijs-stijging.
-            </p>
           </ChartCard>
         )}
 
@@ -1236,15 +1253,17 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
               ? 'Berekend uit trainingsschema'
               : 'Heuristische verdeling (vul trainingsschema in voor specifieker beeld)'}
             hoogte={260}
+            toelichting={
+              <>
+                <strong>Hoe is dit berekend?</strong> {draft.trainingsSchema && draft.trainingsSchema.length > 0
+                  ? <>Op basis van het ingevulde trainingsschema: aantal douche-beurten × ~2 m³ gas per beurt voor tapwater,
+                     trainings-/wedstrijduren × ruimteverwarming-vraag, rest is kantine/overig.</>
+                  : <>Standaardprofiel sportclub: 55% ruimteverwarming, 35% tapwater (douches), 10% keuken/overig.
+                     Vul het trainingsschema in stap 1 in voor een specifieker beeld op basis van jullie eigen gebruik.</>}
+              </>
+            }
           >
             <EnergiebalansChart data={energiebalansData} />
-            <p className="text-xs text-gray-500 mt-2 leading-snug">
-              <strong>Hoe is dit berekend?</strong> {draft.trainingsSchema && draft.trainingsSchema.length > 0
-                ? <>Op basis van het ingevulde trainingsschema: aantal douche-beurten × ~2 m³ gas per beurt voor tapwater,
-                   trainings-/wedstrijduren × ruimteverwarming-vraag, rest is kantine/overig.</>
-                : <>Standaardprofiel sportclub: 55% ruimteverwarming, 35% tapwater (douches), 10% keuken/overig.
-                   Vul het trainingsschema in stap 1 in voor een specifieker beeld op basis van jullie eigen gebruik.</>}
-            </p>
           </ChartCard>
         )}
       </div>

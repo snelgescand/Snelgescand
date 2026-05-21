@@ -24,6 +24,7 @@ import modulesRoutes from './routes/modules.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import logoRoutes from './routes/logo.routes.js';
 import bagRoutes from './routes/bag.routes.js';
+import pptTemplateRoutes from './routes/ppt-template.routes.js';
 import pptRoutes from './routes/ppt.routes.js';
 import { prisma } from './db.js';
 
@@ -129,6 +130,7 @@ async function buildServer() {
   await app.register(logoRoutes, { prefix: '/api' });
   await app.register(bagRoutes, { prefix: '/api' });
   await app.register(pptRoutes, { prefix: '/api' });
+  await app.register(pptTemplateRoutes, { prefix: '/api' });
 
   // Health & version
   app.get('/api/health', async () => {
