@@ -343,11 +343,11 @@ export default function ProjectEditor() {
         if (pand) {
           if (!gebouwPatch.bouwjaar && pand.oorspronkelijkBouwjaar) {
             gebouwPatch.bouwjaar = pand.oorspronkelijkBouwjaar;
-            status.bouwjaar = { waarde: pand.oorspronkelijkBouwjaar, bron: 'BAG-OGC' };
+            status.bouwjaar = { waarde: pand.oorspronkelijkBouwjaar, bron: pand.bron === 'BAG-WFS' ? 'BAG-WFS' : 'BAG-OGC' };
           }
           if (!gebouwPatch.bvoTotaalM2 && pand.oppervlakte) {
             gebouwPatch.bvoTotaalM2 = pand.oppervlakte;
-            status.oppervlakte = { waarde: pand.oppervlakte, bron: 'BAG-OGC' };
+            status.oppervlakte = { waarde: pand.oppervlakte, bron: pand.bron === 'BAG-WFS' ? 'BAG-WFS' : 'BAG-OGC' };
           }
           if (!pandid && pand.identificatie) {
             pandid = pand.identificatie;
@@ -625,8 +625,8 @@ function TabKnop({ actief, onClick, nummer, titel, ondertitel, disabled, disable
  * ============================================================ */
 
 interface BagStatusType {
-  bouwjaar?: { waarde: number; bron: 'PDOK' | 'BAG3D' | 'BAG-OGC' };
-  oppervlakte?: { waarde: number; bron: 'PDOK' | 'BAG3D-schatting' | 'BAG-OGC' };
+  bouwjaar?: { waarde: number; bron: 'PDOK' | 'BAG3D' | 'BAG-OGC' | 'BAG-WFS' };
+  oppervlakte?: { waarde: number; bron: 'PDOK' | 'BAG3D-schatting' | 'BAG-OGC' | 'BAG-WFS' };
   bouwhoogte?: { waarde: number; bron: 'BAG3D' };
   plafondhoogte?: { waarde: number; bron: 'BAG3D-schatting' };
   laatstGeprobeerd?: string;

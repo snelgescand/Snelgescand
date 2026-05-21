@@ -147,62 +147,135 @@ function parseWktPoint(wkt: string | undefined): { x: number; y: number } | null
 }
 
 /**
- * Fallback: zoek het pand direct op via de BAG2 OGC API (op coördinaten).
+ * Fallback: zoek het pand direct op via PDOK BAG-services op coördinaten.
  *
- * Wordt gebruikt als PDOK Locatieserver geen bouwjaar of pandid teruggeeft
- * (komt voor bij sommige nieuwere of incomplete BAG-records).
+ * Wordt gebruikt als PDOK Locatieserver geen bouwjaar of pandid teruggeeft.
  *
- * Bron: https://api.pdok.nl/lv/bag/ogc/v1 — gratis, geen key nodig.
+ * Strategie (in volgorde):
+ *  1. Nieuwe BAG OGC API v2 (sinds 2025): https://api.pdok.nl/kadaster/bag/ogc/v2
+ *     De oude v1 (lv/bag/ogc/v1) is uitgefaseerd en geeft 404.
+ *  2. BAG WFS v2.0 fallback: stabiele service, al jaren beschikbaar
+ *     https://service.pdok.nl/lv/bag/wfs/v2_0
  */
 export interface BagPand {
   identificatie: string;
   oorspronkelijkBouwjaar?: number;
   oppervlakte?: number;
   status?: string;
+  bron?: 'BAG-OGC-v2' | 'BAG-WFS';
 }
 
 export async function fetchBagPandViaCoordinaten(rd_x: number, rd_y: number): Promise<BagPand | null> {
-  if (!rd_x || !rd_y) return null;
+  if (!rd_x || !rd_y) {
+    console.warn('[BAG] Geen RD-coördinaten voor pand-lookup');
+    return null;
+  }
 
-  // Bbox van ~10m rondom het adres-centroïde
-  const d = 5;
+  // Probeer eerst BAG OGC v2 (nieuwe endpoint)
+  const ogc = await tryBagOgcV2(rd_x, rd_y);
+  if (ogc) return ogc;
+
+  // Fallback naar BAG WFS — stabiele service
+  const wfs = await tryBagWfs(rd_x, rd_y);
+  if (wfs) return wfs;
+
+  console.warn('[BAG] Beide endpoints faalden — pand niet gevonden');
+  return null;
+}
+
+/** Nieuwe BAG OGC API v2 — sinds 2025 in productie */
+async function tryBagOgcV2(rd_x: number, rd_y: number): Promise<BagPand | null> {
+  const d = 8;  // bbox van ~16m rondom
   const bbox = `${rd_x - d},${rd_y - d},${rd_x + d},${rd_y + d}`;
-  const url = `https://api.pdok.nl/lv/bag/ogc/v1/collections/pand/items?` +
-    `bbox=${bbox}&bbox-crs=https://www.opengis.net/def/crs/EPSG/0/28992&limit=10`;
+  // bbox-crs als percent-encoded URI (http, niet https)
+  const crsParam = encodeURIComponent('http://www.opengis.net/def/crs/EPSG/0/28992');
+  const url = `https://api.pdok.nl/kadaster/bag/ogc/v2/collections/pand/items?bbox=${bbox}&bbox-crs=${crsParam}&limit=10`;
 
-  console.log('[BAG-OGC] Fallback lookup URL:', url);
-
+  console.log('[BAG-OGC-v2] Lookup URL:', url);
   try {
     const res = await fetch(url, { headers: { Accept: 'application/geo+json' } });
     if (!res.ok) {
-      console.warn('[BAG-OGC] Failed:', res.status, res.statusText);
+      console.warn('[BAG-OGC-v2] Failed:', res.status, res.statusText);
       return null;
     }
     const data = await res.json();
     const features = (data?.features ?? []) as Array<{ properties?: Record<string, unknown>; id?: string }>;
-    console.log('[BAG-OGC] Found', features.length, 'pand(en) in bbox');
+    console.log('[BAG-OGC-v2] Found', features.length, 'pand(en)');
     if (features.length === 0) return null;
 
-    // Pak het pand met het hoogste bouwjaar (= meest waarschijnlijk bewoond/in gebruik)
-    const sorted = features.slice().sort((a, b) => {
-      const ja = Number(a.properties?.oorspronkelijk_bouwjaar ?? 0);
-      const jb = Number(b.properties?.oorspronkelijk_bouwjaar ?? 0);
-      return jb - ja;
-    });
-    const f = sorted[0];
-    const props = f.properties ?? {};
-    const result: BagPand = {
-      identificatie: String(props.identificatie ?? f.id ?? ''),
-      oorspronkelijkBouwjaar: Number(props.oorspronkelijk_bouwjaar) || undefined,
-      oppervlakte: Number(props.oppervlakte) || undefined,
-      status: props.status as string | undefined,
-    };
-    console.log('[BAG-OGC] Beste pand:', result);
-    return result;
+    return kiesBestePand(features, 'BAG-OGC-v2');
   } catch (e) {
-    console.warn('[BAG-OGC] Error:', e);
+    console.warn('[BAG-OGC-v2] Error:', e);
     return null;
   }
+}
+
+/** BAG WFS v2.0 — stabiele service met jaren ervaring */
+async function tryBagWfs(rd_x: number, rd_y: number): Promise<BagPand | null> {
+  const d = 8;
+  // BAG WFS verwacht bbox in formaat: minX,minY,maxX,maxY,EPSG:CODE
+  const bbox = `${rd_x - d},${rd_y - d},${rd_x + d},${rd_y + d},EPSG:28992`;
+  const params = new URLSearchParams({
+    service: 'WFS',
+    version: '2.0.0',
+    request: 'GetFeature',
+    typeNames: 'bag:pand',
+    bbox,
+    outputFormat: 'application/json',
+    srsName: 'EPSG:28992',
+    count: '10',
+  });
+  const url = `https://service.pdok.nl/lv/bag/wfs/v2_0?${params.toString()}`;
+  console.log('[BAG-WFS] Lookup URL:', url);
+
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) {
+      console.warn('[BAG-WFS] Failed:', res.status, res.statusText);
+      return null;
+    }
+    const data = await res.json();
+    const features = (data?.features ?? []) as Array<{ properties?: Record<string, unknown>; id?: string }>;
+    console.log('[BAG-WFS] Found', features.length, 'pand(en)');
+    if (features.length === 0) return null;
+
+    return kiesBestePand(features, 'BAG-WFS');
+  } catch (e) {
+    console.warn('[BAG-WFS] Error:', e);
+    return null;
+  }
+}
+
+/** Kies het beste pand uit een lijst features: hoogste bouwjaar, status 'in gebruik'. */
+function kiesBestePand(
+  features: Array<{ properties?: Record<string, unknown>; id?: string }>,
+  bron: 'BAG-OGC-v2' | 'BAG-WFS',
+): BagPand | null {
+  // Filter weg: gesloopte panden / panden in aanbouw
+  const actief = features.filter(f => {
+    const status = String(f.properties?.status ?? '').toLowerCase();
+    return !status.includes('gesloopt') && !status.includes('niet gerealiseerd');
+  });
+  const lijst = actief.length > 0 ? actief : features;
+
+  // Sorteer op bouwjaar (hoogste eerst = waarschijnlijk grootste/recentste pand)
+  const sorted = lijst.slice().sort((a, b) => {
+    const ja = Number(a.properties?.bouwjaar ?? a.properties?.oorspronkelijk_bouwjaar ?? 0);
+    const jb = Number(b.properties?.bouwjaar ?? b.properties?.oorspronkelijk_bouwjaar ?? 0);
+    return jb - ja;
+  });
+
+  const f = sorted[0];
+  const props = f.properties ?? {};
+  const result: BagPand = {
+    identificatie: String(props.identificatie ?? f.id ?? ''),
+    oorspronkelijkBouwjaar: Number(props.bouwjaar ?? props.oorspronkelijk_bouwjaar) || undefined,
+    oppervlakte: Number(props.oppervlakte ?? props.oppervlakte_min) || undefined,
+    status: props.status as string | undefined,
+    bron,
+  };
+  console.log(`[${bron}] Beste pand:`, result);
+  return result;
 }
 
 /**
