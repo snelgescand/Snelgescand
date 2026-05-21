@@ -336,7 +336,7 @@ async function maakPresentatie({ clubNaam, state, berekend }: PresentatieInput):
 
     // Totaal douches per week + liters
     const SPELERS_O13 = 10;
-    const SPELERS_V13 = 18;
+    const SPELERS_V13 = 15;
     const LITERS = 35;
     let totaalDoucheBeurtenWk = 0;
     let totaalLitersWk = 0;

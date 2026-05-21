@@ -14,11 +14,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { projectsApi, modulesApi, ApiError } from '../api/client';
+import { projectsApi, modulesApi, ApiError, bagApi } from '../api/client';
 import { berekenLokaal, BerekenValidatieFout } from '../util/lokaal-bereken';
 import { AppHeader } from '../components/AppHeader';
 import { Footer } from '../components/Footer';
 import { AdresZoeker } from '../components/AdresZoeker';
+import { LaadScherm } from '../components/LaadScherm';
 import { Luchtfoto } from '../components/Luchtfoto';
 import { FotoUpload, type ProjectFoto } from '../components/FotoUpload';
 import { LogoUpload, type ClubLogo } from '../components/LogoUpload';
@@ -33,7 +34,6 @@ import { EnergielabelKaart } from '../components/EnergielabelKaart';
 import { HistorischVerbruik } from '../components/HistorischVerbruik';
 import { berekenEnergielabel, berekenLabelNaMaatregelen, bepaalLabelSprong } from '../util/energielabel';
 import type { PdokAdres } from '../api/pdok';
-import { fetch3dBagHoogte, fetchBagPandViaCoordinaten } from '../api/pdok';
 import type { HuidigeSituatieData } from '../data/huidige-situatie';
 
 const API_BASE_FOR_BEACON = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
@@ -57,7 +57,9 @@ interface ProjectState {
       aantalLeden?: number;
       aantalKleedkamers?: number;
       aantalDouchekoppen?: number;
-      eigendom?: string;
+      eigendom?: string;        // legacy — vervangen door eigendomGebouw + eigendomGrond
+      eigendomGebouw?: string;
+      eigendomGrond?: string;
     };
     energie?: {
       gasverbruikM3?: number;
@@ -242,7 +244,7 @@ export default function ProjectEditor() {
     const dagenMap: Record<string, { training: number; wedstrijd: number }> = {};
     for (const m of schema) {
       const spelersO13 = (m.aantalTeamsOnder13 ?? 0) * 10;  // 10 sp/team
-      const spelersV13 = (m.aantalTeamsVanaf13 ?? 0) * 18;  // 18 sp/team
+      const spelersV13 = (m.aantalTeamsVanaf13 ?? 0) * 15;  // 18 sp/team
       const douchesJeugd = spelersO13 * (m.type === 'wedstrijd' ? 0.50 : m.type === 'training' ? 0.25 : 0);
       const douchesSen = spelersV13 * (m.type === 'wedstrijd' ? 1.00 : m.type === 'training' ? 0.95 : 0);
       if (!dagenMap[m.dag]) dagenMap[m.dag] = { training: 0, wedstrijd: 0 };
@@ -312,7 +314,7 @@ export default function ProjectEditor() {
 
   async function adresGekozen(adres: PdokAdres) {
     if (!draft) return;
-    console.log('[BAG] PDOK lookup response:', adres);
+    console.log('[BAG] PDOK lookup response (frontend):', adres);
 
     const status: BagStatusType = { foutmeldingen: [], laatstGeprobeerd: adres.weergavenaam };
 
@@ -323,48 +325,50 @@ export default function ProjectEditor() {
     };
     const gebouwPatch: Record<string, unknown> = {};
 
-    if (adres.bouwjaar && adres.bouwjaar > 1800) {
-      gebouwPatch.bouwjaar = adres.bouwjaar;
-      status.bouwjaar = { waarde: adres.bouwjaar, bron: 'PDOK' };
-    }
+    // Roep backend BAG-proxy aan — die probeert PDOK Locatieserver, BAG OGC v2,
+    // BAG WFS en 3D BAG op een rij. Eén call vanaf de frontend.
+    let bagResult: Awaited<ReturnType<typeof bagApi.lookup>> | null = null;
+    try {
+      bagResult = await bagApi.lookup({
+        adresId: adres.id,
+        rd_x: adres.rd_x,
+        rd_y: adres.rd_y,
+        pandid: adres.pandid,
+      });
+      console.log('[BAG-proxy] Backend resultaat:', bagResult);
 
-    if (adres.oppervlakte && adres.oppervlakte > 0) {
-      gebouwPatch.bvoTotaalM2 = adres.oppervlakte;
-      status.oppervlakte = { waarde: adres.oppervlakte, bron: 'PDOK' };
-    }
-
-    let pandid = adres.pandid;
-
-    // FALLBACK 1: BAG OGC API als PDOK geen bouwjaar/pandid had
-    if ((!gebouwPatch.bouwjaar || !pandid) && adres.rd_x && adres.rd_y) {
-      console.log('[BAG] PDOK incompleet — probeer BAG OGC API fallback');
-      try {
-        const pand = await fetchBagPandViaCoordinaten(adres.rd_x, adres.rd_y);
-        if (pand) {
-          if (!gebouwPatch.bouwjaar && pand.oorspronkelijkBouwjaar) {
-            gebouwPatch.bouwjaar = pand.oorspronkelijkBouwjaar;
-            status.bouwjaar = { waarde: pand.oorspronkelijkBouwjaar, bron: pand.bron === 'BAG-WFS' ? 'BAG-WFS' : 'BAG-OGC' };
-          }
-          if (!gebouwPatch.bvoTotaalM2 && pand.oppervlakte) {
-            gebouwPatch.bvoTotaalM2 = pand.oppervlakte;
-            status.oppervlakte = { waarde: pand.oppervlakte, bron: pand.bron === 'BAG-WFS' ? 'BAG-WFS' : 'BAG-OGC' };
-          }
-          if (!pandid && pand.identificatie) {
-            pandid = pand.identificatie;
-            console.log('[BAG] Pandid via OGC API:', pandid);
-          }
-        } else {
-          status.foutmeldingen.push('Geen pand gevonden in BAG OGC API op deze coördinaten');
-        }
-      } catch (e) {
-        console.warn('[BAG OGC] error:', e);
-        status.foutmeldingen.push(`BAG OGC error: ${e instanceof Error ? e.message : 'onbekend'}`);
+      if (bagResult.bouwjaar) {
+        gebouwPatch.bouwjaar = bagResult.bouwjaar;
+        const bron = bagResult.bronnen.find(b => b.includes(':bouwjaar'))?.split(':')[0] ?? 'BAG';
+        status.bouwjaar = { waarde: bagResult.bouwjaar, bron: bron as 'PDOK' | 'BAG3D' | 'BAG-OGC' | 'BAG-WFS' };
       }
+      if (bagResult.oppervlakte) {
+        gebouwPatch.bvoTotaalM2 = bagResult.oppervlakte;
+        const bron = bagResult.bronnen.find(b => b.includes(':oppervlakte'))?.split(':')[0] ?? 'BAG';
+        status.oppervlakte = { waarde: bagResult.oppervlakte, bron: bron as 'PDOK' | 'BAG3D-schatting' | 'BAG-OGC' | 'BAG-WFS' };
+      }
+      if (bagResult.bouwhoogteM) {
+        gebouwPatch.bouwhoogteM = bagResult.bouwhoogteM;
+        status.bouwhoogte = { waarde: bagResult.bouwhoogteM, bron: 'BAG3D' };
+      }
+      if (bagResult.plafondhoogteM && !draft.context.gebouw?.plafondhoogteM) {
+        gebouwPatch.plafondhoogteM = bagResult.plafondhoogteM;
+        status.plafondhoogte = { waarde: bagResult.plafondhoogteM, bron: 'BAG3D-schatting' };
+      }
+
+      // Diagnostiek: per endpoint laten zien wat gebeurde
+      for (const stap of bagResult.geprobeerd) {
+        if (stap.resultaat !== 'ok') {
+          status.foutmeldingen.push(`${stap.endpoint}: ${stap.status} ${stap.resultaat}`);
+        }
+      }
+    } catch (e) {
+      console.error('[BAG-proxy] mislukt:', e);
+      status.foutmeldingen.push(`BAG-proxy fout: ${e instanceof Error ? e.message : 'onbekend'}`);
     }
 
-    if (!gebouwPatch.bouwjaar) status.foutmeldingen.push('Bouwjaar ook niet via BAG-OGC gevonden');
-    if (!gebouwPatch.bvoTotaalM2) status.foutmeldingen.push('Oppervlakte niet via PDOK of BAG-OGC gevonden');
-    if (!pandid) status.foutmeldingen.push('Geen pandid beschikbaar — 3D BAG fallback niet mogelijk');
+    if (!gebouwPatch.bouwjaar) status.foutmeldingen.push('Geen bouwjaar gevonden in alle bronnen');
+    if (!gebouwPatch.bvoTotaalM2) status.foutmeldingen.push('Geen oppervlakte gevonden — vul handmatig in');
 
     const next: ProjectState = {
       ...draft,
@@ -383,48 +387,6 @@ export default function ProjectEditor() {
       save.mutate(next);
     }
 
-    // 3D BAG voor bouwhoogte (nu we evt. via fallback een pandid hebben)
-    let huidigeNext = next;
-    if (pandid) {
-      try {
-        const bag3d = await fetch3dBagHoogte(pandid);
-        console.log('[3D BAG] response:', bag3d);
-        if (bag3d) {
-          const extraGebouw: Record<string, unknown> = {};
-          if (bag3d.bouwhoogteM) {
-            extraGebouw.bouwhoogteM = bag3d.bouwhoogteM;
-            status.bouwhoogte = { waarde: bag3d.bouwhoogteM, bron: 'BAG3D' };
-          }
-          if (bag3d.geschattePlafondhoogteM && !huidigeNext.context.gebouw?.plafondhoogteM) {
-            extraGebouw.plafondhoogteM = bag3d.geschattePlafondhoogteM;
-            status.plafondhoogte = { waarde: bag3d.geschattePlafondhoogteM, bron: 'BAG3D-schatting' };
-          }
-          if (!gebouwPatch.bvoTotaalM2 && bag3d.geschatteOppervlakteM2 && bag3d.geschatteOppervlakteM2 > 10) {
-            extraGebouw.bvoTotaalM2 = bag3d.geschatteOppervlakteM2;
-            status.oppervlakte = { waarde: bag3d.geschatteOppervlakteM2, bron: 'BAG3D-schatting' };
-          }
-
-          if (Object.keys(extraGebouw).length > 0) {
-            const nextMetExtra: ProjectState = {
-              ...huidigeNext,
-              context: { ...huidigeNext.context, gebouw: { ...huidigeNext.context.gebouw, ...extraGebouw } },
-            };
-            setDraft(nextMetExtra);
-            huidigeNext = nextMetExtra;
-            try {
-              await projectsApi.saveLocatie(id!, locatie, { ...gebouwPatch, ...extraGebouw });
-            } catch (err) {
-              console.error('[3D BAG save] mislukt', err);
-            }
-            save.mutate(nextMetExtra);
-          }
-        }
-      } catch (err) {
-        console.warn('[3D BAG fetch] mislukt', err);
-        status.foutmeldingen.push(`3D BAG: ${err instanceof Error ? err.message : 'onbekend'}`);
-      }
-    }
-
     setBagStatus(status);
   }
 
@@ -433,7 +395,7 @@ export default function ProjectEditor() {
     if (draft) updateDraft(s => ({ ...s, fase: nieuweFase }));
   }
 
-  if (projectQuery.isLoading || !draft) return <div className="p-8 text-gray-500">Laden…</div>;
+  if (projectQuery.isLoading || !draft) return <LaadScherm subtitel="Project wordt opgehaald…" />;
   if (projectQuery.isError) return <div className="p-8 text-red-600">Project niet gevonden.</div>;
 
   const energie = draft.context.energie ?? {};
@@ -793,21 +755,37 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
                 value={draft.context.gebouw?.aantalKleedkamers ?? ''}
                 onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, aantalKleedkamers: e.target.value ? Number(e.target.value) : undefined } } }))} />
             </Veld>
-            <Veld label="Aantal douchekoppen" tooltip="Belangrijk voor boiler-dimensionering (warmtepompboiler, e-boiler).">
-              <input type="number" className="input" placeholder="bv. 24"
+            <Veld label="Totaal douchekoppen" tooltip="Vermenigvuldig het aantal douchekoppen per kleedkamer met het aantal kleedkamers. Voorbeeld: 6 douchekoppen × 8 kleedkamers = 48 totaal. Belangrijk voor boiler-dimensionering (warmtepompboiler, e-boiler).">
+              <input type="number" className="input" placeholder="bv. 48"
                 value={draft.context.gebouw?.aantalDouchekoppen ?? ''}
                 onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, aantalDouchekoppen: e.target.value ? Number(e.target.value) : undefined } } }))} />
             </Veld>
-            <Veld label="Eigendom" tooltip="DUMAVA-subsidie vereist eigen accommodatie. Bij huur: ga via de gemeente.">
+            <Veld label="Eigendom gebouw" tooltip="Het clubhuis: in eigen bezit, gehuurd van gemeente, of anderszins. DUMAVA-subsidie vereist eigen accommodatie.">
               <select
                 className="input"
-                value={(draft.context.gebouw?.eigendom as string) ?? ''}
-                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, eigendom: e.target.value || undefined } } }))}
+                value={(draft.context.gebouw?.eigendomGebouw as string) ?? (draft.context.gebouw?.eigendom as string) ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, eigendomGebouw: e.target.value || undefined } } }))}
               >
                 <option value="">— kies —</option>
-                <option value="eigen">Eigen accommodatie</option>
+                <option value="eigendom-club">Eigendom van de club</option>
+                <option value="eigendom-gemeente">Eigendom van de gemeente</option>
                 <option value="huur-gemeente">Huur van gemeente</option>
+                <option value="huur-stichting">Huur van stichting</option>
                 <option value="huur-overig">Huur overig</option>
+              </select>
+            </Veld>
+            <Veld label="Eigendom grond" tooltip="De ondergrond/sportvelden: bij sportclubs vaak gemeentegrond met opstalrecht voor de club.">
+              <select
+                className="input"
+                value={(draft.context.gebouw?.eigendomGrond as string) ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, eigendomGrond: e.target.value || undefined } } }))}
+              >
+                <option value="">— kies —</option>
+                <option value="eigendom-club">Eigendom van de club</option>
+                <option value="eigendom-gemeente">Eigendom van de gemeente (vaakst)</option>
+                <option value="opstalrecht-gemeente">Opstalrecht op gemeentegrond</option>
+                <option value="erfpacht">Erfpacht</option>
+                <option value="anders">Anders</option>
               </select>
             </Veld>
           </div>
@@ -1123,12 +1101,14 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             <div className="space-y-2">
               {gekozenIds.map(modId => {
                 const mod = modulesQuery.data?.modules.find(m => m.id === modId);
+                // Bij open-actie wordt openTrigger verhoogd, wat de key wijzigt.
+                // React mount dan deze MaatregelDetail opnieuw met defaultOpen=true.
+                const isOpen = openDetailId === modId;
+                const key = isOpen ? `${modId}-open-${openTrigger}` : modId;
                 return (
-                  <div id={`detail-${modId}`} key={modId}>
+                  <div id={`detail-${modId}`} key={key}>
                     <MaatregelDetail
-                      // openTrigger als deel van een 'open-id' prop: elke klik
-                      // zorgt voor een nieuwe identifier ook bij dezelfde maatregel
-                      openSignal={openDetailId === modId ? `${modId}-${openTrigger}` : ''}
+                      startOpen={isOpen}
                       maatregelId={modId}
                       maatregelNaam={mod?.naam ?? modId}
                       input={draft.gekozenMaatregelen[modId] as Record<string, unknown> ?? {}}

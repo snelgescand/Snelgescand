@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { authApi, projectsApi } from '../api/client';
 import { AppHeader } from '../components/AppHeader';
 import { Footer } from '../components/Footer';
+import { LaadScherm } from '../components/LaadScherm';
 import { vindFase, type LifecycleFase } from '../data/lifecycle';
 
 export default function ProjectList() {
@@ -83,7 +84,7 @@ export default function ProjectList() {
           </button>
         </div>
 
-        {isLoading && <p className="text-gray-500">Laden…</p>}
+        {isLoading && <LaadScherm subtitel="Projecten worden opgehaald…" />}
 
         {/* Lege staat */}
         {data && data.projecten.length === 0 && (

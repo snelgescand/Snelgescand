@@ -172,3 +172,19 @@ export const logoApi = {
       bytes?: number;
     }>('/api/logo/download', { method: 'POST', body: JSON.stringify({ url }) }),
 };
+
+export interface BagLookupResult {
+  bouwjaar?: number;
+  oppervlakte?: number;
+  pandid?: string;
+  bouwhoogteM?: number;
+  plafondhoogteM?: number;
+  bronnen: string[];
+  geprobeerd: Array<{ endpoint: string; status: number | string; resultaat: string }>;
+}
+
+export const bagApi = {
+  /** Backend-proxy lookup — probeert serverkant alle BAG-endpoints */
+  lookup: (params: { adresId?: string; rd_x?: number; rd_y?: number; pandid?: string }) =>
+    api<BagLookupResult>('/api/bag/lookup', { method: 'POST', body: JSON.stringify(params) }),
+};

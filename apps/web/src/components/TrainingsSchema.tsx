@@ -10,7 +10,7 @@
  *     - Doucht 100% bij wedstrijd (zondag — vooral senioren-jeugd)
  *
  *   13 jaar en ouder (senioren):
- *     - Speelt op HEEL veld → ~18 spelers per team (incl. wissels + scheids)
+ *     - Speelt op HEEL veld → ~15 spelers per team (incl. wissels + scheids)
  *     - Doucht 95% bij training (doordeweeks)
  *     - Doucht 100% bij wedstrijd (weekend)
  *
@@ -26,7 +26,7 @@ import { InfoTooltip } from './InfoTooltip';
 // Aantal spelers per team (incl. wissels) — uit Excel
 export const SPELERS_PER_TEAM = {
   onder13: 10,   // half veld: 7 spelers + wissels
-  vanaf13: 18,   // heel veld: 11 spelers + wissels + scheids
+  vanaf13: 15,   // heel veld: 11 spelers + 4 wissels
 } as const;
 
 export const LITERS_PER_DOUCHE = 35;
@@ -38,7 +38,7 @@ export interface TrainingMoment {
   eindTijd: string;
   /** Aantal teams onder 13 jaar (jeugd, half veld, ~10 spelers/team) */
   aantalTeamsOnder13: number;
-  /** Aantal teams 13+ (senioren, heel veld, ~18 spelers/team) */
+  /** Aantal teams 13+ (senioren, heel veld, ~15 spelers/team) */
   aantalTeamsVanaf13: number;
   type: 'training' | 'wedstrijd' | 'sociaal';
 }
@@ -120,7 +120,7 @@ export function TrainingsSchemaInvoer({ schema, onChange }: Props) {
         <InfoTooltip>
           <div className="space-y-1">
             <p><strong>Onder 13 jaar</strong>: half veld, ~10 spelers/team. Doucht 25% bij training, 50% bij wedstrijd.</p>
-            <p><strong>13 jaar en ouder</strong>: heel veld, ~18 spelers/team. Doucht 95% bij training, 100% bij wedstrijd.</p>
+            <p><strong>13 jaar en ouder</strong>: heel veld, ~15 spelers/team. Doucht 95% bij training, 100% bij wedstrijd.</p>
             <p><strong>Sociale momenten</strong>: niemand doucht (alleen kantine).</p>
             <p>Per douche-beurt: 35 liter warm water (37°C).</p>
           </div>

@@ -1,5 +1,5 @@
 /**
- * Q-ton CO₂-warmtepomp voor tapwater (Mitsubishi).
+ * Q-ton CO₂-warmtepomp voor tapwater.
  *
  * Bron: Rekenmodel_Sportief_Opgewekt!Q-ton
  *
@@ -89,7 +89,7 @@ export interface QtonResultaat extends MaatregelResultaat {
 
 export const qtonWarmtepompModule: MaatregelModule<QtonInput, QtonResultaat> = {
   id: 'qton-warmtepomp',
-  naam: 'Q-ton CO₂-warmtepomp (Mitsubishi)',
+  naam: 'Q-ton CO₂-warmtepomp',
 
   defaultInput(_context: ProjectContext): QtonInput {
     return {

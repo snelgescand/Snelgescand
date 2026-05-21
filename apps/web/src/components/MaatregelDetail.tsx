@@ -6,7 +6,7 @@
  * een speciaal sub-component getoond.
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { rcDefault } from '@sportief-opgewekt/calc-core';
 import { InfoTooltip } from './InfoTooltip';
 import { MAATREGEL_META, GLAS_OPTIES, DAG_NAMEN, type VeldDef } from '../data/maatregel-velden';
@@ -19,11 +19,8 @@ interface MaatregelDetailProps {
   onRemove: () => void;
   /** Bouwjaar uit project — gebruikt om Rc-waardes te suggereren */
   bouwjaar?: number;
-  /**
-   * Een unieke string die verandert bij elke "open" actie (bv. klik op "✏️ Aanpassen").
-   * Als de string non-empty is en verandert, klapt het paneel open. Lege string = niets.
-   */
-  openSignal?: string;
+  /** Initiële open-state — alleen gelezen bij mount */
+  startOpen?: boolean;
 }
 
 // Maatregel-ID → welke constructie-deel voor rcDefault lookup
@@ -33,14 +30,11 @@ const RC_DEEL: Record<string, 'dak' | 'gevel' | 'vloer'> = {
   'vloerisolatie': 'vloer',
 };
 
-export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove, bouwjaar, openSignal = '' }: MaatregelDetailProps) {
-  const [open, setOpen] = useState(!!openSignal);
-
-  // Wanneer openSignal verandert (nieuwe klik op Aanpassen), het paneel openen.
-  // Gebruik de signal-string zelf als dependency zodat ELKE wijziging triggert.
-  useEffect(() => {
-    if (openSignal) setOpen(true);
-  }, [openSignal]);
+export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove, bouwjaar, startOpen = false }: MaatregelDetailProps) {
+  // Initiële state — open of dicht — wordt vastgezet bij mount.
+  // Bij klik op "✏️ Aanpassen" wordt de key in de parent gewijzigd, waardoor
+  // dit component RE-MOUNT en deze initialState opnieuw evalueert.
+  const [open, setOpen] = useState(startOpen);
 
   const meta = MAATREGEL_META[maatregelId];
 
@@ -237,9 +231,18 @@ function GlasSegmenten({ input, onChange }: { input: Record<string, unknown>; on
   return (
     <div className="space-y-2 pb-2 border-b border-gray-100">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-800">Beglazing per plek</h4>
-        <span className="text-xs text-gray-500">Voeg per plek/ruimte een aparte regel toe</span>
+        <h4 className="text-sm font-medium text-gray-800">Beglazing per soort raam</h4>
+        <button
+          onClick={voegToe}
+          className="text-xs text-primary-700 hover:text-primary-900 font-medium px-2 py-1 hover:bg-primary-50 rounded"
+        >
+          + Voeg raam toe
+        </button>
       </div>
+      <p className="text-xs text-gray-500 -mt-1">
+        Voeg per type raam een regel toe. Bv. "Kantine 20m² HR-glas → HR++", "Kleedkamers 8m² dubbel → HR++".
+        Bij <strong>Uren/dag</strong>: hoeveel uur per dag wordt deze ruimte verwarmd (kantine bv. 10, kleedkamers bv. 6, gang bv. 2).
+      </p>
       {segmenten.map((s, i) => (
         <div key={i} className="grid grid-cols-[1.2fr_0.8fr_1.2fr_1.2fr_0.7fr_auto] gap-2 items-end p-2 bg-gray-50 rounded">
           <div>
@@ -299,9 +302,6 @@ function GlasSegmenten({ input, onChange }: { input: Record<string, unknown>; on
           </button>
         </div>
       ))}
-      <button onClick={voegToe} type="button" className="text-xs text-primary-700 hover:underline">
-        + Plek toevoegen
-      </button>
     </div>
   );
 }
