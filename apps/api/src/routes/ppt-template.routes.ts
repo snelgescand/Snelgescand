@@ -51,51 +51,83 @@ interface BerekendeWaardes {
   gasDouchePerJaar?: number;
   /** Water voor douches per jaar (m³) */
   waterDouchePerJaar?: number;
+  /** Percentage van totale gas wat naar douches gaat */
+  douchegasPct?: number;
+  /** Kostprijs gas voor douches per jaar (€) */
+  kostprijsDoucheGasJaar?: number;
+  /** Kostprijs water + gas voor douches per jaar (€) */
+  kostprijsDoucheTotaalJaar?: number;
   /** WC doorspoelingen per jaar */
   wcDoorspoelPerJaar?: number;
   /** Waterbesparing bij waterloos toilet (liter) */
   wcWaterbesparingLiter?: number;
+  /** Kostbesparing WC water per jaar (€) */
+  wcKostbesparingEur?: number;
   /** Energieverbruik t.o.v. gemiddeld: 'meer' of 'minder' */
   meerMinderEnergie?: 'meer' | 'minder';
+  /** Gas-verbruik voor verwarming kantine (m³) — ~55% van totaal */
+  gasKantinePerJaar?: number;
+  /** Geschatte besparing m³ gas door isolatie kantine (~25% van kantine-gas) */
+  besparingGasKantineM3?: number;
+  /** Kostbesparing kantine isolatie per jaar (€) */
+  besparingKantineEur?: number;
+  /** Totaal gas-verbruik (m³/jaar) */
+  totaalGasM3?: number;
+  /** Totaal elektra (kWh/jaar) */
+  totaalElekKwh?: number;
 }
 
-/** Bereken de PPT-cijfers uit het project-state */
+/** Bereken alle PPT-cijfers uit het project-state */
 function berekenWaardes(state: Record<string, unknown>): BerekendeWaardes {
   const result: BerekendeWaardes = {};
+  const PRIJS_GAS_PER_M3 = 1.35;
+  const PRIJS_WATER_PER_M3 = 1.13;
 
   const ctx = (state.context as Record<string, unknown>) ?? {};
   const gebouw = (ctx.gebouw as Record<string, unknown>) ?? {};
   const energie = (ctx.energie as Record<string, unknown>) ?? {};
   const schema = (state.trainingsSchema as Array<Record<string, unknown>>) ?? [];
 
+  // === Energieverbruik ===
+  const gasM3 = (energie.gasM3PerJaar as number) ?? 0;
+  const elekKwh = (energie.elektriciteitKwhPerJaar as number) ?? 0;
+  if (gasM3 > 0) result.totaalGasM3 = gasM3;
+  if (elekKwh > 0) result.totaalElekKwh = elekKwh;
+
   // === Douches ===
-  // Uit trainingsschema: aantal spelers per dag × douche-percentage
-  // Of fallback: aantal douchekoppen × 3 douches/dag × 6 dagen/week
   let douchesPerWeek = 0;
   if (schema.length > 0) {
     for (const moment of schema) {
-      const o13 = ((moment.aantalTeamsOnder13 as number) ?? 0) * 10;  // 10 sp/team
-      const v13 = ((moment.aantalTeamsVanaf13 as number) ?? 0) * 15;  // 15 sp/team
+      const o13 = ((moment.aantalTeamsOnder13 as number) ?? 0) * 10;
+      const v13 = ((moment.aantalTeamsVanaf13 as number) ?? 0) * 15;
       const douchePct = (moment.douchePercentage as number) ?? 0.6;
       douchesPerWeek += (o13 + v13) * douchePct;
     }
   } else {
     const koppen = (gebouw.aantalDouchekoppen as number) ?? 0;
-    douchesPerWeek = koppen * 3 * 6;  // ruwe schatting
+    douchesPerWeek = koppen * 3 * 6;
   }
   douchesPerWeek = Math.round(douchesPerWeek);
 
   if (douchesPerWeek > 0) {
     result.douchesPerWeek = douchesPerWeek;
-    result.douchesPerJaar = Math.round(douchesPerWeek * 42);  // 42 actieve weken/jaar
-    // Per douche ~50L warm water, dat kost ~2 m³ gas (Sportief Opgewekt vuistregel: ×3,93)
-    result.gasDouchePerWeek = Math.round(douchesPerWeek * 0.5);  // ~0.5 m³ gas per douche
-    result.gasDouchePerJaar = Math.round(result.douchesPerJaar! * 0.5);
-    result.waterDouchePerJaar = Math.round(result.douchesPerJaar! * 0.05);  // 50L = 0.05 m³
+    result.douchesPerJaar = Math.round(douchesPerWeek * 42);
+    result.gasDouchePerWeek = Math.round(douchesPerWeek * 0.5);
+    result.gasDouchePerJaar = Math.round(result.douchesPerJaar * 0.5);
+    result.waterDouchePerJaar = Math.round(result.douchesPerJaar * 0.05);
+
+    // Percentage van totaal gas dat naar douches gaat
+    if (gasM3 > 0) {
+      result.douchegasPct = Math.round((result.gasDouchePerJaar / gasM3) * 100);
+    }
+    // Kostprijs
+    result.kostprijsDoucheGasJaar = Math.round(result.gasDouchePerJaar * PRIJS_GAS_PER_M3);
+    result.kostprijsDoucheTotaalJaar = Math.round(
+      result.gasDouchePerJaar * PRIJS_GAS_PER_M3 + result.waterDouchePerJaar * PRIJS_WATER_PER_M3
+    );
   }
 
-  // === WC doorspoeling ===
-  // Op basis van bezoekers (uit trainingsschema)
+  // === WC ===
   if (schema.length > 0) {
     let bezoekersPerWeek = 0;
     for (const moment of schema) {
@@ -103,26 +135,47 @@ function berekenWaardes(state: Record<string, unknown>): BerekendeWaardes {
       const v13 = ((moment.aantalTeamsVanaf13 as number) ?? 0) * 15;
       bezoekersPerWeek += o13 + v13;
     }
-    result.wcDoorspoelPerJaar = Math.round(bezoekersPerWeek * 42 * 2);  // 2x doorspoelen per bezoek
-    result.wcWaterbesparingLiter = Math.round(result.wcDoorspoelPerJaar * 6);  // 6L per spoeling
+    result.wcDoorspoelPerJaar = Math.round(bezoekersPerWeek * 42 * 2);
+    result.wcWaterbesparingLiter = Math.round(result.wcDoorspoelPerJaar * 6);
+    // €1,13 per m³ water → €0,00113 per liter
+    result.wcKostbesparingEur = Math.round(result.wcWaterbesparingLiter * 0.00113);
   }
 
   // === Energieverbruik vs gemiddeld ===
-  const gasM3 = (energie.gasM3PerJaar as number) ?? 0;
-  const elekKwh = (energie.elektriciteitKwhPerJaar as number) ?? 0;
   const bvo = (gebouw.bvoTotaalM2 as number) ?? 0;
   if (bvo > 0 && (gasM3 > 0 || elekKwh > 0)) {
-    // WEii vuistregel: ~70 kWh/m²/jaar primair = gemiddeld sportclub
-    const primairKwh = elekKwh + gasM3 * 9.77;  // 1 m³ gas ~ 9.77 kWh primair
+    const primairKwh = elekKwh + gasM3 * 9.77;
     const perM2 = primairKwh / bvo;
     result.meerMinderEnergie = perM2 > 70 ? 'meer' : 'minder';
+  }
+
+  // === Kantine isolatie ===
+  // Standaard sportclub-verdeling: ~55% van gas naar kantine/ruimteverwarming
+  if (gasM3 > 0) {
+    result.gasKantinePerJaar = Math.round(gasM3 * 0.55);
+    // Bij isolatie van kantine: typisch 25% besparing op kantine-gas
+    result.besparingGasKantineM3 = Math.round(result.gasKantinePerJaar * 0.25);
+    result.besparingKantineEur = Math.round(result.besparingGasKantineM3 * PRIJS_GAS_PER_M3);
   }
 
   return result;
 }
 
 /**
- * Vervang in een XML-string alle placeholders.
+ * Verwijder gele highlights uit een slide-XML.
+ *
+ * PowerPoint gebruikt `<a:highlight><a:srgbClr val="FFFF00"/></a:highlight>`
+ * in run-properties (<a:rPr>) om tekst geel te markeren.
+ */
+function verwijderGeleHighlights(xml: string): string {
+  return xml.replace(
+    /<a:highlight>\s*<a:srgbClr val="[fF]{4}00"\s*\/>\s*<\/a:highlight>/g,
+    ''
+  );
+}
+
+/**
+ * Vervang in een XML-string ALLE placeholders met de juiste cijfers.
  */
 function vervangPlaceholders(
   xml: string,
@@ -139,58 +192,68 @@ function vervangPlaceholders(
   result = result.replace(/Naamvereniging/g, clubnaamCap);
   result = result.replace(/naamvereniging/g, vars.clubnaam);
 
-  // 3. Specifieke cijfer-placeholders (alleen als we de waarde hebben)
+  // 3. Verwijder ALLE gele highlights
+  result = verwijderGeleHighlights(result);
+
   const b = vars.berekend;
 
-  // Slide 9: "meer/minder energieverbruik dan gemiddeld"
+  // === Slide 9 ===
   if (b.meerMinderEnergie) {
     result = result.replace(/meer\/minder/g, b.meerMinderEnergie);
   }
 
-  // Slide 12: "… douchebeurten per week"
+  // === Slide 12 — Douches ===
   if (b.douchesPerWeek !== undefined) {
-    result = result.replace(
-      /…\s*douchebeurten per week/gi,
-      `${fmt(b.douchesPerWeek)} douchebeurten per week`,
-    );
+    result = result.replace(/…\s*douchebeurten per week/gi, `${fmt(b.douchesPerWeek)} douchebeurten per week`);
   }
-
-  // Slide 12: "Per week kost dit de vereniging … kuub gas"
   if (b.gasDouchePerWeek !== undefined) {
-    result = result.replace(
-      /Per week kost dit de vereniging\s*…\s*kuub gas/g,
-      `Per week kost dit de vereniging ${fmt(b.gasDouchePerWeek)} kuub gas`,
-    );
+    result = result.replace(/de vereniging\s*…\s*kuub gas/g, `de vereniging ${fmt(b.gasDouchePerWeek)} kuub gas`);
   }
-
-  // Slide 12: "jaarlijks ongeveer … kuub gas naar het verwarmen"
   if (b.gasDouchePerJaar !== undefined) {
-    result = result.replace(
-      /jaarlijks ongeveer\s*…\s*kuub gas/g,
-      `jaarlijks ongeveer ${fmt(b.gasDouchePerJaar)} kuub gas`,
-    );
+    result = result.replace(/jaarlijks ongeveer\s*…\s*kuub gas/g, `jaarlijks ongeveer ${fmt(b.gasDouchePerJaar)} kuub gas`);
+  }
+  if (b.douchegasPct !== undefined) {
+    result = result.replace(/betekent dit\s*…\s*%/g, `betekent dit ${b.douchegasPct}%`);
+  }
+  if (b.kostprijsDoucheGasJaar !== undefined) {
+    // Slide 12: "kost dit € …,-" — alleen de eerste gas-prijs op die slide
+    result = result.replace(/€\s*1,35\)\s*kost dit\s*€\s*…/g, `€ 1,35) kost dit € ${fmt(b.kostprijsDoucheGasJaar)}`);
   }
 
-  // Slide 13: "jaarlijks zo'n … keer gedoucht. Omgerekend is dat … m3 water per jaar!"
+  // === Slide 13 — Douche water ===
   if (b.douchesPerJaar !== undefined && b.waterDouchePerJaar !== undefined) {
     result = result.replace(
       /jaarlijks zo['’]n\s*…\s*keer gedoucht\.\s*Omgerekend is dat\s*…\s*m3 water per jaar/g,
       `jaarlijks zo’n ${fmt(b.douchesPerJaar)} keer gedoucht. Omgerekend is dat ${fmt(b.waterDouchePerJaar)} m³ water per jaar`,
     );
   }
+  if (b.kostprijsDoucheTotaalJaar !== undefined) {
+    // Tweede "kost dit €..." op slide 13 — gebruik andere context
+    result = result.replace(/komt het neer op\s*€\s*…/g, `komt het neer op € ${fmt(b.kostprijsDoucheTotaalJaar)}`);
+    // Algemene fallback voor "uit op € …" patroon
+    result = result.replace(/uit op\s*€\s*…/g, `uit op € ${fmt(b.kostprijsDoucheTotaalJaar)}`);
+  }
 
-  // Slide 71: WC doorspoelen
+  // === Slide 16 — Kantine isolatie ===
+  if (b.gasKantinePerJaar !== undefined) {
+    result = result.replace(/er\s*…\s*m3 gas naar het verwarmen/g, `er ${fmt(b.gasKantinePerJaar)} m³ gas naar het verwarmen`);
+  }
+  if (b.besparingGasKantineM3 !== undefined) {
+    result = result.replace(/jaarlijks ca\.\s*…\s*m3 gas/g, `jaarlijks ca. ${fmt(b.besparingGasKantineM3)} m³ gas`);
+  }
+  if (b.besparingKantineEur !== undefined) {
+    result = result.replace(/neerkomt op een jaarlijkse besparing van\s*€\s*…/g, `neerkomt op een jaarlijkse besparing van € ${fmt(b.besparingKantineEur)}`);
+  }
+
+  // === Slide 71 — WC ===
   if (b.wcDoorspoelPerJaar !== undefined) {
-    result = result.replace(
-      /ca\.\s*…\s*keer een wc doorgespoeld/g,
-      `ca. ${fmt(b.wcDoorspoelPerJaar)} keer een wc doorgespoeld`,
-    );
+    result = result.replace(/ca\.\s*…\s*keer een wc doorgespoeld/g, `ca. ${fmt(b.wcDoorspoelPerJaar)} keer een wc doorgespoeld`);
   }
   if (b.wcWaterbesparingLiter !== undefined) {
-    result = result.replace(
-      /club kan besparen is\s*…\s*liter/g,
-      `club kan besparen is ${fmt(b.wcWaterbesparingLiter)} liter`,
-    );
+    result = result.replace(/club kan besparen is\s*…\s*liter/g, `club kan besparen is ${fmt(b.wcWaterbesparingLiter)} liter`);
+  }
+  if (b.wcKostbesparingEur !== undefined) {
+    result = result.replace(/bespaart de club\s*€\s*…/g, `bespaart de club € ${fmt(b.wcKostbesparingEur)}`);
   }
 
   return result;
