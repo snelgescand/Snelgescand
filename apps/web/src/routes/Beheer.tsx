@@ -38,6 +38,27 @@ export function Beheer() {
             : 'Sommige onderdelen zijn alleen zichtbaar voor beheerders.'}
         </p>
 
+        {/* Snelkoppeling naar premium-paneel */}
+        {isBeheerder && (
+          <div className="card p-4 mb-6 bg-accent-orange/5 border border-accent-orange/30">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-primary-900 mb-1">⚙️ Berekening-instellingen</h3>
+                <p className="text-xs text-gray-700">
+                  Pas prijzen, vuistregels en subsidie-percentages aan voor jouw organisatie.
+                  Werkt door in de PPT-export en kostenramingen.
+                </p>
+              </div>
+              <Link
+                to="/beheer/instellingen"
+                className="shrink-0 text-sm px-3 py-1.5 bg-accent-orange text-white rounded hover:bg-accent-orange/90"
+              >
+                Open paneel →
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="border-b border-gray-200 mb-6 flex gap-1">
           <button

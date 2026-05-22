@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { rcDefault } from '@sportief-opgewekt/calc-core';
 import { InfoTooltip } from './InfoTooltip';
 import { MAATREGEL_META, GLAS_OPTIES, DAG_NAMEN, type VeldDef } from '../data/maatregel-velden';
+import { MaatregelContextAdvies, type ContextData } from './MaatregelContextAdvies';
 
 interface MaatregelDetailProps {
   maatregelId: string;
@@ -19,6 +20,8 @@ interface MaatregelDetailProps {
   onRemove: () => void;
   /** Bouwjaar uit project — gebruikt om Rc-waardes te suggereren */
   bouwjaar?: number;
+  /** Volledige context-data uit scan — gebruikt voor maatwerk-adviezen */
+  context?: ContextData;
   /** Initiële open-state — alleen gelezen bij mount */
   startOpen?: boolean;
 }
@@ -30,7 +33,7 @@ const RC_DEEL: Record<string, 'dak' | 'gevel' | 'vloer'> = {
   'vloerisolatie': 'vloer',
 };
 
-export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove, bouwjaar, startOpen = false }: MaatregelDetailProps) {
+export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove, bouwjaar, context, startOpen = false }: MaatregelDetailProps) {
   // Initiële state — open of dicht — wordt vastgezet bij mount.
   // Bij klik op "✏️ Aanpassen" wordt de key in de parent gewijzigd, waardoor
   // dit component RE-MOUNT en deze initialState opnieuw evalueert.
@@ -60,6 +63,16 @@ export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, o
         <div className="p-4 space-y-3 border-t border-primary-100">
           {meta?.kort && (
             <p className="text-sm text-gray-600 mb-3">{meta.kort}</p>
+          )}
+
+          {/* Maatwerk-advies: contextuele tips + suggesties op basis van scan-data */}
+          {context && (
+            <MaatregelContextAdvies
+              maatregelId={maatregelId}
+              context={context}
+              huidigeInput={input}
+              onVulIn={(pad, waarde) => updateVeld(pad, waarde)}
+            />
           )}
 
           {/* Speciale forms voor multi-segment maatregelen */}

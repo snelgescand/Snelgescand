@@ -40,6 +40,24 @@ export default async function usersRoutes(app: FastifyInstance) {
   // Alle user-routes vereisen auth
   app.addHook('preHandler', app.requireAuth);
 
+  // ===== Team-leden (voor dropdowns, niet admin-only) =====
+  app.get('/users/team-leden', async (req) => {
+    const lijst = await prisma.user.findMany({
+      where: { tenantId: req.user!.tenantId },
+      select: { id: true, naam: true, rol: true },
+      orderBy: { naam: 'asc' },
+    });
+    // Geef alleen voornaam terug + rol — voldoende voor dropdown
+    return {
+      teamleden: lijst.map((u: { id: string; naam: string; rol: string }) => ({
+        id: u.id,
+        voornaam: u.naam.split(' ')[0],
+        naam: u.naam,
+        rol: u.rol,
+      })),
+    };
+  });
+
   // ===== Lijst =====
   app.get('/users', async (req, reply) => {
     if (!vereisBeheerder(req, reply)) return;

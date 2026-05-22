@@ -65,12 +65,13 @@ export default async function projectsRoutes(app: FastifyInstance) {
       },
       take: 200,
     });
-    // Extract logo, fase en woonplaats uit de state (rest blijft op de server).
+    // Extract logo, fase, woonplaats, provincie en type uit de state.
     const projecten = lijst.map((p: typeof lijst[number]) => {
       const state = (p.state as {
         logo?: { dataUrl?: string; bestandsnaam?: string };
-        locatie?: { woonplaats?: string; adres?: string };
+        locatie?: { woonplaats?: string; adres?: string; provincie?: string };
         lifecycle?: string;
+        context?: { club?: { type?: string } };
       }) ?? {};
       return {
         id: p.id,
@@ -82,6 +83,8 @@ export default async function projectsRoutes(app: FastifyInstance) {
         eigenaar: p.eigenaar,
         logo: state.logo ? { dataUrl: state.logo.dataUrl, bestandsnaam: state.logo.bestandsnaam } : null,
         woonplaats: state.locatie?.woonplaats ?? null,
+        provincie: state.locatie?.provincie ?? null,
+        type: state.context?.club?.type ?? null,
         lifecycle: state.lifecycle ?? null,
       };
     });
@@ -210,6 +213,35 @@ export default async function projectsRoutes(app: FastifyInstance) {
     );
 
     return { ok: true, project: updated };
+  });
+
+  /**
+   * Wijzig de eigenaar (projectleider) van een project.
+   * Iedereen binnen dezelfde tenant kan dit doen.
+   */
+  app.patch('/projects/:id/eigenaar', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { eigenaarId } = req.body as { eigenaarId?: string };
+    if (!eigenaarId) return reply.code(400).send({ error: 'eigenaarId verplicht' });
+
+    // Verifieer dat het project + de nieuwe eigenaar tot dezelfde tenant horen
+    const project = await prisma.project.findFirst({
+      where: { id, tenantId: req.user!.tenantId },
+      select: { id: true },
+    });
+    if (!project) return reply.code(404).send({ error: 'Niet gevonden' });
+
+    const nieuweEigenaar = await prisma.user.findFirst({
+      where: { id: eigenaarId, tenantId: req.user!.tenantId },
+      select: { id: true, naam: true },
+    });
+    if (!nieuweEigenaar) return reply.code(400).send({ error: 'Eigenaar bestaat niet in deze tenant' });
+
+    await prisma.project.update({
+      where: { id },
+      data: { eigenaarId },
+    });
+    return { ok: true, eigenaar: nieuweEigenaar };
   });
 
   app.delete('/projects/:id', async (req, reply) => {

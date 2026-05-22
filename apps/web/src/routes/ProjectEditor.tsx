@@ -23,6 +23,7 @@ import { LaadScherm } from '../components/LaadScherm';
 import { Luchtfoto } from '../components/Luchtfoto';
 import { FotoUpload, type ProjectFoto } from '../components/FotoUpload';
 import { LogoUpload, type ClubLogo } from '../components/LogoUpload';
+import { ProjectleiderSelect } from '../components/ProjectleiderSelect';
 import { SaveIndicator } from '../components/SaveIndicator';
 import { InfoTooltip } from '../components/InfoTooltip';
 import { MaatregelDetail } from '../components/MaatregelDetail';
@@ -45,9 +46,13 @@ interface Locatie {
 
 interface ProjectState {
   context: {
-    club?: { naam?: string };
+    club?: { naam?: string; type?: string };
     gebouw?: {
       bouwjaar?: number;
+      /** Laatste grondige renovatie / verbouwing (optioneel). Wordt vermeld op de PPT
+       *  als een renovatiejaar is ingevuld dat ná het bouwjaar ligt — geeft de
+       *  adviseur een handvat om de isolatie-staat realistischer in te schatten. */
+      renovatiejaar?: number;
       bvoTotaalM2?: number;
       plafondhoogteM?: number;
       bouwhoogteM?: number;
@@ -70,6 +75,10 @@ interface ProjectState {
       stroomHistorischKwh?: number[];
       aansluitwaardeLabel?: string;  // bv "3x25 A"
       aansluitwaardeElektra?: { fase: 1 | 3; ampere: number; vermogenKw: number };
+      /** Gasaansluiting — label (bv "G6", "G25") of "geen" voor gasloos */
+      gasAansluitingLabel?: string;
+      /** Maximale capaciteit van gasmeter in m³/h */
+      gasAansluitingM3PerUur?: number;
     };
   };
   locatie?: Locatie;
@@ -332,7 +341,8 @@ export default function ProjectEditor() {
 
     const locatie = {
       adres: adres.weergavenaam, postcode: adres.postcode, huisnummer: adres.huisnummer,
-      woonplaats: adres.woonplaatsnaam, rd_x: adres.rd_x, rd_y: adres.rd_y,
+      woonplaats: adres.woonplaatsnaam, provincie: adres.provincienaam,
+      rd_x: adres.rd_x, rd_y: adres.rd_y,
       lat: adres.lat, lon: adres.lon,
     };
     const gebouwPatch: Record<string, unknown> = {};
@@ -525,6 +535,9 @@ export default function ProjectEditor() {
             bagStatus={bagStatus}
             onNaarStap2={() => gaNaarFase(2)}
             energieCompleet={energieCompleet}
+            projectId={id!}
+            huidigeEigenaarId={projectQuery.data?.eigenaarId}
+            huidigeEigenaarNaam={projectQuery.data?.eigenaar?.naam}
           />
         ) : (
           <Stap2Maatregelen
@@ -622,9 +635,12 @@ interface Stap1Props {
   bagStatus: BagStatusType;
   onNaarStap2: () => void;
   energieCompleet: boolean;
+  projectId: string;
+  huidigeEigenaarId?: string;
+  huidigeEigenaarNaam?: string;
 }
 
-function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2, energieCompleet }: Stap1Props) {
+function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2, energieCompleet, projectId, huidigeEigenaarId, huidigeEigenaarNaam }: Stap1Props) {
   // Wordt 3D BAG-data getoond?
   const bouwhoogte = draft.context.gebouw?.bouwhoogteM;
   const trainAnalyse = (draft.trainingsSchema && draft.trainingsSchema.length > 0)
@@ -643,6 +659,34 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
                 placeholder="Bijvoorbeeld: VV Oranje Boys"
                 value={draft.context.club?.naam ?? ''}
                 onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, club: { ...s.context.club, naam: e.target.value } } }))}
+              />
+            </Veld>
+            <Veld label="Type vereniging" tooltip="Bepaalt typische douche/verbruiksprofielen. Gebruikt voor filteren in het projectoverzicht.">
+              <select
+                className="input"
+                value={(draft.context.club as { type?: string } | undefined)?.type ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, club: { ...s.context.club, type: e.target.value || undefined } as typeof s.context.club } }))}
+              >
+                <option value="">— kies —</option>
+                <option value="voetbal">Voetbal</option>
+                <option value="hockey">Hockey</option>
+                <option value="tennis">Tennis</option>
+                <option value="korfbal">Korfbal</option>
+                <option value="atletiek">Atletiek</option>
+                <option value="honkbal">Honkbal/Softbal</option>
+                <option value="volleybal">Volleybal</option>
+                <option value="zwemmen">Zwemmen</option>
+                <option value="rugby">Rugby</option>
+                <option value="handbal">Handbal</option>
+                <option value="multi">Multisport-complex</option>
+                <option value="anders">Anders</option>
+              </select>
+            </Veld>
+            <Veld label="Projectleider" tooltip="Wie van het team pakt dit project op? Gebruikt voor filtering in het projectoverzicht.">
+              <ProjectleiderSelect
+                projectId={projectId}
+                huidigeEigenaarId={huidigeEigenaarId}
+                huidigeEigenaarNaam={huidigeEigenaarNaam}
               />
             </Veld>
             <Veld label="Logo (optioneel)" tooltip="Auto-zoek probeert je clubsite te vinden. Anders upload of plak een URL. Max 500 KB.">
@@ -719,6 +763,17 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
                 value={draft.context.gebouw?.bouwjaar ?? ''}
                 onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, bouwjaar: e.target.value ? Number(e.target.value) : undefined } } }))} />
             </Veld>
+            <Veld
+              label="Renovatiejaar (optioneel)"
+              tooltip="Het jaar van de laatste grondige renovatie of verbouwing. Verhoogt de aanname over isolatie-staat. Leeg laten als er geen renovatie is geweest."
+            >
+              <input type="number" className="input" placeholder={draft.context.gebouw?.bouwjaar ? `≥ ${draft.context.gebouw.bouwjaar}` : 'bv. 2010'}
+                value={draft.context.gebouw?.renovatiejaar ?? ''}
+                min={draft.context.gebouw?.bouwjaar}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, renovatiejaar: e.target.value ? Number(e.target.value) : undefined } } }))} />
+            </Veld>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <Veld label="Bruto vloeroppervlak (m²)" tooltip="BVO uit BAG. Controleer of dit het clubhuis is, niet eventuele bijgebouwen.">
               <input type="number" className="input" placeholder="bv. 450"
                 value={draft.context.gebouw?.bvoTotaalM2 ?? ''}
@@ -919,6 +974,61 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
               </select>
             </Veld>
           </div>
+
+          {/* Gasaansluiting — relevant voor netbeheer-vastrecht en gasloos worden */}
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <Veld
+              label="Aansluitwaarde gas"
+              tooltip="Capaciteit van de gasmeter in m³/h. Op de gasmeter aangegeven (G4, G6, G10, etc.). Bepaalt vastrecht netbeheerder en of de aansluiting opgewaardeerd moet worden. Bij gasloos: kies 'Geen gasaansluiting'."
+            >
+              <select
+                className="input max-w-sm"
+                value={draft.context.energie?.gasAansluitingLabel ?? ''}
+                onChange={e => {
+                  const label = e.target.value;
+                  const lookup: Record<string, number> = {
+                    'G4':   6,
+                    'G6':   10,
+                    'G10':  16,
+                    'G16':  25,
+                    'G25':  40,
+                    'G40':  65,
+                    'G65':  100,
+                    'G100': 160,
+                    'G160': 250,
+                  };
+                  const m3PerUur = label === 'geen' ? 0 : (lookup[label] ?? undefined);
+                  updateDraft(s => ({
+                    ...s,
+                    context: {
+                      ...s.context,
+                      energie: {
+                        ...s.context.energie,
+                        gasAansluitingLabel: label || undefined,
+                        gasAansluitingM3PerUur: m3PerUur,
+                      },
+                    },
+                  }));
+                }}
+              >
+                <option value="">— onbekend —</option>
+                <option value="geen">Geen gasaansluiting (gasloos)</option>
+                <optgroup label="Kleinverbruik (≤ 40 m³/h)">
+                  <option value="G4">G4 — 6 m³/h (huishoudelijk)</option>
+                  <option value="G6">G6 — 10 m³/h (meest voorkomend bij sportclubs)</option>
+                  <option value="G10">G10 — 16 m³/h</option>
+                  <option value="G16">G16 — 25 m³/h</option>
+                  <option value="G25">G25 — 40 m³/h — grens kleinverbruik</option>
+                </optgroup>
+                <optgroup label="Grootverbruik (&gt; 40 m³/h)">
+                  <option value="G40">G40 — 65 m³/h</option>
+                  <option value="G65">G65 — 100 m³/h</option>
+                  <option value="G100">G100 — 160 m³/h</option>
+                  <option value="G160">G160 — 250 m³/h</option>
+                </optgroup>
+              </select>
+            </Veld>
+          </div>
         </Sectie>
 
         {/* 5. Huidige situatie — inventarisatie */}
@@ -935,6 +1045,7 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
           <TrainingsSchemaInvoer
             schema={draft.trainingsSchema ?? []}
             onChange={(s) => updateDraft(d => ({ ...d, trainingsSchema: s }))}
+            typeVereniging={draft.context?.club?.type}
           />
         </Sectie>
 
@@ -1013,6 +1124,42 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
 
   // Welke maatregel-detail-modal staat open? null = dicht.
   const [openDetailId, setOpenDetailId] = useState<string | null>(null);
+
+  // === Maatwerk-context voor de advies-tegels bij het bewerken van een maatregel.
+  // Bouwt scan-data + andere gekozen maatregelen in één object zodat
+  // MaatregelContextAdvies per maatregel relevante tips kan tonen.
+  const adviesContext = useMemo(() => {
+    const schema = draft.trainingsSchema ?? [];
+    let douchesPerWeek = 0;
+    let urenPerWeek = 0;
+    let maxTeams = 0;
+    for (const m of schema) {
+      const o13 = m.aantalTeamsOnder13 ?? 0;
+      const v13 = m.aantalTeamsVanaf13 ?? 0;
+      // Rough estimate of doucheBeurten — same logic als in PPT-route
+      const douchePct = m.type === 'sociaal' ? 0 : m.type === 'wedstrijd' ? 0.9 : 0.6;
+      douchesPerWeek += (o13 * 10 + v13 * 15) * douchePct;
+      maxTeams = Math.max(maxTeams, o13 + v13);
+      const [sh, sm] = (m.startTijd ?? '0:00').split(':').map(Number);
+      const [eh, em] = (m.eindTijd ?? '0:00').split(':').map(Number);
+      const duur = ((eh ?? 0) + (em ?? 0) / 60) - ((sh ?? 0) + (sm ?? 0) / 60);
+      if (duur > 0) urenPerWeek += duur;
+    }
+    return {
+      bvoM2: draft.context.gebouw?.bvoTotaalM2,
+      bouwjaar: draft.context.gebouw?.bouwjaar,
+      renovatiejaar: draft.context.gebouw?.renovatiejaar,
+      stroomKwhPerJaar: draft.context.energie?.stroomverbruikTotaalKwh,
+      gasM3PerJaar: draft.context.energie?.gasverbruikM3,
+      aansluitVermogenKw: draft.context.energie?.aansluitwaardeElektra?.vermogenKw,
+      gasAansluitingLabel: draft.context.energie?.gasAansluitingLabel,
+      douchesPerWeek: Math.round(douchesPerWeek),
+      urenPerWeek: Math.round(urenPerWeek * 10) / 10,
+      totaalTeams: maxTeams,
+      aantalDouchekoppen: draft.context.gebouw?.aantalDouchekoppen,
+      andereMaatregelen: new Set(Object.keys(draft.gekozenMaatregelen).filter(id => id !== openDetailId)),
+    };
+  }, [draft.trainingsSchema, draft.context, draft.gekozenMaatregelen, openDetailId]);
 
   // Bouw waterverbruik-grafiekdata uit trainingsschema (of detail-input als fallback)
   const waterData = useMemo(() => bouwWaterverbruikData(draft), [draft]);
@@ -1144,6 +1291,7 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
                 maatregelNaam={modulesQuery.data.modules.find(m => m.id === openDetailId)?.naam ?? openDetailId}
                 input={(draft.gekozenMaatregelen[openDetailId] as Record<string, unknown>) ?? {}}
                 bouwjaar={draft.context.gebouw?.bouwjaar}
+                context={adviesContext}
                 onChange={(input) => updateDraft(s => ({ ...s, gekozenMaatregelen: { ...s.gekozenMaatregelen, [openDetailId]: input } }))}
                 onRemove={() => {
                   updateDraft(s => {

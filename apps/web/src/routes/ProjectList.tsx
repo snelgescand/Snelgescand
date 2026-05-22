@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi, projectsApi } from '../api/client';
@@ -17,6 +17,14 @@ export default function ProjectList() {
 
   const me = useQuery({ queryKey: ['me'], queryFn: () => authApi.me() });
   const [bevestigVerwijderen, setBevestigVerwijderen] = useState<{ id: string; naam: string } | null>(null);
+  const [zoek, setZoek] = useState('');
+  const [filters, setFilters] = useState<{
+    provincie?: string;
+    woonplaats?: string;
+    type?: string;
+    eigenaarId?: string;
+    lifecycle?: string;
+  }>({});
 
   const create = useMutation({
     mutationFn: () => projectsApi.create({
@@ -86,6 +94,17 @@ export default function ProjectList() {
 
         {isLoading && <LaadScherm subtitel="Projecten worden opgehaald…" />}
 
+        {/* Filter-strip — toon alleen als er projecten zijn */}
+        {data && data.projecten.length > 0 && (
+          <FilterStrip
+            projecten={data.projecten}
+            zoek={zoek}
+            setZoek={setZoek}
+            filters={filters}
+            setFilters={setFilters}
+          />
+        )}
+
         {/* Lege staat */}
         {data && data.projecten.length === 0 && (
           <div className="card p-12 text-center">
@@ -103,9 +122,44 @@ export default function ProjectList() {
         )}
 
         {/* Projecten-grid */}
-        {data && data.projecten.length > 0 && (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {data.projecten.map(p => {
+        {data && data.projecten.length > 0 && (() => {
+          const z = zoek.trim().toLowerCase();
+          const filteredProjecten = data.projecten.filter(p => {
+            // Tekst-zoek: clubnaam, plaats, postcode, adres-deel
+            if (z) {
+              const haystack = [p.clubNaam, p.woonplaats, p.postcode, p.huisnummer]
+                .filter(Boolean).join(' ').toLowerCase();
+              if (!haystack.includes(z)) return false;
+            }
+            if (filters.provincie && p.provincie !== filters.provincie) return false;
+            if (filters.woonplaats && p.woonplaats !== filters.woonplaats) return false;
+            if (filters.type && p.type !== filters.type) return false;
+            if (filters.eigenaarId && p.eigenaar.id !== filters.eigenaarId) return false;
+            if (filters.lifecycle && p.lifecycle !== filters.lifecycle) return false;
+            return true;
+          });
+
+          if (filteredProjecten.length === 0) {
+            return (
+              <div className="card p-8 text-center">
+                <p className="text-gray-600 mb-3">Geen projecten gevonden met deze filters.</p>
+                <button
+                  onClick={() => { setZoek(''); setFilters({}); }}
+                  className="text-sm text-primary-700 hover:underline"
+                >
+                  ↻ Filters wissen
+                </button>
+              </div>
+            );
+          }
+
+          return (
+            <>
+              <p className="text-sm text-gray-500 mb-3">
+                {filteredProjecten.length} van {data.projecten.length} projecten
+              </p>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredProjecten.map(p => {
               const fase = vindFase(p.lifecycle as LifecycleFase | undefined);
               const lokatie = [p.postcode, p.huisnummer].filter(Boolean).join(' ');
               const plaats = p.woonplaats ?? '';
@@ -166,8 +220,10 @@ export default function ProjectList() {
                 </div>
               );
             })}
-          </div>
-        )}
+              </div>
+            </>
+          );
+        })()}
 
         {/* Bevestigingsmodal voor verwijderen */}
         {bevestigVerwijderen && (
@@ -202,6 +258,130 @@ export default function ProjectList() {
         </div>
       </main>
       <Footer />
+    </div>
+  );
+}
+
+/**
+ * Filter-strip bovenaan het projectoverzicht.
+ *
+ * Bouwt zelf de dropdown-opties uit de unieke waardes in de projectlijst.
+ * Alleen waardes die ECHT voorkomen worden getoond — geen lege opties.
+ */
+function FilterStrip({
+  projecten,
+  zoek,
+  setZoek,
+  filters,
+  setFilters,
+}: {
+  projecten: import('../api/client').ProjectListItem[];
+  zoek: string;
+  setZoek: (s: string) => void;
+  filters: { provincie?: string; woonplaats?: string; type?: string; eigenaarId?: string; lifecycle?: string };
+  setFilters: (f: typeof filters) => void;
+}) {
+  // Unieke waardes uit projectenlijst
+  const uniek = useMemo(() => {
+    const provincies = new Set<string>();
+    const plaatsen = new Set<string>();
+    const types = new Set<string>();
+    const eigenaars = new Map<string, string>();   // id → naam
+    const fases = new Set<string>();
+    for (const p of projecten) {
+      if (p.provincie) provincies.add(p.provincie);
+      if (p.woonplaats) plaatsen.add(p.woonplaats);
+      if (p.type) types.add(p.type);
+      if (p.eigenaar) eigenaars.set(p.eigenaar.id, p.eigenaar.naam);
+      if (p.lifecycle) fases.add(p.lifecycle);
+    }
+    return {
+      provincies: Array.from(provincies).sort(),
+      plaatsen: Array.from(plaatsen).sort(),
+      types: Array.from(types).sort(),
+      eigenaars: Array.from(eigenaars.entries()).sort((a, b) => a[1].localeCompare(b[1])),
+      fases: Array.from(fases),
+    };
+  }, [projecten]);
+
+  const filterCount = Object.values(filters).filter(Boolean).length + (zoek ? 1 : 0);
+
+  return (
+    <div className="card p-3 mb-4">
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex-1 min-w-[200px]">
+          <input
+            type="search"
+            placeholder="🔍 Zoek op clubnaam, plaats, postcode..."
+            className="input py-1.5 text-sm w-full"
+            value={zoek}
+            onChange={e => setZoek(e.target.value)}
+          />
+        </div>
+        {uniek.provincies.length > 1 && (
+          <select
+            value={filters.provincie ?? ''}
+            onChange={e => setFilters({ ...filters, provincie: e.target.value || undefined })}
+            className="input py-1.5 text-sm w-auto"
+          >
+            <option value="">Alle provincies</option>
+            {uniek.provincies.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        )}
+        {uniek.plaatsen.length > 1 && (
+          <select
+            value={filters.woonplaats ?? ''}
+            onChange={e => setFilters({ ...filters, woonplaats: e.target.value || undefined })}
+            className="input py-1.5 text-sm w-auto"
+          >
+            <option value="">Alle plaatsen</option>
+            {uniek.plaatsen.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        )}
+        {uniek.types.length > 0 && (
+          <select
+            value={filters.type ?? ''}
+            onChange={e => setFilters({ ...filters, type: e.target.value || undefined })}
+            className="input py-1.5 text-sm w-auto"
+          >
+            <option value="">Alle types</option>
+            {uniek.types.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
+        {uniek.eigenaars.length > 1 && (
+          <select
+            value={filters.eigenaarId ?? ''}
+            onChange={e => setFilters({ ...filters, eigenaarId: e.target.value || undefined })}
+            className="input py-1.5 text-sm w-auto"
+          >
+            <option value="">Alle projectleiders</option>
+            {uniek.eigenaars.map(([id, naam]) => (
+              <option key={id} value={id}>{naam.split(' ')[0]}</option>
+            ))}
+          </select>
+        )}
+        {uniek.fases.length > 1 && (
+          <select
+            value={filters.lifecycle ?? ''}
+            onChange={e => setFilters({ ...filters, lifecycle: e.target.value || undefined })}
+            className="input py-1.5 text-sm w-auto"
+          >
+            <option value="">Alle fases</option>
+            {uniek.fases.map(f => (
+              <option key={f} value={f}>{vindFase(f as LifecycleFase).label}</option>
+            ))}
+          </select>
+        )}
+        {filterCount > 0 && (
+          <button
+            type="button"
+            onClick={() => { setZoek(''); setFilters({}); }}
+            className="text-xs text-primary-700 hover:underline px-2"
+          >
+            ↻ Wis ({filterCount})
+          </button>
+        )}
+      </div>
     </div>
   );
 }

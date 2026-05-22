@@ -70,6 +70,8 @@ export interface ProjectListItem {
   postcode?: string;
   huisnummer?: string;
   woonplaats?: string | null;
+  provincie?: string | null;
+  type?: string | null;
   lifecycle?: string | null;
   updatedAt: string;
   eigenaar: { id: string; naam: string };
@@ -85,6 +87,11 @@ export const projectsApi = {
     api<any>(`/api/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) =>
     api<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
+  setEigenaar: (id: string, eigenaarId: string) =>
+    api<{ ok: boolean; eigenaar: { id: string; naam: string } }>(
+      `/api/projects/${id}/eigenaar`,
+      { method: 'PATCH', body: JSON.stringify({ eigenaarId }) },
+    ),
   bereken: (id: string) =>
     api<any>(`/api/projects/${id}/bereken`, { method: 'POST' }),
 
@@ -216,4 +223,31 @@ export const bagApi = {
   /** Backend-proxy lookup — probeert serverkant alle BAG-endpoints */
   lookup: (params: { adresId?: string; rd_x?: number; rd_y?: number; pandid?: string }) =>
     api<BagLookupResult>('/api/bag/lookup', { method: 'POST', body: JSON.stringify(params) }),
+};
+
+// ===== Team-leden (voor dropdowns) =====
+export interface Teamlid {
+  id: string;
+  voornaam: string;
+  naam: string;
+  rol: 'BEHEERDER' | 'ADVISEUR';
+}
+export const teamApi = {
+  leden: () => api<{ teamleden: Teamlid[] }>('/api/users/team-leden'),
+};
+
+// ===== Tenant-instellingen (premium Excel-paneel) =====
+export interface TenantInstellingen {
+  prijzen: { gasPerM3: number; stroomPerKwh: number; waterPerM3: number };
+  vuistregels: {
+    literPerDouche: number; gasPerDouche: number; literPerSpoeling: number;
+    co2GasPerM3: number; co2StroomPerKwh: number; primairFactorGas: number;
+  };
+  subsidies: { isdePct: number; dumavaPct: number; scePct: number };
+}
+export const instellingenApi = {
+  get: () => api<{ instellingen: TenantInstellingen; defaults: TenantInstellingen }>('/api/tenant/instellingen'),
+  update: (data: Partial<TenantInstellingen>) =>
+    api<{ ok: boolean }>('/api/tenant/instellingen', { method: 'PATCH', body: JSON.stringify(data) }),
+  reset: () => api<{ ok: boolean }>('/api/tenant/instellingen/reset', { method: 'POST' }),
 };

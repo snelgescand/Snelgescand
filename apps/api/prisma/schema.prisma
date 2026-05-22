@@ -29,6 +29,11 @@ model Tenant {
   slug        String   @unique         // gebruikt in URL: /t/{slug}/...
   domein      String?  @unique         // optionele eigen domeinnaam
   branding    Json?                    // logo-url, kleuren — null = default branding
+  /// Berekening-instellingen: prijzen, vuistregels, subsidies.
+  /// Wordt gebruikt als default bij het aanmaken van nieuwe projecten
+  /// en in de PPT-template-export.
+  /// Schema: { prijzen: { gasPerM3, stroomPerKwh, waterPerM3 }, vuistregels: { ... }, subsidies: { ... } }
+  instellingen Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

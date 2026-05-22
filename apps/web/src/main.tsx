@@ -8,6 +8,7 @@ import ProjectList from './routes/ProjectList';
 import ProjectEditor from './routes/ProjectEditor';
 import Kennisbank from './routes/Kennisbank';
 import { Beheer } from './routes/Beheer';
+import BeheerInstellingen from './routes/BeheerInstellingen';
 import { AuthGate } from './components/AuthGate';
 import { OnboardingModal } from './components/OnboardingModal';
 
@@ -28,6 +29,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/projecten/:id" element={<AuthGate><ProjectEditor /></AuthGate>} />
           <Route path="/kennisbank" element={<AuthGate><Kennisbank /></AuthGate>} />
           <Route path="/beheer" element={<AuthGate><Beheer /></AuthGate>} />
+          <Route path="/beheer/instellingen" element={<AuthGate><BeheerInstellingen /></AuthGate>} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

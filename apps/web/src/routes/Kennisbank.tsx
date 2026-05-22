@@ -161,6 +161,9 @@ function Artikel({ artikel }: { artikel: KennisArtikel }) {
               </div>
             );
           }
+          if (p.type === 'download') {
+            return <DownloadKnop key={i} bestand={p.bestand} label={p.label} toelichting={p.toelichting} />;
+          }
           return null;
         })}
       </div>
@@ -179,6 +182,63 @@ function Artikel({ artikel }: { artikel: KennisArtikel }) {
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Download-knop voor een kennisbank-bijlage. Gebruikt de cookie-auth via /api/downloads.
+ * We doen geen <a href="/api/downloads/...">, want sommige browsers volgen die niet
+ * met cookies; in plaats daarvan een fetch + blob-download.
+ */
+function DownloadKnop({ bestand, label, toelichting }: { bestand: string; label: string; toelichting?: string }) {
+  const [bezig, setBezig] = useState(false);
+  const [fout, setFout] = useState<string | null>(null);
+
+  async function download() {
+    setBezig(true);
+    setFout(null);
+    try {
+      const res = await fetch(`/api/downloads/${bestand}`, { credentials: 'include' });
+      if (!res.ok) {
+        const tekst = await res.text().catch(() => '');
+        throw new Error(`Download mislukt (${res.status}). ${tekst}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      // Bestandsnaam komt uit Content-Disposition; bij fout fall back op het pad
+      const disposition = res.headers.get('content-disposition') ?? '';
+      const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+      a.download = match ? decodeURIComponent(match[1]) : bestand;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'Onbekende fout');
+    } finally {
+      setBezig(false);
+    }
+  }
+
+  return (
+    <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
+          <button
+            type="button"
+            onClick={download}
+            disabled={bezig}
+            className="text-sm bg-accent-orange text-white px-4 py-2 rounded hover:bg-accent-orange/90 disabled:opacity-50"
+          >
+            {bezig ? '⏳ Downloaden…' : label}
+          </button>
+          {toelichting && <p className="text-xs text-gray-600 mt-2">{toelichting}</p>}
+          {fout && <p className="text-xs text-red-700 mt-2">{fout}</p>}
+        </div>
+      </div>
     </div>
   );
 }

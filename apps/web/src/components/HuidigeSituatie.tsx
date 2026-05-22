@@ -137,13 +137,30 @@ export function HuidigeSituatie({ data, onChange, bouwjaar }: Props) {
                         );
                       })()}
 
-                      <input
-                        type="text"
-                        placeholder="Notitie (optioneel) — bv. 'enkel glas alleen in kantine'"
-                        className="input py-1 text-xs"
-                        value={antwoord.notitie ?? ''}
-                        onChange={e => updateItem(item.id, { notitie: e.target.value })}
-                      />
+                      {(() => {
+                        const isVrijeTekst = item.id.includes('vrije-notitie')
+                          || ['overig', 'meerdere', 'zie-notitie'].includes(antwoord.keuze ?? '');
+                        const placeholder = isVrijeTekst
+                          ? 'Licht hier toe — bv. "dak in 2018 volledig vernieuwd incl. 12 cm PIR-isolatie, leverancier X" of "ALV-bevoegdheid tot €50k zonder ledenbesluit"…'
+                          : 'Notitie (optioneel) — bv. \'enkel glas alleen in kantine\'';
+                        return isVrijeTekst ? (
+                          <textarea
+                            placeholder={placeholder}
+                            className="input py-1 text-xs"
+                            rows={3}
+                            value={antwoord.notitie ?? ''}
+                            onChange={e => updateItem(item.id, { notitie: e.target.value })}
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            placeholder={placeholder}
+                            className="input py-1 text-xs"
+                            value={antwoord.notitie ?? ''}
+                            onChange={e => updateItem(item.id, { notitie: e.target.value })}
+                          />
+                        );
+                      })()}
                     </div>
                   );
                 })}
