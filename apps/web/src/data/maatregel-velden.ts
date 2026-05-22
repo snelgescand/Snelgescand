@@ -168,6 +168,29 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
         tooltip: 'Aandeel van de warmtevraag dat de warmtepomp dekt. Default 0,78 (78%).' },
     ],
   },
+  'lucht-lucht-warmtepomp': {
+    kort: 'Splitsysteem (airco met verwarmingsfunctie) dat lucht direct verwarmt — ideaal voor kantine of zaal zonder cv-radiatoren. Goedkoper dan lucht/water, maar verwarmt niet het tapwater.',
+    velden: [
+      { pad: 'volumeM3', label: 'Te verwarmen volume', type: 'number', eenheid: 'm³',
+        tooltip: 'BVO × plafondhoogte. Bij 200 m² kantine met 3 m plafond: 600 m³.', placeholder: 'bv. 600' },
+      { pad: 'isolatieNiveau', label: 'Isolatieniveau van de ruimte', type: 'select',
+        opties: [
+          { waarde: 'slecht', label: 'Slecht (oud, ongeïsoleerd, > 35 W/m³)' },
+          { waarde: 'redelijk', label: 'Redelijk (standaard sportclub, ~25 W/m³)' },
+          { waarde: 'goed', label: 'Goed (recent geïsoleerd, ~15 W/m³)' },
+          { waarde: 'zeer-goed', label: 'Zeer goed (nieuwbouw, ~10 W/m³)' },
+        ],
+        tooltip: 'Bepaalt het benodigde vermogen per m³. Beïnvloed direct de prijs.' },
+      { pad: 'scop', label: 'SCOP (seizoens-COP)', type: 'number', stap: 0.1,
+        tooltip: 'Typisch 3,0-4,0 voor moderne split-units. Default 3,5.' },
+      { pad: 'aandeelRuimteverwarmingVanGas', label: 'Aandeel ruimteverwarming van gas', type: 'number', stap: 0.05,
+        tooltip: 'Welke fractie van het totale gasverbruik gaat naar verwarming van DEZE ruimte? Bij alleen kantine-airco vaak 0,2-0,4. Default 0,3.' },
+      { pad: 'prijsPerKwInclBtw', label: 'Prijs per kW (incl. installatie)', type: 'number', eenheid: '€/kW',
+        tooltip: 'Realistische markt: €500-700/kW voor split-units incl. installatie. Multi-split iets duurder. Default €600.', placeholder: 'bv. 600' },
+      { pad: 'isdeBedragPerKw', label: 'ISDE-subsidie per kW', type: 'number', eenheid: '€/kW',
+        tooltip: 'ISDE is voor lucht/lucht in afbouw — voor 2025 ~€100/kW zakelijk. Check rvo.nl voor het actuele bedrag.' },
+    ],
+  },
 
   // ============================================================
   // STROOM

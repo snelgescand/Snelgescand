@@ -137,7 +137,7 @@ function schatExtraVerbruikWarmtepomp(ctx: ContextData): number {
 }
 
 function heeftWarmtepomp(ctx: ContextData): boolean {
-  return ['qton-warmtepomp', 'lmnt-warmtepomp', 'lucht-water-warmtepomp', 'hybride-warmtepomp']
+  return ['qton-warmtepomp', 'lmnt-warmtepomp', 'lucht-water-warmtepomp', 'lucht-lucht-warmtepomp', 'hybride-warmtepomp']
     .some(id => ctx.andereMaatregelen.has(id));
 }
 
@@ -173,6 +173,7 @@ export function genereerAdviezen(
     case 'qton-warmtepomp':        return adviesQtonWarmtepomp(ctx, huidigeInput);
     case 'lmnt-warmtepomp':        return adviesLmntWarmtepomp(ctx, huidigeInput);
     case 'lucht-water-warmtepomp': return adviesLuchtWaterWarmtepomp(ctx, huidigeInput);
+    case 'lucht-lucht-warmtepomp': return adviesLuchtLuchtWarmtepomp(ctx, huidigeInput);
     case 'hybride-warmtepomp':     return adviesHybrideWarmtepomp(ctx, huidigeInput);
     case 'warmtepompboiler':       return adviesWarmtepompboiler(ctx, huidigeInput);
     case 'pvt-tapwater':           return adviesPvtTapwater(ctx, huidigeInput);
@@ -459,6 +460,73 @@ function adviesLuchtWaterWarmtepomp(ctx: ContextData, _huidigeInput: Record<stri
       body: 'Significant voor de PV-dimensionering. Reken dit mee in het aantal panelen.',
     });
   }
+  return adviezen;
+}
+
+function adviesLuchtLuchtWarmtepomp(ctx: ContextData, huidigeInput: Record<string, unknown>): AdviesItem[] {
+  const adviezen: AdviesItem[] = [];
+
+  // 1. Volume-suggestie obv BVO + plafondhoogte
+  if (ctx.bvoM2) {
+    // Aanname: lucht/lucht doet meestal kantine of zaalruimte — niet het hele gebouw.
+    // We pakken ~50% van BVO als typische bezetting van een airco-systeem.
+    const ruimteAandeel = 0.5;
+    const plafondHoogte = 3;
+    const volume = Math.round(ctx.bvoM2 * ruimteAandeel * plafondHoogte);
+    adviezen.push({
+      type: 'suggestie',
+      titel: `Geschat ruimtevolume: ≈ ${fmt(volume)} m³`,
+      body: `Aanname: lucht/lucht-airco verwarmt typisch ~50% van BVO (kantine + zaal, niet kleedkamers/douches). Bij ${fmt(ctx.bvoM2)} m² BVO × 50% × 3 m plafond = ${fmt(volume)} m³. Pas aan als je het exacte volume kent.`,
+      suggestie: { pad: 'volumeM3', waarde: volume, knopLabel: `Vul ${fmt(volume)} m³ in` },
+    });
+  }
+
+  // 2. Realistische prijs
+  const huidigePrijs = (huidigeInput.prijsPerKwInclBtw as number) ?? 0;
+  if (huidigePrijs === 0 || huidigePrijs > 900) {
+    adviezen.push({
+      type: 'suggestie',
+      titel: 'Realistische marktprijs: € 500-700 per kW',
+      body: 'Split-units (lucht/lucht) zijn aanmerkelijk goedkoper dan lucht/water-warmtepompen. Multi-split (1 buitenunit + 3-4 binnenunits): €600-700/kW. Single-split: €500-600/kW. Beide incl. installatie. Default in deze tool is nu €600/kW.',
+      suggestie: { pad: 'prijsPerKwInclBtw', waarde: 600, knopLabel: 'Vul € 600/kW in' },
+    });
+  }
+
+  // 3. Vergelijking met lucht/water
+  if (ctx.andereMaatregelen.has('lucht-water-warmtepomp')) {
+    adviezen.push({
+      type: 'waarschuwing',
+      titel: 'Je hebt al lucht/water-warmtepomp geselecteerd',
+      body: 'Lucht/lucht én lucht/water tegelijk inzetten is meestal dubbel werk. Lucht/water doet het hele gebouw incl. tapwater; lucht/lucht is alleen voor specifieke ruimtes (kantine, zaal) zonder cv-aansluiting. Overweeg of je beide écht nodig hebt.',
+    });
+  } else {
+    adviezen.push({
+      type: 'info',
+      titel: 'Lucht/lucht vs lucht/water — welke wanneer?',
+      body: 'Lucht/lucht (deze): goedkoop, geen tapwater, alleen kantine/zaal zonder cv. Lucht/water: duurder, doet het hele gebouw + tapwater, vereist goede afgiftesysteem (vloerverwarming of LT-radiatoren). Voor een sportclub met aparte douche-installatie (Q-ton of warmtepompboiler) kan lucht/lucht prima voor de kantine zijn.',
+    });
+  }
+
+  // 4. Isolatie-aanname effect
+  if (ctx.bouwjaar && ctx.bouwjaar < 1990 && !ctx.renovatiejaar) {
+    adviezen.push({
+      type: 'waarschuwing',
+      titel: `Bouwjaar ${ctx.bouwjaar} — kies "slecht" isolatieniveau`,
+      body: 'Oudere gebouwen zonder renovatie hebben hoge warmtevraag per m³. Bij "slecht" isolatieniveau wordt het benodigde vermogen (en dus de prijs) groter. Bij twijfel: laat een installateur de werkelijke pieklast meten.',
+    });
+  }
+
+  // 5. Aandeel gas-besparing
+  if (ctx.gasM3PerJaar && ctx.gasM3PerJaar > 0) {
+    const aandeel = (huidigeInput.aandeelRuimteverwarmingVanGas as number) ?? 0.3;
+    const besparing = Math.round(ctx.gasM3PerJaar * aandeel);
+    adviezen.push({
+      type: 'kader',
+      titel: `Geschatte gasbesparing: ≈ ${fmt(besparing)} m³/jaar`,
+      body: `${fmt(ctx.gasM3PerJaar)} m³ huidig × ${(aandeel * 100).toFixed(0)}% aandeel ruimteverwarming = ${fmt(besparing)} m³ verschuiving van gas naar stroom. Houd hier rekening mee bij PV-dimensionering.`,
+    });
+  }
+
   return adviezen;
 }
 

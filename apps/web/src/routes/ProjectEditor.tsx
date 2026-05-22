@@ -671,6 +671,9 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
                 <option value="voetbal">Voetbal</option>
                 <option value="hockey">Hockey</option>
                 <option value="tennis">Tennis</option>
+                <option value="padel">Padel</option>
+                <option value="badminton">Badminton</option>
+                <option value="squash">Squash</option>
                 <option value="korfbal">Korfbal</option>
                 <option value="atletiek">Atletiek</option>
                 <option value="honkbal">Honkbal/Softbal</option>
@@ -810,6 +813,9 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
                 <option value="korfbal">Korfbal</option>
                 <option value="rugby">Rugby</option>
                 <option value="tennis">Tennis</option>
+                <option value="padel">Padel</option>
+                <option value="badminton">Badminton</option>
+                <option value="squash">Squash</option>
                 <option value="atletiek">Atletiek</option>
                 <option value="multisport">Multisport</option>
                 <option value="overig">Overig</option>

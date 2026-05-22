@@ -57,7 +57,11 @@ export const luchtLuchtWarmtepompModule: MaatregelModule<LuchtLuchtWPInput, Luch
       isolatieNiveau: 'redelijk',
       scop: 3.5,
       aandeelRuimteverwarmingVanGas: 0.3,
-      prijsPerKwInclBtw: 1200,
+      // Lucht/lucht-warmtepompen (split-units) zijn aanmerkelijk goedkoper dan
+      // lucht/water-systemen — typisch €500-€700/kW incl. installatie (NL markt 2025).
+      // Eerdere default was €1.200/kW, dat is meer een lucht/water-prijs en gaf
+      // onrealistisch hoge investeringsbedragen op de PPT.
+      prijsPerKwInclBtw: 600,
       isdeBedragPerKw: 100,
     };
   },
