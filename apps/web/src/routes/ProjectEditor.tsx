@@ -1485,7 +1485,7 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             titel="Waterverbruik per dag"
             ondertitel="Op basis van trainingsschema (of douches-analyse)"
             hoogte={240}
-            toelichting="Gestapelde balken: kindertijd vs. volwassenen-tijd. 35 L warm water per persoon-met-douche."
+            toelichting="Gestapelde balken: training (teal) en wedstrijd (oranje). 35 L warm water per persoon-met-douche."
           >
             <WaterverbruikChart data={waterData} />
           </ChartCard>
@@ -1534,8 +1534,9 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
 const DAGEN_VOLGORDE = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'] as const;
 
 /**
- * Waterverbruik per dag — gebruikt nu sport-config voor personen-per-eenheid en
- * douche-%, in plaats van hardcoded voetbal-aannames.
+ * Waterverbruik per dag — gesplitst per moment-TYPE (training vs wedstrijd),
+ * niet per leeftijdsgroep. Belangrijk: op dinsdag met alleen seniorentraining
+ * moet NIET een "wedstrijd"-staaf verschijnen.
  */
 function bouwWaterverbruikData(draft: ProjectState) {
   const schema = draft.trainingsSchema;
@@ -1543,20 +1544,26 @@ function bouwWaterverbruikData(draft: ProjectState) {
   const typeVereniging = draft.context.club?.type;
   const config = getSportConfig(typeVereniging);
 
-  const perDag: Record<string, { jeugdL: number; senL: number }> = {};
+  const perDag: Record<string, { trainingL: number; wedstrijdL: number }> = {};
   for (const m of schema) {
-    if (!perDag[m.dag]) perDag[m.dag] = { jeugdL: 0, senL: 0 };
+    if (m.type === 'sociaal') continue;
+    if (!perDag[m.dag]) perDag[m.dag] = { trainingL: 0, wedstrijdL: 0 };
     const douchesG1 = (m.aantalTeamsOnder13 ?? 0) * config.personenPerEenheid1
       * douchePercentage('onder13', m.type, m.dag, typeVereniging);
     const douchesG2 = (m.aantalTeamsVanaf13 ?? 0) * config.personenPerEenheid2
       * douchePercentage('vanaf13', m.type, m.dag, typeVereniging);
-    perDag[m.dag].jeugdL += douchesG1 * LITERS_PER_DOUCHE;
-    perDag[m.dag].senL += douchesG2 * LITERS_PER_DOUCHE;
+    const litersMoment = (douchesG1 + douchesG2) * LITERS_PER_DOUCHE;
+    if (m.type === 'wedstrijd') {
+      perDag[m.dag].wedstrijdL += litersMoment;
+    } else {
+      // 'training' (sociaal is hierboven al gefilterd)
+      perDag[m.dag].trainingL += litersMoment;
+    }
   }
   return DAGEN_VOLGORDE.filter(d => perDag[d]).map(d => ({
     dag: d,
-    trainingL: Math.round(perDag[d].jeugdL),
-    wedstrijdL: Math.round(perDag[d].senL),
+    trainingL: Math.round(perDag[d].trainingL),
+    wedstrijdL: Math.round(perDag[d].wedstrijdL),
   }));
 }
 

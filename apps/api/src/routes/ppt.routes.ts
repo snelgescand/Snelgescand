@@ -482,11 +482,12 @@ async function maakPresentatie({ clubNaam, state, berekend, tenantInstellingen }
   }
 
   // ============================================================
-  // Voor de penningmeester — totaaltabel
+  // ============================================================
+  // Voor de penningmeester — totaaltabel + uitsplitsing per maatregel
   // ============================================================
   const sPen = pres.addSlide();
   addSlideHeader(sPen, 'Voor de penningmeester');
-  sPen.addText('Prijzen zijn ramingen, definitieve prijzen bij uitvraag offertes na engineering.',
+  sPen.addText('Prijzen zijn ramingen, definitieve prijzen bij uitvraag offertes na engineering. Subsidies zijn gefilterd op wat momenteel beschikbaar is.',
     { x: 0.5, y: 1.1, w: 12.3, h: 0.3, fontSize: 11, color: ONN_GRIJS, italic: true });
 
   // Tabel-headers
@@ -497,12 +498,12 @@ async function maakPresentatie({ clubNaam, state, berekend, tenantInstellingen }
   sPen.addText('Besparing/jr',        { x: 10.5, y: 1.6, w: 1.5, h: 0.4, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
   sPen.addText('TVT',                 { x: 12.1, y: 1.6, w: 0.8, h: 0.4, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
 
-  // Tabel-rijen
+  // Tabel-rijen — alleen totalen per maatregel
   let yPos = 2.05;
-  const rowH = 0.38;
+  const rowH = 0.36;
   for (const [id, resultaat] of Object.entries(berekend.perMaatregel)) {
     if (!resultaat) continue;
-    if (yPos > 6.5) break;
+    if (yPos > 6.0) break;
     sPen.addText(formatItemId(id),                               { x: 0.5,  y: yPos, w: 4.5, h: rowH, fontSize: 11, color: ONN_DONKER });
     sPen.addText(`€ ${formatGetal(resultaat.brutoInvestering)}`, { x: 5.0,  y: yPos, w: 2.0, h: rowH, fontSize: 11, align: 'right' });
     sPen.addText(`€ ${formatGetal(resultaat.totaleSubsidie)}`,   { x: 7.1,  y: yPos, w: 1.5, h: rowH, fontSize: 11, align: 'right' });
@@ -513,7 +514,7 @@ async function maakPresentatie({ clubNaam, state, berekend, tenantInstellingen }
   }
 
   // Totaal-rij
-  yPos = Math.max(yPos, 6.6);
+  yPos = Math.max(yPos, 6.1);
   sPen.addShape('rect' as never, { x: 0.5, y: yPos, w: 12.4, h: 0.04, fill: { color: ONN_TEAL }, line: { color: ONN_TEAL } });
   yPos += 0.05;
   sPen.addText('TOTAAL',                                          { x: 0.5,  y: yPos, w: 4.5, h: rowH, fontSize: 12, bold: true, color: ONN_TEAL });
@@ -522,6 +523,61 @@ async function maakPresentatie({ clubNaam, state, berekend, tenantInstellingen }
   sPen.addText(`€ ${formatGetal(r.nettoInvestering)}`,           { x: 8.7,  y: yPos, w: 1.7, h: rowH, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
   sPen.addText(`€ ${formatGetal(r.totaleBesparingPerJaar)}`,     { x: 10.5, y: yPos, w: 1.5, h: rowH, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
   sPen.addText(formatTVT(r.gemiddeldeTerugverdientijdJaren),     { x: 12.1, y: yPos, w: 0.8, h: rowH, fontSize: 12, bold: true, color: ONN_TEAL, align: 'right' });
+
+  // ============================================================
+  // Subsidie-uitsplitsing per maatregel (extra slide(s))
+  // ============================================================
+  const maatregelenMetSubsidie = Object.entries(berekend.perMaatregel)
+    .filter(([, res]) => res && (res.subsidies?.length ?? 0) > 0 && subsidiesAlleActiefHier(res.subsidies, subsidieActief));
+  if (maatregelenMetSubsidie.length > 0) {
+    const sSub = pres.addSlide();
+    addSlideHeader(sSub, 'Subsidie-uitsplitsing per maatregel');
+    sSub.addText('Welke subsidie geldt waarvoor — per maatregel apart afgetrokken van de bruto investering.',
+      { x: 0.5, y: 1.1, w: 12.3, h: 0.3, fontSize: 11, color: ONN_GRIJS, italic: true });
+
+    let ySub = 1.6;
+    const cardH = 1.05;
+    for (const [id, res] of maatregelenMetSubsidie) {
+      if (!res) continue;
+      if (ySub + cardH > 7.0) break; // pas op voor volgende slide
+
+      // Kop per maatregel
+      sSub.addShape('rect' as never, { x: 0.5, y: ySub, w: 12.4, h: 0.04, fill: { color: ONN_TEAL_LIGHT }, line: { color: ONN_TEAL_LIGHT } });
+      ySub += 0.06;
+      sSub.addText(formatItemId(id), { x: 0.5, y: ySub, w: 7.5, h: 0.3, fontSize: 13, bold: true, color: ONN_TEAL });
+      sSub.addText(`Bruto € ${formatGetal(res.brutoInvestering)} → Netto € ${formatGetal(res.nettoInvestering)}`,
+        { x: 8.0, y: ySub, w: 4.9, h: 0.3, fontSize: 12, color: ONN_DONKER, align: 'right' });
+      ySub += 0.32;
+
+      // Per subsidie een regel (alleen actieve subsidies tonen)
+      const actieveSubs = (res.subsidies ?? []).filter(s => subsidieActief(s.bron) && subsidieActief(s.naam));
+      if (actieveSubs.length === 0) {
+        sSub.addText('— Geen actieve subsidies voor deze maatregel',
+          { x: 0.7, y: ySub, w: 12.0, h: 0.3, fontSize: 10, italic: true, color: ONN_GRIJS });
+        ySub += 0.3;
+      } else {
+        for (const s of actieveSubs) {
+          if (ySub + 0.3 > 7.0) break;
+          const pctText = s.percentage != null
+            ? ` (${(s.percentage * 100).toFixed(0)}%)`
+            : '';
+          const naamTekst = `• ${s.naam}${pctText}`;
+          sSub.addText(naamTekst,
+            { x: 0.7, y: ySub, w: 8.0, h: 0.28, fontSize: 11, color: ONN_DONKER });
+          sSub.addText(`− € ${formatGetal(s.bedrag)}`,
+            { x: 8.8, y: ySub, w: 4.0, h: 0.28, fontSize: 11, color: ONN_ORANJE, bold: true, align: 'right' });
+          ySub += 0.28;
+        }
+      }
+
+      ySub += 0.15; // ruimte tussen blokken
+    }
+
+    if (ySub > 7.0) {
+      sSub.addText('… Resterende maatregelen op volgende pagina (zie totaaltabel hierboven).',
+        { x: 0.5, y: 7.05, w: 12.3, h: 0.3, fontSize: 10, italic: true, color: ONN_GRIJS });
+    }
+  }
 
   // ============================================================
   // Kasstroom 15 jaar
@@ -778,6 +834,18 @@ function berekenPiekStatsPPT(
     piekDagLiters: Math.round(piekDagLiters),
     doucheBeurtenPiekDag: Math.round(piekDagLiters / 35),
   };
+}
+
+/**
+ * Check of een maatregel-resultaat tenminste één subsidie heeft die nog actief is.
+ * Werkt op het `Subsidie`-object met .bron en .naam — beide kunnen subsidie-IDs zijn.
+ */
+function subsidiesAlleActiefHier(
+  subs: Array<{ bron: string; naam: string; bedrag: number }> | undefined,
+  isActief: (id: string) => boolean,
+): boolean {
+  if (!subs || subs.length === 0) return false;
+  return subs.some(s => isActief(s.bron) || isActief(s.naam));
 }
 
 function aanbevelingObvPiek(piekUurLiters: number): { oplossing: string; onderbouwing: string } {
