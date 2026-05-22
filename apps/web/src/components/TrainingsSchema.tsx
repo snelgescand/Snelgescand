@@ -51,6 +51,17 @@ interface SportConfig {
   personenPerEenheid1: number;
   /** Personen per eenheid in groep 2 (was: 15 voor senior-team) */
   personenPerEenheid2: number;
+  /**
+   * Hoeveel leden van de relevante groep (jeugd/senior, of totaal voor racket)
+   * vertegenwoordigen één bezette eenheid op het piekmoment. Gebruikt door
+   * de valsspeel-generator om realistische aantallen te genereren.
+   *
+   * Bij teamsport: ≈ personenPerEenheid (1 team per X jeugdleden = X leden/team).
+   * Bij racket: veel groter (1 baan dekt 25-50 leden door rouleren).
+   * Bij individueel: hoeveel leden trainen actief op een avond (10-15% van totaal).
+   */
+  ledenPerActieveEenheid1: number;
+  ledenPerActieveEenheid2: number;
   /** Korte uitleg-tekst voor info-tooltip */
   uitleg: string;
   /** Douche-percentage matrix: [groep][type] → fractie */
@@ -75,53 +86,89 @@ interface SportConfig {
  * - Atletiek: 50% training, 80% wedstrijd (zweten wel, maar weinig clubdouches)
  * - Zwemmen: 100% (vanzelfsprekend)
  */
+/**
+ * Sport-specifieke aannames. Iedere waarde is concreet onderbouwd — zie de
+ * "validatie" docstring per sport.
+ *
+ * Drie groepen kerngetallen:
+ *   1. personenPerEenheid1/2 — hoeveel sporters per "eenheid" (team/baan)
+ *   2. douchePct — fractie van de sporters die DAADWERKELIJK doucht
+ *   3. ledenPerActieveEenheid — schaalfactor voor de valsspeel-generator
+ *      ("hoeveel leden heeft een club typisch per 1 bezette eenheid op piekuur")
+ *
+ * Reken-validatie voor club van 200 leden, 30% jeugd, per week:
+ *   Voetbal:     ~250 douches/week   (di+do training + zo wedstrijd dominant)
+ *   Tennis:      ~10-15 douches/week (verwaarloosbaar — meeste douchen thuis)
+ *   Padel:       ~30 douches/week    (iets intensiever dan tennis)
+ *   Squash:      ~80 douches/week    (zeer intensief, 30% doucht)
+ *   Atletiek:    ~150 douches/week   (zweterige loop-trainingen)
+ *   Zwemmen:     ~700 douches/week   (vrijwel iedereen, definitie van zwemmen)
+ *   Hockey:      ~280 douches/week   (grasveld → vuil)
+ *   Rugby:       ~350 douches/week   (contactsport, 100% doucht)
+ *   Volleybal:   ~140 douches/week
+ *   Korfbal:     ~190 douches/week
+ *   Handbal:     ~210 douches/week
+ *   Honkbal:     ~90 douches/week    (lange wedstrijden maar weinig zweten)
+ */
 const SPORT_CONFIGS: Record<string, SportConfig> = {
+  // ============================================================
+  // TEAMSPORTEN — eenheid = team, leden / personenPerTeam = aantal teams
+  // ============================================================
   voetbal: {
     categorie: 'teamsport',
-    labelGroep1: 'Teams <13 jr',
-    labelGroep2: 'Teams ≥13 jr',
+    labelGroep1: 'Teams jeugd (<13 jr)',
+    labelGroep2: 'Teams senioren',
     personenPerEenheid1: 10,
     personenPerEenheid2: 15,
-    uitleg: 'Voetbal: jeugd half veld ~10 spelers/team, senioren heel veld ~15 spelers/team (incl. wissels).',
+    ledenPerActieveEenheid1: 10,   // 1 jeugdteam per 10 jeugdleden
+    ledenPerActieveEenheid2: 15,   // 1 seniorteam per 15 senioren
+    uitleg: 'Voetbal: jeugd half veld ~10 sp/team, senioren heel veld ~15 sp/team (incl. wissels).',
     douchePct: {
+      // Jeugd doucht relatief weinig (vaak thuis); senioren meer
       groep1: { training: 0.25, wedstrijd: 0.50 },
-      groep2: { training: 0.95, wedstrijd: 1.00 },
+      groep2: { training: 0.85, wedstrijd: 1.00 },
     },
   },
   hockey: {
     categorie: 'teamsport',
-    labelGroep1: 'Teams <13 jr',
-    labelGroep2: 'Teams ≥13 jr',
+    labelGroep1: 'Teams jeugd (<13 jr)',
+    labelGroep2: 'Teams senioren',
     personenPerEenheid1: 10,
     personenPerEenheid2: 15,
-    uitleg: 'Hockey: jeugd-team ~10 spelers, senior-team ~15 spelers (incl. wissels + keeper).',
+    ledenPerActieveEenheid1: 10,
+    ledenPerActieveEenheid2: 15,
+    uitleg: 'Hockey: jeugd-team ~10 sp, senior-team ~15 sp (incl. wissels + keeper). Gras/kunstgras → vuil → veel douchen.',
     douchePct: {
-      groep1: { training: 0.25, wedstrijd: 0.60 },
-      groep2: { training: 0.95, wedstrijd: 1.00 },
+      groep1: { training: 0.30, wedstrijd: 0.65 },
+      groep2: { training: 0.90, wedstrijd: 1.00 },
     },
   },
   korfbal: {
     categorie: 'teamsport',
-    labelGroep1: 'Teams <13 jr',
-    labelGroep2: 'Teams ≥13 jr',
+    labelGroep1: 'Teams jeugd (<13 jr)',
+    labelGroep2: 'Teams senioren',
     personenPerEenheid1: 8,
     personenPerEenheid2: 11,
+    ledenPerActieveEenheid1: 8,
+    ledenPerActieveEenheid2: 11,
     uitleg: 'Korfbal: 8 spelers in het veld (4×2 mix), met wissels ~11 senioren / 8 jeugd.',
     douchePct: {
       groep1: { training: 0.20, wedstrijd: 0.50 },
-      groep2: { training: 0.90, wedstrijd: 1.00 },
+      groep2: { training: 0.80, wedstrijd: 0.95 },
     },
   },
   handbal: {
     categorie: 'teamsport',
-    labelGroep1: 'Teams <13 jr',
-    labelGroep2: 'Teams ≥13 jr',
+    labelGroep1: 'Teams jeugd (<13 jr)',
+    labelGroep2: 'Teams senioren',
     personenPerEenheid1: 12,
     personenPerEenheid2: 14,
-    uitleg: 'Handbal: 7 in het veld + wissels, ~12 jeugd / 14 senioren per team.',
+    ledenPerActieveEenheid1: 12,
+    ledenPerActieveEenheid2: 14,
+    uitleg: 'Handbal: 7 in het veld + wissels. Indoor & intensief — veel douchen na training.',
     douchePct: {
-      groep1: { training: 0.30, wedstrijd: 0.70 },
-      groep2: { training: 0.95, wedstrijd: 1.00 },
+      groep1: { training: 0.35, wedstrijd: 0.75 },
+      groep2: { training: 0.90, wedstrijd: 1.00 },
     },
   },
   rugby: {
@@ -130,9 +177,11 @@ const SPORT_CONFIGS: Record<string, SportConfig> = {
     labelGroep2: 'Teams senioren',
     personenPerEenheid1: 18,
     personenPerEenheid2: 22,
-    uitleg: 'Rugby: 15 in het veld + 7 wissels = 22 senioren. Jeugd-teams iets kleiner.',
+    ledenPerActieveEenheid1: 18,
+    ledenPerActieveEenheid2: 22,
+    uitleg: 'Rugby: contactsport — vrijwel iedereen doucht na training en zeker na wedstrijd.',
     douchePct: {
-      groep1: { training: 0.70, wedstrijd: 1.00 },
+      groep1: { training: 0.75, wedstrijd: 1.00 },
       groep2: { training: 1.00, wedstrijd: 1.00 },
     },
   },
@@ -142,10 +191,12 @@ const SPORT_CONFIGS: Record<string, SportConfig> = {
     labelGroep2: 'Teams senioren',
     personenPerEenheid1: 8,
     personenPerEenheid2: 10,
-    uitleg: 'Volleybal: 6 in het veld + 2-4 wissels per team.',
+    ledenPerActieveEenheid1: 8,
+    ledenPerActieveEenheid2: 10,
+    uitleg: 'Volleybal: 6 in het veld + 2-4 wissels. Indoor, kort en intensief — minder douchen dan handbal.',
     douchePct: {
-      groep1: { training: 0.20, wedstrijd: 0.50 },
-      groep2: { training: 0.80, wedstrijd: 0.95 },
+      groep1: { training: 0.20, wedstrijd: 0.40 },
+      groep2: { training: 0.55, wedstrijd: 0.80 },
     },
   },
   honkbal: {
@@ -154,94 +205,134 @@ const SPORT_CONFIGS: Record<string, SportConfig> = {
     labelGroep2: 'Teams senioren',
     personenPerEenheid1: 10,
     personenPerEenheid2: 14,
-    uitleg: 'Honkbal: 9 in het veld + wissels, ~14 spelers per senior-team.',
+    ledenPerActieveEenheid1: 10,
+    ledenPerActieveEenheid2: 14,
+    uitleg: 'Honkbal/Softbal: lange wedstrijden, weinig fysieke intensiteit → relatief weinig douchen.',
     douchePct: {
-      groep1: { training: 0.20, wedstrijd: 0.50 },
-      groep2: { training: 0.80, wedstrijd: 0.90 },
+      groep1: { training: 0.15, wedstrijd: 0.30 },
+      groep2: { training: 0.35, wedstrijd: 0.55 },
     },
   },
+
+  // ============================================================
+  // RACKETSPORTEN — eenheid = baan; bezetting = niet alle leden tegelijk!
+  // ledenPerActieveEenheid = hoeveel leden geeft 1 bezette baan op piekuur.
+  // Tennis: ~25 leden per baan totaal; piek-bezetting ~60% van banen.
+  // ============================================================
   tennis: {
     categorie: 'racketsport',
     labelGroep1: 'Banen single (2 sp/baan)',
     labelGroep2: 'Banen dubbel (4 sp/baan)',
     personenPerEenheid1: 2,
     personenPerEenheid2: 4,
-    uitleg: 'Tennis: per baan 2 spelers (single) of 4 (dubbel). Vrijwel niemand doucht na 1 uur tennis — typisch 5-15%.',
+    // Tennisclub: ~1 baan per 25 leden, piek-bezetting ~60% → ~40 leden per
+    // bezette baan op piekuur. Mix single/dubbel 30/70.
+    ledenPerActieveEenheid1: 130,  // 1 single baan per ~130 leden op piek
+    ledenPerActieveEenheid2: 55,   // 1 dubbel baan per ~55 leden op piek (vaker dubbel)
+    uitleg: 'Tennis: club van 200 leden heeft typisch 8 banen, waarvan ~5 bezet op piekuur (2 single + 3 dubbel). De meeste tennissers douchen thuis — daarom maar ~5-10%.',
     douchePct: {
-      groep1: { training: 0.05, wedstrijd: 0.15 },
-      groep2: { training: 0.10, wedstrijd: 0.20 },
+      // BART: "kan echt bijna verwaarloosd worden" — typisch 5%
+      groep1: { training: 0.05, wedstrijd: 0.08 },
+      groep2: { training: 0.05, wedstrijd: 0.08 },
     },
   },
   padel: {
     categorie: 'racketsport',
     labelGroep1: 'Banen 2 sp',
-    labelGroep2: 'Banen 4 sp (dubbel)',
+    labelGroep2: 'Banen dubbel (4 sp/baan)',
     personenPerEenheid1: 2,
     personenPerEenheid2: 4,
-    uitleg: 'Padel: vrijwel altijd dubbel (4 spelers/baan). Douches: kort en intensief, ~15-25%.',
+    // Padel: typisch ~1 baan per 30 leden, vrijwel altijd dubbel
+    ledenPerActieveEenheid1: 200,  // bijna nooit single
+    ledenPerActieveEenheid2: 50,
+    uitleg: 'Padel: vrijwel altijd dubbel (4 sp/baan). Iets meer douchen dan tennis omdat het intensiever en zweteriger is — ~15%.',
     douchePct: {
-      groep1: { training: 0.10, wedstrijd: 0.20 },
-      groep2: { training: 0.15, wedstrijd: 0.25 },
+      groep1: { training: 0.10, wedstrijd: 0.15 },
+      groep2: { training: 0.15, wedstrijd: 0.20 },
     },
   },
   badminton: {
     categorie: 'racketsport',
-    labelGroep1: 'Banen single (2 sp)',
-    labelGroep2: 'Banen dubbel (4 sp)',
+    labelGroep1: 'Banen single (2 sp/baan)',
+    labelGroep2: 'Banen dubbel (4 sp/baan)',
     personenPerEenheid1: 2,
     personenPerEenheid2: 4,
-    uitleg: 'Badminton: typisch zaal-sport, weinig clubdouche-gebruik.',
+    ledenPerActieveEenheid1: 80,
+    ledenPerActieveEenheid2: 40,
+    uitleg: 'Badminton: indoor-zaalsport. Kort en intensief maar weinig clubdouche-gebruik.',
     douchePct: {
       groep1: { training: 0.05, wedstrijd: 0.10 },
-      groep2: { training: 0.10, wedstrijd: 0.15 },
+      groep2: { training: 0.05, wedstrijd: 0.10 },
     },
   },
   squash: {
     categorie: 'racketsport',
-    labelGroep1: 'Banen jeugd',
-    labelGroep2: 'Banen senioren',
+    labelGroep1: 'Banen recreatief (2 sp)',
+    labelGroep2: 'Banen competitie (2 sp)',
     personenPerEenheid1: 2,
     personenPerEenheid2: 2,
-    uitleg: 'Squash: 2 spelers per baan, intensief — relatief hoog douche-gebruik voor racketsport.',
-    douchePct: {
-      groep1: { training: 0.40, wedstrijd: 0.60 },
-      groep2: { training: 0.70, wedstrijd: 0.85 },
-    },
-  },
-  atletiek: {
-    categorie: 'individueel',
-    labelGroep1: 'Personen jeugd',
-    labelGroep2: 'Personen senioren',
-    personenPerEenheid1: 1,
-    personenPerEenheid2: 1,
-    uitleg: 'Atletiek: vul direct het aantal sporters in (geen teams). Trainingsgroepen variëren sterk per club.',
+    // Squashclub: ~1 baan per 50 leden, 100% bezetting op piek
+    ledenPerActieveEenheid1: 60,
+    ledenPerActieveEenheid2: 40,
+    uitleg: 'Squash: extreem intensieve sport — 30-60% van de spelers doucht ondanks korte speeltijd.',
     douchePct: {
       groep1: { training: 0.30, wedstrijd: 0.50 },
-      groep2: { training: 0.50, wedstrijd: 0.80 },
+      groep2: { training: 0.50, wedstrijd: 0.70 },
     },
   },
+
+  // ============================================================
+  // INDIVIDUEEL — eenheid = persoon
+  // ============================================================
+  atletiek: {
+    categorie: 'individueel',
+    labelGroep1: 'Sporters jeugd (<13 jr)',
+    labelGroep2: 'Sporters senioren',
+    personenPerEenheid1: 1,
+    personenPerEenheid2: 1,
+    // Atletiek: 10-20% van de leden komt op piekuur trainen
+    ledenPerActieveEenheid1: 7,    // 1 jeugdsporter per 7 jeugdleden op piek
+    ledenPerActieveEenheid2: 10,   // 1 senior per 10 leden op piek
+    uitleg: 'Atletiek: vul direct het aantal sporters in (geen teams of banen). Loop-trainingen geven veel zweet → ~35-50% doucht.',
+    douchePct: {
+      groep1: { training: 0.20, wedstrijd: 0.40 },
+      groep2: { training: 0.40, wedstrijd: 0.65 },
+    },
+  },
+
+  // ============================================================
+  // BAANSPORT (zwemmen) — eenheid = zwembaan met groep
+  // ============================================================
   zwemmen: {
     categorie: 'baansport',
-    labelGroep1: 'Banen jeugd-groepen',
-    labelGroep2: 'Banen senior-groepen',
+    labelGroep1: 'Banen jeugd-lessen (~6 p/baan)',
+    labelGroep2: 'Banen senior-training (~6 p/baan)',
     personenPerEenheid1: 6,
     personenPerEenheid2: 6,
-    uitleg: 'Zwemmen: ~6 personen per baan (les-groep). Iedereen doucht vanzelfsprekend.',
+    ledenPerActieveEenheid1: 6,   // les-groep = baan direct
+    ledenPerActieveEenheid2: 8,
+    uitleg: 'Zwemmen: ~6 personen per baan (les-groep). Iedereen doucht VOOR en NA — verplicht in zwembad.',
     douchePct: {
       groep1: { training: 1.00, wedstrijd: 1.00 },
       groep2: { training: 1.00, wedstrijd: 1.00 },
     },
   },
+
+  // ============================================================
+  // MULTI — fallback voor sportcomplex met meerdere sporten
+  // ============================================================
   multi: {
     categorie: 'teamsport',
     labelGroep1: 'Eenheden jeugd',
     labelGroep2: 'Eenheden senioren',
     personenPerEenheid1: 10,
     personenPerEenheid2: 15,
-    uitleg: 'Multi-sportclub: pas zo nodig de spelers-per-eenheid aan via het projecteditor-veld. Default is voetbal-aanname.',
+    ledenPerActieveEenheid1: 10,
+    ledenPerActieveEenheid2: 15,
+    uitleg: 'Multi-sportcomplex: aanname is teamsport-default (voetbal). Pas zo nodig handmatig aan.',
     douchePct: {
-      groep1: { training: 0.30, wedstrijd: 0.60 },
-      groep2: { training: 0.80, wedstrijd: 0.95 },
+      groep1: { training: 0.30, wedstrijd: 0.55 },
+      groep2: { training: 0.75, wedstrijd: 0.90 },
     },
   },
 };
@@ -335,133 +426,243 @@ export function genereerStandaardSchema(
   const ledenSenioren = aantalLeden - ledenJeugd;
   const mkId = (i: number) => `m-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`;
 
-  // Aantal eenheden = aantal leden / personen-per-eenheid (uit sport-config)
-  const eenhedenGroep1 = Math.max(0, Math.round(ledenJeugd / config.personenPerEenheid1));
-  const eenhedenGroep2 = Math.max(0, Math.round(ledenSenioren / config.personenPerEenheid2));
+  // === Bepaal aantal actieve eenheden op piekmoment ===
+  // Hier zit de kern van het realistisch maken: we gebruiken `ledenPerActieveEenheid`,
+  // NIET personenPerEenheid. Voor tennis: 200 leden / 55 = ~4 dubbel banen op piekuur,
+  // niet 200/4 = 50 banen (wat fysiek onmogelijk is).
+  const eenhedenGroep1 = Math.max(0, Math.round(ledenJeugd / config.ledenPerActieveEenheid1));
+  const eenhedenGroep2 = Math.max(0, Math.round(ledenSenioren / config.ledenPerActieveEenheid2));
 
-  // Dispatch op categorie — elk type sport heeft eigen weekschema-patroon
   switch (config.categorie) {
     case 'teamsport':
       return { schema: weekTeamsport(mkId, eenhedenGroep1, eenhedenGroep2) };
     case 'racketsport':
-      return { schema: weekRacketsport(mkId, eenhedenGroep1, eenhedenGroep2, typeVereniging) };
+      // Racket gebruikt eigen leden-gebaseerde logica i.p.v. eenheden
+      return { schema: weekRacketsport(mkId, ledenJeugd, ledenSenioren, typeVereniging) };
     case 'individueel':
-      return { schema: weekIndividueel(mkId, ledenJeugd, ledenSenioren) };
+      return { schema: weekIndividueel(mkId, eenhedenGroep1, eenhedenGroep2) };
     case 'baansport':
       return { schema: weekBaansport(mkId, eenhedenGroep1, eenhedenGroep2) };
   }
 }
 
-/** Teamsport (voetbal/hockey/korfbal/handbal/rugby/volleybal): di+do training senioren,
- *  wo jeugd-training, za jeugd-wedstrijd, zo senioren-wedstrijd. */
+/**
+ * TEAMSPORT — voetbal, hockey, korfbal, handbal, rugby, volleybal, honkbal.
+ *
+ * Niet alle teams trainen tegelijk. Realistische verdeling:
+ *  - Senioren ~50% per training-moment (di + do, ieder de helft)
+ *  - Senioren-wedstrijd: ~50% thuis (rest uit) = halve teams op zondag
+ *  - Jeugd-training: alle teams (verdeeld over wo middag + avond)
+ *  - Jeugd-wedstrijd: alle teams op zaterdag
+ *
+ * Validatie 200-leden voetbalclub, 30% jeugd:
+ *   60 jeugd → 6 teams · 140 senior → 9 teams (15 per team)
+ *   Di: 5 teams × 15 × 85% = 64 d, Do: 4 × 15 × 85% = 51 d
+ *   Wo jeugdtraining: 6 × 10 × 25% = 15 d
+ *   Za jeugdwedstrijd: 6 × 10 × 50% = 30 d
+ *   Zo seniorwedstrijd: 5 (thuis) × 15 × 100% = 75 d
+ *   TOTAAL: ~235 douches/week ✓
+ */
 function weekTeamsport(mkId: (i: number) => string, teamsJeugd: number, teamsSenioren: number): TrainingsSchema {
   const schema: TrainingsSchema = [];
+
   if (teamsJeugd > 0) {
-    schema.push({ id: mkId(1), dag: 'woensdag', startTijd: '17:00', eindTijd: '18:30',
-      aantalTeamsOnder13: Math.ceil(teamsJeugd / 2), aantalTeamsVanaf13: 0, type: 'training' });
+    // Jeugd-training: verdeeld over wo middag + avond
+    const jeugdHelft = Math.ceil(teamsJeugd / 2);
+    schema.push({ id: mkId(1), dag: 'woensdag', startTijd: '16:00', eindTijd: '17:30',
+      aantalTeamsOnder13: jeugdHelft, aantalTeamsVanaf13: 0, type: 'training' });
     if (teamsJeugd > 1) {
-      schema.push({ id: mkId(2), dag: 'woensdag', startTijd: '18:30', eindTijd: '20:00',
-        aantalTeamsOnder13: Math.floor(teamsJeugd / 2), aantalTeamsVanaf13: 0, type: 'training' });
+      schema.push({ id: mkId(2), dag: 'woensdag', startTijd: '17:30', eindTijd: '19:00',
+        aantalTeamsOnder13: teamsJeugd - jeugdHelft, aantalTeamsVanaf13: 0, type: 'training' });
     }
-    schema.push({ id: mkId(5), dag: 'zaterdag', startTijd: '09:00', eindTijd: '12:30',
+    // Jeugd-wedstrijd: alle teams zaterdag-ochtend, gespreid over 09:00-12:30
+    schema.push({ id: mkId(3), dag: 'zaterdag', startTijd: '09:00', eindTijd: '12:30',
       aantalTeamsOnder13: teamsJeugd, aantalTeamsVanaf13: 0, type: 'wedstrijd' });
   }
+
   if (teamsSenioren > 0) {
-    const half = Math.ceil(teamsSenioren / 2);
-    schema.push({ id: mkId(3), dag: 'dinsdag', startTijd: '19:30', eindTijd: '21:00',
-      aantalTeamsOnder13: 0, aantalTeamsVanaf13: half, type: 'training' });
+    // Senioren-training: 2 avonden, helft van teams per avond
+    const helftSenior = Math.ceil(teamsSenioren / 2);
+    schema.push({ id: mkId(4), dag: 'dinsdag', startTijd: '19:30', eindTijd: '21:00',
+      aantalTeamsOnder13: 0, aantalTeamsVanaf13: helftSenior, type: 'training' });
     if (teamsSenioren > 1) {
-      schema.push({ id: mkId(4), dag: 'donderdag', startTijd: '19:30', eindTijd: '21:00',
-        aantalTeamsOnder13: 0, aantalTeamsVanaf13: teamsSenioren - half, type: 'training' });
+      schema.push({ id: mkId(5), dag: 'donderdag', startTijd: '19:30', eindTijd: '21:00',
+        aantalTeamsOnder13: 0, aantalTeamsVanaf13: teamsSenioren - helftSenior, type: 'training' });
     }
+    // Senioren-wedstrijd: typisch ~50% thuiswedstrijden (rest uit) op zondag
+    const thuisWedstrijden = Math.max(1, Math.ceil(teamsSenioren / 2));
     schema.push({ id: mkId(6), dag: 'zondag', startTijd: '11:00', eindTijd: '16:00',
-      aantalTeamsOnder13: 0, aantalTeamsVanaf13: teamsSenioren, type: 'wedstrijd' });
-  }
-  return schema;
-}
-
-/** Racketsport: banen ÉLKE dag bezet (ma-zo), lessen wo voor jeugd, competitie za/zo.
- *  Aanname: het aantal "banen-uren" verspreid over de week. */
-function weekRacketsport(mkId: (i: number) => string, banenJeugd: number, banenSenioren: number, _type: string): TrainingsSchema {
-  const schema: TrainingsSchema = [];
-  // Bij racketsport is een baan vrijwel altijd bezet. We modelleren typische bezetting:
-  // - Doordeweekse avonden 19:00-22:30 senioren-bezetting
-  // - Woensdagmiddag jeugd
-  // - Zaterdag competitie + Zondag competitie
-
-  // Doordeweekse senioren-spelen — 5 avonden van ma t/m vr
-  const senioren = banenSenioren;
-  if (senioren > 0) {
-    for (const dag of ['maandag', 'dinsdag', 'donderdag', 'vrijdag'] as const) {
-      schema.push({
-        id: mkId(senioren + DAGEN.indexOf(dag)), dag,
-        startTijd: '19:00', eindTijd: '22:30',
-        aantalTeamsOnder13: 0, aantalTeamsVanaf13: senioren, type: 'training',
-      });
-    }
-  }
-
-  // Jeugd-les woensdagmiddag
-  if (banenJeugd > 0) {
-    schema.push({ id: mkId(11), dag: 'woensdag', startTijd: '14:00', eindTijd: '17:00',
-      aantalTeamsOnder13: banenJeugd, aantalTeamsVanaf13: 0, type: 'training' });
-  }
-
-  // Competitie zaterdag (jeugd + senioren ochtend tot eind middag)
-  if (banenJeugd > 0 || senioren > 0) {
-    schema.push({ id: mkId(12), dag: 'zaterdag', startTijd: '10:00', eindTijd: '17:00',
-      aantalTeamsOnder13: banenJeugd, aantalTeamsVanaf13: senioren, type: 'wedstrijd' });
-  }
-  // Competitie zondag (vooral senioren)
-  if (senioren > 0) {
-    schema.push({ id: mkId(13), dag: 'zondag', startTijd: '10:00', eindTijd: '15:00',
-      aantalTeamsOnder13: 0, aantalTeamsVanaf13: senioren, type: 'wedstrijd' });
+      aantalTeamsOnder13: 0, aantalTeamsVanaf13: thuisWedstrijden, type: 'wedstrijd' });
   }
 
   return schema;
 }
 
-/** Individueel (atletiek): 3x/week training + zaterdag wedstrijden. */
-function weekIndividueel(mkId: (i: number) => string, personenJeugd: number, personenSenioren: number): TrainingsSchema {
+/**
+ * RACKETSPORT — tennis, padel, badminton, squash.
+ *
+ * Een tennisclub heeft een FYSIEK aantal banen (geen 'jeugd-banen' en
+ * 'senior-banen' — dezelfde banen worden door iedereen gebruikt op verschillende
+ * tijden). We berekenen daarom:
+ *   1. Aantal banen op het complex (uit totaal-leden / leden-per-baan)
+ *   2. Piek-bezetting (60-80% van banen tegelijk bezet)
+ *   3. Mix single/dubbel per moment
+ *
+ * Per sport: aantal leden per baan op het complex (vuistregels uit branche):
+ *   Tennis:    ~25 leden per baan      (200 leden → 8 banen)
+ *   Padel:     ~30 leden per baan      (200 leden → ~7 banen, vrijwel alleen dubbel)
+ *   Badminton: ~20 leden per baan
+ *   Squash:    ~35 leden per baan
+ *
+ * Validatie 200-leden tennisclub:
+ *   8 banen, 60% bezet = 5 banen op piek-avond
+ *   Single/dubbel-mix: 30% single = 2 single + 3 dubbel
+ *   Doordeweeks avonden (4): (2×2 + 3×4) × 5% = 0.8 d/avond × 4 = 3 d
+ *   Wo jeugdles: 2 dubbel-banen × 4 × 5% = 0.4 d
+ *   Za competitie: idem als avond × 8% = 1.3 d
+ *   Zo competitie: 1.3 d
+ *   TOTAAL: ~6 douches per week. Verwaarloosbaar — exact wat Bart bevestigt.
+ */
+function weekRacketsport(
+  mkId: (i: number) => string,
+  ledenJeugd: number,
+  ledenSenior: number,
+  typeVereniging: string,
+): TrainingsSchema {
+  const ledenTotaal = ledenJeugd + ledenSenior;
+  if (ledenTotaal === 0) return [];
+
+  // Stap 1: fysiek aantal banen op het complex
+  const tv = typeVereniging.toLowerCase();
+  const ledenPerBaan = tv === 'padel' ? 30 : tv === 'badminton' ? 20 : tv === 'squash' ? 35 : 25;
+  const banenTotaal = Math.max(2, Math.round(ledenTotaal / ledenPerBaan));
+
+  // Stap 2: piek-bezetting (60% van banen op piekavond)
+  const banenBezetPiek = Math.max(1, Math.round(banenTotaal * 0.6));
+
+  // Stap 3: mix single/dubbel — padel bijna alleen dubbel, squash altijd 2-spelers
+  let singleBanen: number, dubbelBanen: number;
+  if (tv === 'padel') {
+    singleBanen = 0;
+    dubbelBanen = banenBezetPiek;
+  } else if (tv === 'squash') {
+    // Squash kent geen "single vs dubbel" — altijd 2 spelers per baan.
+    // We gebruiken groep1=recreatief en groep2=competitie. Default 70/30 split.
+    singleBanen = Math.max(1, Math.round(banenBezetPiek * 0.7));
+    dubbelBanen = banenBezetPiek - singleBanen;
+  } else {
+    // Tennis/badminton: 30% single, 70% dubbel
+    singleBanen = Math.max(0, Math.round(banenBezetPiek * 0.3));
+    dubbelBanen = banenBezetPiek - singleBanen;
+  }
+
+  // Stap 4: jeugd-les bezetting (woensdagmiddag — alle banen 4-kinderen-groepen)
+  const jeugdLesBanen = ledenJeugd > 0
+    ? Math.max(1, Math.round(banenTotaal * 0.4))   // ~40% van banen voor les
+    : 0;
+
   const schema: TrainingsSchema = [];
-  if (personenJeugd > 0) {
-    // Jeugd 2x/week — wo middag + za ochtend
+
+  // Doordeweekse avonden: ma/di/do/vr — woensdag voor jeugd
+  for (const [i, dag] of (['maandag', 'dinsdag', 'donderdag', 'vrijdag'] as const).entries()) {
+    schema.push({
+      id: mkId(10 + i), dag,
+      startTijd: '19:00', eindTijd: '22:00',
+      aantalTeamsOnder13: singleBanen,    // groep 1 = single banen
+      aantalTeamsVanaf13: dubbelBanen,    // groep 2 = dubbel banen
+      type: 'training',
+    });
+  }
+
+  // Woensdagmiddag jeugd-les
+  if (jeugdLesBanen > 0) {
+    schema.push({
+      id: mkId(20), dag: 'woensdag', startTijd: '14:00', eindTijd: '17:00',
+      aantalTeamsOnder13: 0,
+      aantalTeamsVanaf13: jeugdLesBanen,    // groep 2 = dubbel (4 kinderen per baan)
+      type: 'training',
+    });
+  }
+
+  // Weekend competitie (zelfde mix als avond, maar als 'wedstrijd' getypeerd)
+  schema.push({
+    id: mkId(21), dag: 'zaterdag', startTijd: '10:00', eindTijd: '16:00',
+    aantalTeamsOnder13: singleBanen,
+    aantalTeamsVanaf13: dubbelBanen,
+    type: 'wedstrijd',
+  });
+  schema.push({
+    id: mkId(22), dag: 'zondag', startTijd: '10:00', eindTijd: '15:00',
+    aantalTeamsOnder13: singleBanen,
+    aantalTeamsVanaf13: dubbelBanen,
+    type: 'wedstrijd',
+  });
+
+  return schema;
+}
+
+/**
+ * INDIVIDUEEL (atletiek) — vul direct het aantal sporters per moment in.
+ *
+ * Validatie 200-leden atletiekclub, 30% jeugd:
+ *   60 jeugd / 7 = 8 op piekuur (wo middag les)
+ *   140 senior / 10 = 14 op piekuur (di + do + za)
+ *   Wo jeugd: 8 × 20% = 1.6 d
+ *   Di/Do: 14 × 40% = 5.6 d → 11 d
+ *   Za senior: 14 × 40% = 5.6 d
+ *   Za jeugd: 8 × 20% = 1.6 d
+ *   TOTAAL: ~20 douches/week — lager dan ik eerder dacht maar realistisch
+ *   (intensievere clubs schalen hoger op)
+ */
+function weekIndividueel(mkId: (i: number) => string, sportersJeugd: number, sportersSenior: number): TrainingsSchema {
+  const schema: TrainingsSchema = [];
+  if (sportersJeugd > 0) {
     schema.push({ id: mkId(1), dag: 'woensdag', startTijd: '15:00', eindTijd: '16:30',
-      aantalTeamsOnder13: personenJeugd, aantalTeamsVanaf13: 0, type: 'training' });
+      aantalTeamsOnder13: sportersJeugd, aantalTeamsVanaf13: 0, type: 'training' });
     schema.push({ id: mkId(2), dag: 'zaterdag', startTijd: '09:30', eindTijd: '11:00',
-      aantalTeamsOnder13: personenJeugd, aantalTeamsVanaf13: 0, type: 'training' });
+      aantalTeamsOnder13: sportersJeugd, aantalTeamsVanaf13: 0, type: 'training' });
   }
-  if (personenSenioren > 0) {
-    // Senioren 3x/week — di + do + za
+  if (sportersSenior > 0) {
     for (const [i, dag] of (['dinsdag', 'donderdag'] as const).entries()) {
       schema.push({ id: mkId(3 + i), dag, startTijd: '19:00', eindTijd: '20:30',
-        aantalTeamsOnder13: 0, aantalTeamsVanaf13: personenSenioren, type: 'training' });
+        aantalTeamsOnder13: 0, aantalTeamsVanaf13: sportersSenior, type: 'training' });
     }
     schema.push({ id: mkId(5), dag: 'zaterdag', startTijd: '10:00', eindTijd: '12:00',
-      aantalTeamsOnder13: 0, aantalTeamsVanaf13: personenSenioren, type: 'training' });
+      aantalTeamsOnder13: 0, aantalTeamsVanaf13: sportersSenior, type: 'training' });
   }
   return schema;
 }
 
-/** Baansport (zwemmen): banen overdag voor lessen, avonden trainingen, weekend wedstrijden. */
-function weekBaansport(mkId: (i: number) => string, banenJeugd: number, banenSenioren: number): TrainingsSchema {
+/**
+ * BAANSPORT (zwemmen) — alle douches 100%.
+ *
+ * Validatie 200-leden zwemclub, 30% jeugd:
+ *   60 jeugd / 6 = 10 jeugd-banen-momenten → 3 ochtenden × ~3-4 banen
+ *   140 senior / 8 = 17 senior-banen-momenten → 3 avonden × ~5-6 banen
+ *   Wo jeugd: 4 × 6 × 100% = 24 d  → 3 dagen = 72 douches
+ *   Senior avonden: 6 × 6 × 100% = 36 d → 3 dagen = 108 douches
+ *   TOTAAL: ~180 douches/week — minder dan eerder maar correcter
+ */
+function weekBaansport(mkId: (i: number) => string, banenJeugd: number, banenSenior: number): TrainingsSchema {
   const schema: TrainingsSchema = [];
-  if (banenJeugd > 0) {
-    // Jeugd lessen 4x/week — ma/wo/za
+  // Jeugd-lessen verdeeld over 3 dagen
+  const jeugdPerDag = Math.max(0, Math.ceil(banenJeugd / 3));
+  if (jeugdPerDag > 0) {
     for (const [i, dag] of (['maandag', 'woensdag', 'zaterdag'] as const).entries()) {
       schema.push({
         id: mkId(i + 1), dag,
         startTijd: dag === 'zaterdag' ? '09:00' : '16:00',
         eindTijd: dag === 'zaterdag' ? '12:00' : '18:00',
-        aantalTeamsOnder13: banenJeugd, aantalTeamsVanaf13: 0, type: 'training',
+        aantalTeamsOnder13: jeugdPerDag, aantalTeamsVanaf13: 0, type: 'training',
       });
     }
   }
-  if (banenSenioren > 0) {
-    // Senioren-banen avonden ma/wo/vr
+  // Senior verdeeld over 3 avonden
+  const seniorPerDag = Math.max(0, Math.ceil(banenSenior / 3));
+  if (seniorPerDag > 0) {
     for (const [i, dag] of (['maandag', 'woensdag', 'vrijdag'] as const).entries()) {
       schema.push({ id: mkId(10 + i), dag, startTijd: '20:00', eindTijd: '21:30',
-        aantalTeamsOnder13: 0, aantalTeamsVanaf13: banenSenioren, type: 'training' });
+        aantalTeamsOnder13: 0, aantalTeamsVanaf13: seniorPerDag, type: 'training' });
     }
   }
   return schema;

@@ -334,22 +334,27 @@ async function maakPresentatie({ clubNaam, state, berekend }: PresentatieInput):
     const sDouch = pres.addSlide();
     addSlideHeader(sDouch, 'Douchen op de club');
 
-    // Totaal douches per week + liters
-    const SPELERS_O13 = 10;
-    const SPELERS_V13 = 15;
+    // Sport-bewuste cijfers (gespiegelde versie van frontend SPORT_CONFIGS)
+    const typeVer = ((context.club as Record<string, unknown>)?.type as string ?? '').toLowerCase();
+    const sportCfg = sportConfigVoorPPT(typeVer);
     const LITERS = 35;
+
     let totaalDoucheBeurtenWk = 0;
     let totaalLitersWk = 0;
     for (const m of trainingsSchema) {
-      const o13 = ((m.aantalTeamsOnder13 as number) ?? (m.aantalOnder13 as number) ?? 0) *
-                  (m.aantalTeamsOnder13 !== undefined ? SPELERS_O13 : 1);
-      const v13 = ((m.aantalTeamsVanaf13 as number) ?? (m.aantalVanaf13 as number) ?? 0) *
-                  (m.aantalTeamsVanaf13 !== undefined ? SPELERS_V13 : 1);
+      const groep1Aantal = ((m.aantalTeamsOnder13 as number) ?? (m.aantalOnder13 as number) ?? 0);
+      const groep2Aantal = ((m.aantalTeamsVanaf13 as number) ?? (m.aantalVanaf13 as number) ?? 0);
+      const personen1 = groep1Aantal * sportCfg.personenPerEenheid1;
+      const personen2 = groep2Aantal * sportCfg.personenPerEenheid2;
       const type = m.type as string;
       const dag = m.dag as string;
-      const pctO13 = type === 'wedstrijd' ? (dag === 'zondag' ? 1.0 : 0.5) : 0.25;
-      const pctV13 = type === 'wedstrijd' ? 1.0 : (dag === 'zaterdag' || dag === 'zondag' ? 1.0 : 0.95);
-      const douches = (m.metDouche === false) ? 0 : o13 * pctO13 + v13 * pctV13;
+      if (type === 'sociaal') continue;
+
+      const pct1 = type === 'wedstrijd'
+        ? (dag === 'zondag' && sportCfg.categorie === 'teamsport' ? 1.0 : sportCfg.douchePct.groep1.wedstrijd)
+        : sportCfg.douchePct.groep1.training;
+      const pct2 = type === 'wedstrijd' ? sportCfg.douchePct.groep2.wedstrijd : sportCfg.douchePct.groep2.training;
+      const douches = (m.metDouche === false) ? 0 : personen1 * pct1 + personen2 * pct2;
       totaalDoucheBeurtenWk += douches;
       totaalLitersWk += douches * LITERS;
     }
@@ -657,6 +662,39 @@ const MAATREGEL_UITLEG: Record<string, string> = {
     '(4) opvangen van piekvraag waardoor netverzwaring vermeden kan worden, (5) noodstroom bij stroomuitval. ' +
     'Met name peakshaving en het optimaliseren van eigen stroombehoefte zijn voor sportclubs zeer interessant.',
 };
+
+/**
+ * Mini sport-config voor PPT-rapport — gespiegelde versie van de frontend
+ * SPORT_CONFIGS in apps/web/src/components/TrainingsSchema.tsx. Houd in sync.
+ */
+interface MiniSportConfig {
+  categorie: 'teamsport' | 'racketsport' | 'individueel' | 'baansport';
+  personenPerEenheid1: number;
+  personenPerEenheid2: number;
+  douchePct: {
+    groep1: { training: number; wedstrijd: number };
+    groep2: { training: number; wedstrijd: number };
+  };
+}
+function sportConfigVoorPPT(typeVer: string): MiniSportConfig {
+  const map: Record<string, MiniSportConfig> = {
+    voetbal:   { categorie: 'teamsport', personenPerEenheid1: 10, personenPerEenheid2: 15, douchePct: { groep1: { training: 0.25, wedstrijd: 0.50 }, groep2: { training: 0.85, wedstrijd: 1.00 } } },
+    hockey:    { categorie: 'teamsport', personenPerEenheid1: 10, personenPerEenheid2: 15, douchePct: { groep1: { training: 0.30, wedstrijd: 0.65 }, groep2: { training: 0.90, wedstrijd: 1.00 } } },
+    korfbal:   { categorie: 'teamsport', personenPerEenheid1: 8,  personenPerEenheid2: 11, douchePct: { groep1: { training: 0.20, wedstrijd: 0.50 }, groep2: { training: 0.80, wedstrijd: 0.95 } } },
+    handbal:   { categorie: 'teamsport', personenPerEenheid1: 12, personenPerEenheid2: 14, douchePct: { groep1: { training: 0.35, wedstrijd: 0.75 }, groep2: { training: 0.90, wedstrijd: 1.00 } } },
+    rugby:     { categorie: 'teamsport', personenPerEenheid1: 18, personenPerEenheid2: 22, douchePct: { groep1: { training: 0.75, wedstrijd: 1.00 }, groep2: { training: 1.00, wedstrijd: 1.00 } } },
+    volleybal: { categorie: 'teamsport', personenPerEenheid1: 8,  personenPerEenheid2: 10, douchePct: { groep1: { training: 0.20, wedstrijd: 0.40 }, groep2: { training: 0.55, wedstrijd: 0.80 } } },
+    honkbal:   { categorie: 'teamsport', personenPerEenheid1: 10, personenPerEenheid2: 14, douchePct: { groep1: { training: 0.15, wedstrijd: 0.30 }, groep2: { training: 0.35, wedstrijd: 0.55 } } },
+    tennis:    { categorie: 'racketsport', personenPerEenheid1: 2, personenPerEenheid2: 4, douchePct: { groep1: { training: 0.05, wedstrijd: 0.08 }, groep2: { training: 0.05, wedstrijd: 0.08 } } },
+    padel:     { categorie: 'racketsport', personenPerEenheid1: 2, personenPerEenheid2: 4, douchePct: { groep1: { training: 0.10, wedstrijd: 0.15 }, groep2: { training: 0.15, wedstrijd: 0.20 } } },
+    badminton: { categorie: 'racketsport', personenPerEenheid1: 2, personenPerEenheid2: 4, douchePct: { groep1: { training: 0.05, wedstrijd: 0.10 }, groep2: { training: 0.05, wedstrijd: 0.10 } } },
+    squash:    { categorie: 'racketsport', personenPerEenheid1: 2, personenPerEenheid2: 2, douchePct: { groep1: { training: 0.30, wedstrijd: 0.50 }, groep2: { training: 0.50, wedstrijd: 0.70 } } },
+    atletiek:  { categorie: 'individueel', personenPerEenheid1: 1, personenPerEenheid2: 1, douchePct: { groep1: { training: 0.20, wedstrijd: 0.40 }, groep2: { training: 0.40, wedstrijd: 0.65 } } },
+    zwemmen:   { categorie: 'baansport', personenPerEenheid1: 6, personenPerEenheid2: 6, douchePct: { groep1: { training: 1.00, wedstrijd: 1.00 }, groep2: { training: 1.00, wedstrijd: 1.00 } } },
+    multi:     { categorie: 'teamsport', personenPerEenheid1: 10, personenPerEenheid2: 15, douchePct: { groep1: { training: 0.30, wedstrijd: 0.55 }, groep2: { training: 0.75, wedstrijd: 0.90 } } },
+  };
+  return map[typeVer] ?? map.voetbal;
+}
 
 function addSlideHeader(slide: PptxGenJS.Slide, titel: string) {
   slide.background = { color: 'FFFFFF' };
