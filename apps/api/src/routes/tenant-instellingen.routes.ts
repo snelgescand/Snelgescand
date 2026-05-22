@@ -141,7 +141,10 @@ export default async function tenantInstellingenRoutes(app: FastifyInstance) {
 
     await prisma.tenant.update({
       where: { id: req.user!.tenantId },
-      data: { instellingen: null },
+      // Reset = leeg object opslaan; bij GET wordt dat ge-merged met DEFAULT_INSTELLINGEN
+      // zodat alle velden weer hun standaardwaarde tonen. Effectief hetzelfde als null,
+      // maar zonder Prisma JsonNull/DbNull gedoe.
+      data: { instellingen: {} },
     });
 
     return { ok: true };
