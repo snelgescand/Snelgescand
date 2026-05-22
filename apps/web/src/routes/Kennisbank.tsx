@@ -6,23 +6,41 @@
  */
 
 import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
 import { Footer } from '../components/Footer';
 import { KENNIS, CATEGORIE_LABELS, type KennisArtikel } from '../data/kennisbank';
+import { instellingenApi } from '../api/client';
 
 export default function Kennisbank() {
   const [actiefId, setActiefId] = useState<string>(KENNIS[0]?.id ?? '');
   const [zoek, setZoek] = useState('');
 
+  // Tenant-instellingen voor subsidie-filter (artikelen voor uitgevinkte subsidies verbergen)
+  const instellingenQuery = useQuery({
+    queryKey: ['tenant-instellingen'],
+    queryFn: instellingenApi.get,
+    staleTime: 5 * 60 * 1000,
+  });
+  const subsidieActief = useMemo(() => {
+    const flags = instellingenQuery.data?.instellingen.subsidies.actief ?? {};
+    return (subsidieId: string | undefined) => {
+      if (!subsidieId) return true;
+      return flags[subsidieId] !== false; // default: aan
+    };
+  }, [instellingenQuery.data]);
+
   const gefilterd = useMemo(() => {
-    if (!zoek.trim()) return KENNIS;
+    // Eerst filteren op actieve subsidies — verbergen wat is uitgevinkt
+    const opSubsidie = KENNIS.filter(k => subsidieActief(k.subsidieId));
+    if (!zoek.trim()) return opSubsidie;
     const term = zoek.toLowerCase();
-    return KENNIS.filter(k =>
+    return opSubsidie.filter(k =>
       k.titel.toLowerCase().includes(term) ||
       k.korteBeschrijving.toLowerCase().includes(term),
     );
-  }, [zoek]);
+  }, [zoek, subsidieActief]);
 
   const gegroepeerd = useMemo(() => {
     const map = new Map<KennisArtikel['categorie'], KennisArtikel[]>();

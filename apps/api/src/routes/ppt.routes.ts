@@ -35,6 +35,13 @@ export default async function pptRoutes(app: FastifyInstance) {
     });
     if (!project) return reply.code(404).send({ error: 'Niet gevonden' });
 
+    // Tenant-instellingen ophalen voor subsidie-filter (en evt. prijzen later)
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.user!.tenantId },
+      select: { instellingen: true },
+    });
+    const tenantInstellingen = (tenant?.instellingen ?? {}) as Record<string, unknown>;
+
     let berekend: any;
     const state = project.state as Record<string, unknown>;
 
@@ -71,6 +78,7 @@ export default async function pptRoutes(app: FastifyInstance) {
         clubNaam: project.clubNaam,
         state,
         berekend,
+        tenantInstellingen,
       });
 
       const veiligeNaam = project.clubNaam.replace(/[^a-zA-Z0-9-]+/g, '_').slice(0, 50);
@@ -102,9 +110,15 @@ interface PresentatieInput {
   clubNaam: string;
   state: Record<string, unknown>;
   berekend: ReturnType<typeof berekenProject>;
+  tenantInstellingen?: Record<string, unknown>;
 }
 
-async function maakPresentatie({ clubNaam, state, berekend }: PresentatieInput): Promise<Buffer> {
+async function maakPresentatie({ clubNaam, state, berekend, tenantInstellingen }: PresentatieInput): Promise<Buffer> {
+  // Helper om te checken of subsidie actief is (default: aan)
+  const subsidies = (tenantInstellingen?.subsidies as Record<string, unknown> | undefined) ?? {};
+  const actiefMap = (subsidies.actief as Record<string, boolean> | undefined) ?? {};
+  const subsidieActief = (id: string): boolean => actiefMap[id] !== false;
+
   const pres = new PptxGenJS();
   pres.layout = 'LAYOUT_WIDE';
   pres.title = `Verduurzamingsplan ${clubNaam}`;
@@ -363,24 +377,33 @@ async function maakPresentatie({ clubNaam, state, berekend }: PresentatieInput):
     const m3PerJr = litersPerJr / 1000;
     const gasDouchenSchatting = m3PerJr * 0.093; // ~0,093 m³ gas / liter warmwater (37→10°C met 80% rendement)
 
+    // === Piek-statistieken — wat écht telt voor warmtepomp-keuze ===
+    const piek = berekenPiekStatsPPT(trainingsSchema, sportCfg);
+    const piekUurThermischKw = (piek.piekUurLiters * 4.19 * 50) / 3600; // 10°C → 60°C
+    const aanbeveling = aanbevelingObvPiek(piek.piekUurLiters);
+
     sDouch.addText('Op basis van het trainings- en wedstrijdschema:',
       { x: 0.5, y: 1.2, w: 12, h: 0.5, fontSize: 13, color: ONN_DONKER });
 
     const douchRows: Array<[string, string]> = [
+      ['🔥 PIEK-UUR (warmtepomp dimensionering)', `${formatGetal(piek.piekUurLiters)} L/u op ${piek.piekDag} ${piek.piekUur}:00`],
+      ['🔥 PIEK-DAG (buffer dimensionering)', `${formatGetal(piek.piekDagLiters)} L (${piek.doucheBeurtenPiekDag} douches)`],
+      ['🔥 Vermogen om piek direct te leveren', `${piekUurThermischKw.toFixed(1)} kW thermisch`],
       ['Douchebeurten per week', formatGetal(totaalDoucheBeurtenWk)],
       ['Liter warmwater per week', `${formatGetal(totaalLitersWk)} L`],
-      ['Douchebeurten per jaar', formatGetal(doucheBeurtenPerJr)],
-      ['Liter warmwater per jaar', `${formatGetal(litersPerJr)} L (${m3PerJr.toFixed(1)} m³)`],
       ['Geschat gasverbruik douchen', `${formatGetal(gasDouchenSchatting)} m³ / jaar`],
       ['Gaskosten douchen', `€ ${formatGetal(gasDouchenSchatting * gasprijs)} / jaar`],
       ['Aandeel van gasverbruik', gasM3 > 0 ? `${((gasDouchenSchatting / gasM3) * 100).toFixed(0)} %` : '—'],
     ];
-    addLabelValueRows(sDouch, douchRows, 0.7, 1.9, 6.0);
+    addLabelValueRows(sDouch, douchRows, 0.7, 1.9, 6.2);
 
-    sDouch.addText('Douchen is duur — maar door over te stappen van direct gas-gestookte boiler naar warmtepompboiler, Q-ton of PVT kan dit gas (en dus deze kosten) drastisch omlaag.',
-      { x: 7.0, y: 1.9, w: 5.8, h: 3.0, fontSize: 12, color: ONN_DONKER, valign: 'top' });
-    sDouch.addText('Met 7 liter water per minuut en 5 minuten douchen haal je 28 douchebeurten uit 1 m³ water. Per kuub warm tapwater is ongeveer 0,1 m³ gas nodig.',
-      { x: 7.0, y: 5.0, w: 5.8, h: 1.5, fontSize: 11, color: ONN_GRIJS, italic: true, valign: 'top' });
+    // Aanbeveling-blok rechts
+    sDouch.addText(`💡 Aanbeveling: ${aanbeveling.oplossing}`,
+      { x: 7.0, y: 1.9, w: 5.8, h: 0.6, fontSize: 14, bold: true, color: ONN_TEAL, valign: 'top' });
+    sDouch.addText(aanbeveling.onderbouwing,
+      { x: 7.0, y: 2.6, w: 5.8, h: 2.5, fontSize: 11, color: ONN_DONKER, valign: 'top' });
+    sDouch.addText('Tip voor sportclubs: splits tapwater (Q-ton hoge T 60°C+) en ruimteverwarming (lucht/water lage T 35-45°C). Veel efficiënter dan één alleskunner.',
+      { x: 7.0, y: 5.3, w: 5.8, h: 1.5, fontSize: 11, italic: true, color: ONN_GRIJS, valign: 'top' });
   }
 
   // ============================================================
@@ -567,13 +590,21 @@ async function maakPresentatie({ clubNaam, state, berekend }: PresentatieInput):
     { x: 0.5, y: 1.3, w: 12.3, h: 1.0, fontSize: 14, color: ONN_DONKER, valign: 'top' });
 
   sConcl.addText('Vervolgstappen', { x: 0.5, y: 2.5, w: 12, h: 0.4, fontSize: 18, bold: true, color: ONN_TEAL });
-  const stappen = [
-    '1. Bespreek dit voorstel intern met bestuur, sponsors en gemeente',
-    '2. Vraag DUMAVA-subsidie aan vóór start (verplicht vooraf!)',
-    '3. Vraag offertes op bij erkende installateurs voor de gekozen maatregelen',
-    '4. Voer een Blowerdoortest uit om luchtdichtheid in kaart te brengen',
-    '5. Plan de uitvoering in een logische volgorde (eerst isolatie, dan opwekking)',
-  ];
+  const stappen: string[] = [];
+  let stapNr = 1;
+  stappen.push(`${stapNr++}. Bespreek dit voorstel intern met bestuur, sponsors en gemeente`);
+  if (subsidieActief('DUMAVA')) {
+    stappen.push(`${stapNr++}. Vraag DUMAVA-subsidie aan vóór start (verplicht vooraf!)`);
+  }
+  if (subsidieActief('ISDE')) {
+    stappen.push(`${stapNr++}. Reserveer ISDE-budget voor warmtepompen en isolatie (binnen 1 jaar na facturatie)`);
+  }
+  if (subsidieActief('BOSA')) {
+    stappen.push(`${stapNr++}. Check BOSA-toepasselijkheid (sportbond-specifieke regelingen)`);
+  }
+  stappen.push(`${stapNr++}. Vraag offertes op bij erkende installateurs voor de gekozen maatregelen`);
+  stappen.push(`${stapNr++}. Voer een Blowerdoortest uit om luchtdichtheid in kaart te brengen`);
+  stappen.push(`${stapNr++}. Plan de uitvoering in een logische volgorde (eerst isolatie, dan opwekking)`);
   sConcl.addText(stappen.join('\n'),
     { x: 0.7, y: 3.0, w: 12, h: 3.0, fontSize: 13, color: ONN_DONKER, valign: 'top' });
 
@@ -662,6 +693,115 @@ const MAATREGEL_UITLEG: Record<string, string> = {
     '(4) opvangen van piekvraag waardoor netverzwaring vermeden kan worden, (5) noodstroom bij stroomuitval. ' +
     'Met name peakshaving en het optimaliseren van eigen stroombehoefte zijn voor sportclubs zeer interessant.',
 };
+
+/**
+ * Piek-statistieken uit trainingsschema voor PPT — gespiegelde, kleinere versie
+ * van berekenDouchePieken in de frontend. Geeft alleen wat de PPT nodig heeft.
+ */
+function berekenPiekStatsPPT(
+  schema: Array<Record<string, unknown>>,
+  sportCfg: MiniSportConfig,
+): {
+  piekUurLiters: number;
+  piekUur: number;
+  piekDag: string;
+  piekDagLiters: number;
+  doucheBeurtenPiekDag: number;
+} {
+  const LITERS = 35;
+  const perDagUren: Record<string, number[]> = {};
+
+  for (const m of schema) {
+    const type = m.type as string;
+    if (type === 'sociaal') continue;
+    const dag = m.dag as string;
+    const g1 = ((m.aantalTeamsOnder13 as number) ?? 0) * sportCfg.personenPerEenheid1;
+    const g2 = ((m.aantalTeamsVanaf13 as number) ?? 0) * sportCfg.personenPerEenheid2;
+    const pct1 = type === 'wedstrijd'
+      ? (dag === 'zondag' && sportCfg.categorie === 'teamsport' ? 1.0 : sportCfg.douchePct.groep1.wedstrijd)
+      : sportCfg.douchePct.groep1.training;
+    const pct2 = type === 'wedstrijd' ? sportCfg.douchePct.groep2.wedstrijd : sportCfg.douchePct.groep2.training;
+    const douches = g1 * pct1 + g2 * pct2;
+    const liters = douches * LITERS;
+    if (liters === 0) continue;
+
+    const [sh, sm] = ((m.startTijd as string) ?? '0:00').split(':').map(Number);
+    const [eh, em] = ((m.eindTijd as string) ?? '0:00').split(':').map(Number);
+    const startU = (sh ?? 0) + (sm ?? 0) / 60;
+    const eindU = (eh ?? 0) + (em ?? 0) / 60;
+    const duur = Math.max(0.5, eindU - startU);
+    const isLang = duur >= 2.5;
+    const isWedstrijd = type === 'wedstrijd';
+    const isRacket = sportCfg.categorie === 'racketsport';
+
+    let waves: number[];
+    if (!isLang) waves = [eindU];
+    else if (isWedstrijd || isRacket) {
+      const aantal = Math.max(2, Math.ceil(duur));
+      const interval = duur / aantal;
+      waves = Array.from({ length: aantal }, (_, i) => Math.min(eindU, startU + interval * (i + 1)));
+    } else if (duur >= 3) waves = [startU + duur / 2, eindU];
+    else waves = [eindU];
+
+    const litersPerWave = liters / waves.length;
+    if (!perDagUren[dag]) perDagUren[dag] = new Array(24).fill(0);
+    const uren = perDagUren[dag];
+    for (const w of waves) {
+      const piekUur = Math.floor(Math.max(0, Math.min(23.99, w)));
+      uren[piekUur] += litersPerWave * 0.6;
+      if (piekUur - 1 >= 0) uren[piekUur - 1] += litersPerWave * 0.1;
+      else uren[piekUur] += litersPerWave * 0.1;
+      if (piekUur + 1 < 24) uren[piekUur + 1] += litersPerWave * 0.3;
+      else uren[23] += litersPerWave * 0.3;
+    }
+  }
+
+  let piekUurLiters = 0, piekUur = 0, piekDag = '', piekDagLiters = 0;
+  for (const [dag, uren] of Object.entries(perDagUren)) {
+    const dagTotaal = uren.reduce((a, b) => a + b, 0);
+    if (dagTotaal > piekDagLiters) {
+      piekDagLiters = dagTotaal;
+      piekDag = dag;
+    }
+    for (let u = 0; u < 24; u++) {
+      if (uren[u] > piekUurLiters) {
+        piekUurLiters = uren[u];
+        piekUur = u;
+      }
+    }
+  }
+
+  return {
+    piekUurLiters: Math.round(piekUurLiters),
+    piekUur,
+    piekDag,
+    piekDagLiters: Math.round(piekDagLiters),
+    doucheBeurtenPiekDag: Math.round(piekDagLiters / 35),
+  };
+}
+
+function aanbevelingObvPiek(piekUurLiters: number): { oplossing: string; onderbouwing: string } {
+  if (piekUurLiters < 150) return {
+    oplossing: 'Warmtepompboiler 200-300L',
+    onderbouwing: 'Voor deze relatief lage piek-vraag voldoet een standaard warmtepompboiler (ATAG, Itho, Inventum). Goedkoop, eenvoudig te plaatsen.',
+  };
+  if (piekUurLiters < 400) return {
+    oplossing: 'Q-ton HMA30A (CO₂-warmtepomp, 3 kW + 350L buffer)',
+    onderbouwing: 'Klassieke sportclub-keuze. CO₂ koudemiddel levert efficiënt warm water tot 90°C — ruime marge boven legionella-T. 350L buffer overbrugt de douche-piek direct na training.',
+  };
+  if (piekUurLiters < 800) return {
+    oplossing: 'Q-ton HMA45A (4.5 kW + 500L buffer)',
+    onderbouwing: 'Grotere sportclub-variant. Levert ook tijdens echte pieken (na zaterdag-jeugdwedstrijden) voldoende warm water.',
+  };
+  if (piekUurLiters < 1500) return {
+    oplossing: '2x Q-ton HMA45A in cascade (~9 kW + 1000L buffer)',
+    onderbouwing: 'Bij deze piek-vraag dekt één unit niet — cascade geeft modulatie + redundantie. Alternatief: bodem-WP met grotere tap-tank.',
+  };
+  return {
+    oplossing: 'Maatwerk — laat installateur dimensioneren',
+    onderbouwing: 'Piek-vraag is in zwembad-categorie. Vraag een installateur om een dimensioneer-rapport.',
+  };
+}
 
 /**
  * Mini sport-config voor PPT-rapport — gespiegelde versie van de frontend

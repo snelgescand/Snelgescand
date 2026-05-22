@@ -243,7 +243,14 @@ export interface TenantInstellingen {
     literPerDouche: number; gasPerDouche: number; literPerSpoeling: number;
     co2GasPerM3: number; co2StroomPerKwh: number; primairFactorGas: number;
   };
-  subsidies: { isdePct: number; dumavaPct: number; scePct: number };
+  subsidies: {
+    isdePct: number;
+    dumavaPct: number;
+    scePct: number;
+    /** Per subsidie-id of deze regeling nog actief is. Default = aan (true).
+     *  Uitgevinkt = NIET tonen in advies-tegels of PPT-cijfers. */
+    actief?: Record<string, boolean>;
+  };
 }
 export const instellingenApi = {
   get: () => api<{ instellingen: TenantInstellingen; defaults: TenantInstellingen }>('/api/tenant/instellingen'),

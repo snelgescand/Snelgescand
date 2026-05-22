@@ -1031,3 +1031,175 @@ function parseTime(t: string): number {
   const [h, m] = t.split(':').map(Number);
   return (h ?? 0) + (m ?? 0) / 60;
 }
+
+/**
+ * Berekent de PIEK-statistieken voor warm water uit het trainingsschema.
+ *
+ * In tegenstelling tot analyseSchema (die week-totalen geeft) levert deze
+ * functie de cijfers waarop warmtepomp-keuze gebaseerd moet worden:
+ *
+ *  - **piekUurLiters**: maximaal warm water in 1 uur (bepaalt WP-vermogen)
+ *  - **piekDagLiters**: totaal op piek-dag (bepaalt buffer-grootte)
+ *  - **doucheBeurtenPiekDag**: aantal douches op piek-dag
+ *
+ * Gebruikt hetzelfde wave-model als de waterverbruik-grafiek (60/30/10 spreiding
+ * rond elke "wave"), dus consistent met wat de gebruiker ziet.
+ */
+export function berekenDouchePieken(
+  schema: TrainingsSchema,
+  typeVereniging?: string,
+): {
+  piekUurLiters: number;
+  piekUurMoment: { dag: TrainingMoment['dag']; uur: number } | null;
+  piekDagLiters: number;
+  piekDagNaam: TrainingMoment['dag'] | null;
+  doucheBeurtenPiekDag: number;
+  totaalLitersPerWeek: number;
+  totaalDouchesPerWeek: number;
+  perDagPerUur: Partial<Record<TrainingMoment['dag'], number[]>>;
+  benodigdVermogenPiekKw: number;
+  minBufferLiters: number;
+} {
+  const config = getSportConfig(typeVereniging);
+  const perDagPerUur: Partial<Record<TrainingMoment['dag'], number[]>> = {};
+
+  for (const m of schema) {
+    if (m.type === 'sociaal') continue;
+    const douchesG1 = (m.aantalTeamsOnder13 ?? 0) * config.personenPerEenheid1
+      * douchePercentage('onder13', m.type, m.dag, typeVereniging);
+    const douchesG2 = (m.aantalTeamsVanaf13 ?? 0) * config.personenPerEenheid2
+      * douchePercentage('vanaf13', m.type, m.dag, typeVereniging);
+    const totaal = (douchesG1 + douchesG2) * LITERS_PER_DOUCHE;
+    if (totaal === 0) continue;
+
+    const startUur = parseTime(m.startTijd);
+    const eindUur = parseTime(m.eindTijd);
+    const duur = Math.max(0.5, eindUur - startUur);
+    const isLang = duur >= 2.5;
+    const isRacket = config.categorie === 'racketsport';
+    const isWedstrijd = m.type === 'wedstrijd';
+
+    let waves: number[];
+    if (!isLang) waves = [eindUur];
+    else if (isWedstrijd || isRacket) {
+      const aantal = Math.max(2, Math.ceil(duur));
+      const interval = duur / aantal;
+      waves = Array.from({ length: aantal }, (_, i) => Math.min(eindUur, startUur + interval * (i + 1)));
+    } else if (duur >= 3) waves = [startUur + duur / 2, eindUur];
+    else waves = [eindUur];
+
+    const litersPerWave = totaal / waves.length;
+    if (!perDagPerUur[m.dag]) perDagPerUur[m.dag] = new Array(24).fill(0);
+    const uren = perDagPerUur[m.dag]!;
+    for (const w of waves) {
+      const piekUur = Math.floor(Math.max(0, Math.min(23.99, w)));
+      uren[piekUur] += litersPerWave * 0.6;
+      if (piekUur - 1 >= 0) uren[piekUur - 1] += litersPerWave * 0.1;
+      else uren[piekUur] += litersPerWave * 0.1;
+      if (piekUur + 1 < 24) uren[piekUur + 1] += litersPerWave * 0.3;
+      else uren[23] += litersPerWave * 0.3;
+    }
+  }
+
+  let piekUurLiters = 0;
+  let piekUurMoment: { dag: TrainingMoment['dag']; uur: number } | null = null;
+  let piekDagLiters = 0;
+  let piekDagNaam: TrainingMoment['dag'] | null = null;
+  let totaalWeek = 0;
+  for (const [dag, uren] of Object.entries(perDagPerUur)) {
+    if (!uren) continue;
+    const dagTotaal = uren.reduce((a, b) => a + b, 0);
+    totaalWeek += dagTotaal;
+    if (dagTotaal > piekDagLiters) {
+      piekDagLiters = dagTotaal;
+      piekDagNaam = dag as TrainingMoment['dag'];
+    }
+    for (let u = 0; u < 24; u++) {
+      if (uren[u] > piekUurLiters) {
+        piekUurLiters = uren[u];
+        piekUurMoment = { dag: dag as TrainingMoment['dag'], uur: u };
+      }
+    }
+  }
+
+  // Thermisch vermogen voor piek-uur (10°C → 60°C boiler-T):
+  //   Q [kW] = L/u × 4.19 × ΔT / 3600
+  const benodigdVermogenPiekKw = (piekUurLiters * 4.19 * 50) / 3600;
+  const minBufferLiters = piekUurLiters / 0.85;
+
+  return {
+    piekUurLiters: Math.round(piekUurLiters),
+    piekUurMoment,
+    piekDagLiters: Math.round(piekDagLiters),
+    piekDagNaam,
+    doucheBeurtenPiekDag: Math.round(piekDagLiters / LITERS_PER_DOUCHE),
+    totaalLitersPerWeek: Math.round(totaalWeek),
+    totaalDouchesPerWeek: Math.round(totaalWeek / LITERS_PER_DOUCHE),
+    perDagPerUur,
+    benodigdVermogenPiekKw: Math.round(benodigdVermogenPiekKw * 10) / 10,
+    minBufferLiters: Math.round(minBufferLiters),
+  };
+}
+
+/**
+ * Aanbevolen tapwater-warmtepomp obv piek-uur.
+ *
+ * Vuistregels (NL sportclub-praktijk 2025):
+ *   < 150 L/u   → Warmtepompboiler 200-300L  (kleine club / accommodatie)
+ *   150-400 L/u → Q-ton HMA30A  (3 kW + 350L tank) — meest gangbaar
+ *   400-800 L/u → Q-ton HMA45A  (4.5 kW + 500L tank) — grote sportclub
+ *   800-1500 L/u → 2x HMA45A cascade OF bodem-WP + grote buffer
+ *   > 1500 L/u  → Specialist nodig (zwembad-categorie)
+ */
+export function aanbevolenTapwaterOplossing(piekUurLiters: number): {
+  oplossing: string;
+  korteOnderbouwing: string;
+  vermogenKw: number;
+  bufferLiters: number;
+  alternatief: string;
+  maatregelId: 'warmtepompboiler' | 'qton-warmtepomp';
+} {
+  if (piekUurLiters < 150) {
+    return {
+      oplossing: 'Warmtepompboiler 200-300L',
+      korteOnderbouwing: 'Voor deze piek-vraag voldoet een standaard warmtepompboiler (ATAG, Itho, Inventum). Goedkoop, eenvoudig te plaatsen, ISDE ~€1000.',
+      vermogenKw: 2, bufferLiters: 250,
+      alternatief: 'Bij verwachte groei (>30%): direct Q-ton HMA30A overwegen — opschalen later is duur.',
+      maatregelId: 'warmtepompboiler',
+    };
+  }
+  if (piekUurLiters < 400) {
+    return {
+      oplossing: 'Q-ton HMA30A (CO₂-warmtepomp, 3 kW + 350L buffer)',
+      korteOnderbouwing: 'Klassieke sportclub-keuze. CO₂-koudemiddel levert efficiënt warm water tot 90°C — ruime marge boven legionella-temperatuur. Met 350L buffer overbrugt het de douche-piek direct na training.',
+      vermogenKw: 3, bufferLiters: 350,
+      alternatief: 'Cascade van 2 warmtepompboilers (goedkoper) — maar minder elegant en meer ruimte nodig.',
+      maatregelId: 'qton-warmtepomp',
+    };
+  }
+  if (piekUurLiters < 800) {
+    return {
+      oplossing: 'Q-ton HMA45A (CO₂-warmtepomp, 4.5 kW + 500L buffer)',
+      korteOnderbouwing: 'Grotere sportclub-variant. Levert ook in echte pieken (na zaterdag-jeugdwedstrijden) voldoende warm water. ISDE-subsidie ~€3.700.',
+      vermogenKw: 4.5, bufferLiters: 500,
+      alternatief: '2x HMA30A in cascade — vergelijkbare totaalcapaciteit, betere redundantie als 1 uitvalt.',
+      maatregelId: 'qton-warmtepomp',
+    };
+  }
+  if (piekUurLiters < 1500) {
+    return {
+      oplossing: '2x Q-ton HMA45A in cascade (totaal ~9 kW + 1000L buffer)',
+      korteOnderbouwing: 'Bij deze piek-vraag is één unit onvoldoende. Cascade-opstelling geeft modulatie en redundantie. Alternatief: bodemwarmtepomp met grote tapwater-buffer.',
+      vermogenKw: 9, bufferLiters: 1000,
+      alternatief: 'Bodemwarmtepomp 15-20 kW met 1000L tapwater-tank — hogere investering maar lagere energiekosten op lange termijn.',
+      maatregelId: 'qton-warmtepomp',
+    };
+  }
+  return {
+    oplossing: 'Maatwerk — laat installateur dimensioneren',
+    korteOnderbouwing: `Piek-vraag is in zwembad-categorie. Vraag een installateur om een dimensioneer-rapport. Realistische optie: bodem-WP 20+ kW met 1500-2000L buffer.`,
+    vermogenKw: 20, bufferLiters: 1500,
+    alternatief: 'Bodem-WP met seizoensopslag (BTES) voor zwembad-grootteclubs.',
+    maatregelId: 'qton-warmtepomp',
+  };
+}

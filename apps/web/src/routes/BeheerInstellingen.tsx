@@ -242,6 +242,22 @@ export default function BeheerInstellingen() {
             />
           </Sectie>
 
+          {/* === Actieve subsidies — aan/uit per regeling === */}
+          <Sectie
+            titel="✅ Welke subsidies zijn momenteel actief?"
+            omschrijving="Vink uit wat NIET (meer) beschikbaar is — die regelingen worden dan ook niet meer voorgesteld in advies-tegels en PPT."
+          >
+            <SubsidieToggleLijst
+              huidig={huidig.subsidies.actief}
+              isLoading={update.isPending}
+              opslaan={async (nieuwAct) => {
+                await update.mutateAsync({
+                  subsidies: { ...huidig.subsidies, actief: nieuwAct },
+                });
+              }}
+            />
+          </Sectie>
+
           {/* Reset alles */}
           <div className="card p-4 bg-red-50 border border-red-200">
             <h3 className="text-sm font-semibold text-red-900 mb-1">Alles terugzetten</h3>
@@ -345,6 +361,74 @@ function Knop({ label, isLoading, gewijzigd, onClick }: {
       >
         {isLoading ? 'Opslaan…' : gewijzigd ? label : '— niets gewijzigd'}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Aan/uit-toggle per subsidie. Wordt opgeslagen in instellingen.subsidies.actief
+ * als Record<string, boolean>. Default: alles aan (achterwaarts compatibel).
+ */
+function SubsidieToggleLijst({
+  huidig, isLoading, opslaan,
+}: {
+  huidig?: Record<string, boolean>;
+  isLoading: boolean;
+  opslaan: (nieuw: Record<string, boolean>) => void;
+}) {
+  const SUBSIDIES = [
+    { id: 'ISDE',         label: 'ISDE — Investeringssubsidie Duurzame Energie',           tip: 'Warmtepompen, isolatie, zonneboilers' },
+    { id: 'DUMAVA',       label: 'DUMAVA — Duurzaam Maatschappelijk Vastgoed',             tip: 'Sportclubs en MFA\'s, isolatie + WP' },
+    { id: 'SCE',          label: 'SCE — Subsidie Coöperatieve Energieopwekking',           tip: 'Postcoderoos-projecten' },
+    { id: 'SDE++',        label: 'SDE++ — Stimulering Duurzame Energieproductie',          tip: 'Grote PV-installaties (>15 kWp)' },
+    { id: 'BOSA',         label: 'BOSA — Bouw en Onderhoud Sportaccommodaties',            tip: 'Verenigingsspecifiek' },
+    { id: 'SPUK',         label: 'SPUK — Specifieke Uitkering (gemeenten)',                tip: 'Sportakkoord / gymsporten' },
+    { id: 'SPOK',         label: 'SPOK — Specifieke Uitkering Olympische Sporten',         tip: 'Topsport-faciliteiten' },
+    { id: 'SportNLGroen', label: 'SportNL Groen',                                          tip: 'Stichting Waarborgfonds Sport' },
+    { id: 'IAS',          label: 'IAS — Investeringssubsidie Aardgasvrij Sportaccommodaties', tip: 'Niet meer actief sinds 2023' },
+    { id: 'OMV',          label: 'OMV — Ontzorgingsprogramma Maatschappelijk Vastgoed',    tip: 'Gratis adviestraject' },
+    { id: 'SWS',          label: 'SWS — Stichting Waarborgfonds Sport (lening)',           tip: 'Borg voor leningen' },
+  ];
+  const [staat, setStaat] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    for (const s of SUBSIDIES) init[s.id] = huidig?.[s.id] !== false;
+    return init;
+  });
+
+  const gewijzigd = SUBSIDIES.some(s => staat[s.id] !== (huidig?.[s.id] !== false));
+  const aantalAan = Object.values(staat).filter(Boolean).length;
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-gray-500 mb-2">{aantalAan} van {SUBSIDIES.length} actief</p>
+      <div className="grid sm:grid-cols-2 gap-1.5">
+        {SUBSIDIES.map(s => (
+          <label key={s.id} className="flex items-start gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+            <input
+              type="checkbox"
+              checked={staat[s.id]}
+              onChange={e => setStaat(prev => ({ ...prev, [s.id]: e.target.checked }))}
+              className="mt-0.5"
+            />
+            <span className="text-xs">
+              <span className={`font-medium ${staat[s.id] ? 'text-gray-900' : 'text-gray-400 line-through'}`}>{s.label}</span>
+              <span className="block text-gray-500">{s.tip}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="flex justify-end pt-2">
+        <button
+          type="button"
+          onClick={() => opslaan(staat)}
+          disabled={isLoading || !gewijzigd}
+          className={`text-sm px-4 py-1.5 rounded ${gewijzigd
+            ? 'bg-accent-orange text-white hover:bg-accent-orange/90'
+            : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+        >
+          {isLoading ? 'Opslaan…' : gewijzigd ? 'Actieve subsidies opslaan' : '— niets gewijzigd'}
+        </button>
+      </div>
     </div>
   );
 }

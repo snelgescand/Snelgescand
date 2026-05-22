@@ -10,6 +10,9 @@ export interface KennisArtikel {
   categorie: 'algemeen' | 'isolatie' | 'verwarming' | 'stroom' | 'subsidies' | 'beleid' | 'werkwijze';
   titel: string;
   korteBeschrijving: string;
+  /** Optioneel — bij subsidie-artikelen: aan welke subsidie-naam dit gekoppeld is.
+   *  Als de subsidie is uitgevinkt in Beheer-instellingen, wordt het artikel verborgen. */
+  subsidieId?: string;
   paragrafen: Array<
     | { type: 'tekst'; inhoud: string }
     | { type: 'formule'; latex: string; toelichting?: string }
@@ -289,6 +292,7 @@ export const KENNIS: KennisArtikel[] = [
   // ============================================================
   {
     id: 'subsidies-dumava',
+    subsidieId: 'DUMAVA',
     categorie: 'subsidies',
     titel: 'DUMAVA-subsidie',
     korteBeschrijving: 'Voor maatschappelijk vastgoed, dekt 20-30% van de investering.',
@@ -306,6 +310,7 @@ export const KENNIS: KennisArtikel[] = [
   },
   {
     id: 'subsidies-isde',
+    subsidieId: 'ISDE',
     categorie: 'subsidies',
     titel: 'ISDE — Investeringssubsidie Duurzame Energie',
     korteBeschrijving: 'Vaste bedragen per warmtepomp, zonneboiler, isolatiemaatregel.',
@@ -322,6 +327,7 @@ export const KENNIS: KennisArtikel[] = [
   },
   {
     id: 'subsidies-bosa',
+    subsidieId: 'BOSA',
     categorie: 'subsidies',
     titel: 'BOSA-subsidie sport',
     korteBeschrijving: '20-40% subsidie voor sportverenigingen specifiek.',
@@ -340,6 +346,7 @@ export const KENNIS: KennisArtikel[] = [
   // === Aanvullende subsidies & financiering (eerste maand) ===
   {
     id: 'subsidies-spuk-spok',
+    subsidieId: 'SPUK',
     categorie: 'subsidies',
     titel: 'SPUK en SPOK — wat is het verschil?',
     korteBeschrijving: 'Verzamelnaam SPUK vs specifieke btw-compensatie SPOK voor de sport.',
@@ -351,6 +358,7 @@ export const KENNIS: KennisArtikel[] = [
   },
   {
     id: 'subsidies-bosa-uitgebreid',
+    subsidieId: 'BOSA',
     categorie: 'subsidies',
     titel: 'BOSA in 2025 — actualiteit en valkuilen',
     korteBeschrijving: 'Loting, snelle uitputting, en de stapeling met Dumava.',
@@ -364,6 +372,7 @@ export const KENNIS: KennisArtikel[] = [
   },
   {
     id: 'subsidies-omv',
+    subsidieId: 'OMV',
     categorie: 'subsidies',
     titel: 'OMV — Ontzorgingsprogramma Maatschappelijk Vastgoed',
     korteBeschrijving: 'Geen geld, wél gratis hulp en expertise om plannen te maken.',
@@ -392,6 +401,7 @@ export const KENNIS: KennisArtikel[] = [
   },
   {
     id: 'subsidies-sportnlgroen',
+    subsidieId: 'SportNLGroen',
     categorie: 'subsidies',
     titel: 'SportNLGroen (Rabobank)',
     korteBeschrijving: 'Financiering specifiek voor sportverenigingen met Rabo-rekening.',
@@ -669,6 +679,7 @@ export const KENNIS: KennisArtikel[] = [
   // ============================================================
   {
     id: 'subsidies-bosa-detail',
+    subsidieId: 'BOSA',
     categorie: 'subsidies',
     titel: 'BOSA — alle ins & outs (verdiepend)',
     korteBeschrijving: 'Wie, hoeveel, voor wat, en welke valkuilen.',
@@ -706,6 +717,7 @@ export const KENNIS: KennisArtikel[] = [
   },
   {
     id: 'subsidies-isde-detail',
+    subsidieId: 'ISDE',
     categorie: 'subsidies',
     titel: 'ISDE — wat valt eronder en hoeveel?',
     korteBeschrijving: 'Vaste bedragen per warmtepomp, isolatiesoort en zonneboiler. Voor sportclubs: zakelijke tabel.',
@@ -740,6 +752,7 @@ export const KENNIS: KennisArtikel[] = [
   },
   {
     id: 'subsidies-ias',
+    subsidieId: 'IAS',
     categorie: 'subsidies',
     titel: 'IAS — Subsidie Asbestsanering',
     korteBeschrijving: 'Specifiek voor het verwijderen van asbest, vaak bij oude sportgebouwen.',
@@ -759,6 +772,7 @@ export const KENNIS: KennisArtikel[] = [
   },
   {
     id: 'subsidies-sws',
+    subsidieId: 'SWS',
     categorie: 'subsidies',
     titel: 'SWS — Stichting Waarborgfonds Sport',
     korteBeschrijving: 'Borgstelling waardoor sportclubs makkelijker een banklening krijgen.',

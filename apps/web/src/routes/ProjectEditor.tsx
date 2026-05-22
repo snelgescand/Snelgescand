@@ -14,7 +14,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { projectsApi, modulesApi, ApiError, bagApi } from '../api/client';
+import { projectsApi, modulesApi, ApiError, bagApi, instellingenApi } from '../api/client';
 import { berekenLokaal, BerekenValidatieFout } from '../util/lokaal-bereken';
 import { AppHeader } from '../components/AppHeader';
 import { Footer } from '../components/Footer';
@@ -30,7 +30,7 @@ import { MaatregelDetail } from '../components/MaatregelDetail';
 import { HuidigeSituatie } from '../components/HuidigeSituatie';
 import { MaatregelSuggesties } from '../components/MaatregelSuggesties';
 import { ChartCard, WaterverbruikChart, KasstroomChart, EnergiebalansChart, WaterverbruikPerUurChart } from '../components/Charts';
-import { TrainingsSchemaInvoer, analyseSchema, getSportConfig, douchePercentage, LITERS_PER_DOUCHE, type TrainingsSchema, type TrainingMoment } from '../components/TrainingsSchema';
+import { TrainingsSchemaInvoer, analyseSchema, getSportConfig, douchePercentage, LITERS_PER_DOUCHE, berekenDouchePieken, aanbevolenTapwaterOplossing, type TrainingsSchema, type TrainingMoment } from '../components/TrainingsSchema';
 import { EnergielabelKaart } from '../components/EnergielabelKaart';
 import { HistorischVerbruik } from '../components/HistorischVerbruik';
 import { berekenEnergielabel, berekenLabelNaMaatregelen, bepaalLabelSprong } from '../util/energielabel';
@@ -1131,25 +1131,35 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
   // Welke maatregel-detail-modal staat open? null = dicht.
   const [openDetailId, setOpenDetailId] = useState<string | null>(null);
 
+  // Tenant-instellingen ophalen — geeft o.a. de set actieve subsidies door
+  const instellingenQuery = useQuery({
+    queryKey: ['tenant-instellingen'],
+    queryFn: instellingenApi.get,
+    staleTime: 5 * 60 * 1000,
+  });
+
   // === Maatwerk-context voor de advies-tegels bij het bewerken van een maatregel.
-  // Bouwt scan-data + andere gekozen maatregelen in één object zodat
-  // MaatregelContextAdvies per maatregel relevante tips kan tonen.
   const adviesContext = useMemo(() => {
     const schema = draft.trainingsSchema ?? [];
-    let douchesPerWeek = 0;
+    const pieken = schema.length > 0 ? berekenDouchePieken(schema, draft.context.club?.type) : null;
+    const douchesPerWeek = pieken?.totaalDouchesPerWeek ?? 0;
     let urenPerWeek = 0;
     let maxTeams = 0;
     for (const m of schema) {
       const o13 = m.aantalTeamsOnder13 ?? 0;
       const v13 = m.aantalTeamsVanaf13 ?? 0;
-      // Rough estimate of doucheBeurten — same logic als in PPT-route
-      const douchePct = m.type === 'sociaal' ? 0 : m.type === 'wedstrijd' ? 0.9 : 0.6;
-      douchesPerWeek += (o13 * 10 + v13 * 15) * douchePct;
       maxTeams = Math.max(maxTeams, o13 + v13);
       const [sh, sm] = (m.startTijd ?? '0:00').split(':').map(Number);
       const [eh, em] = (m.eindTijd ?? '0:00').split(':').map(Number);
       const duur = ((eh ?? 0) + (em ?? 0) / 60) - ((sh ?? 0) + (sm ?? 0) / 60);
       if (duur > 0) urenPerWeek += duur;
+    }
+    // Lees actieve subsidies uit tenant-instellingen (default: alle aan)
+    const subsidieFlags = (instellingenQuery.data?.instellingen.subsidies.actief ?? {});
+    const actieveSubsidies = new Set<string>();
+    const ALLE = ['ISDE', 'DUMAVA', 'SCE', 'SDE++', 'BOSA', 'SPUK', 'SPOK', 'SportNLGroen', 'IAS', 'OMV', 'SWS'];
+    for (const naam of ALLE) {
+      if (subsidieFlags[naam] !== false) actieveSubsidies.add(naam);
     }
     return {
       bvoM2: draft.context.gebouw?.bvoTotaalM2,
@@ -1159,19 +1169,37 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
       gasM3PerJaar: draft.context.energie?.gasverbruikM3,
       aansluitVermogenKw: draft.context.energie?.aansluitwaardeElektra?.vermogenKw,
       gasAansluitingLabel: draft.context.energie?.gasAansluitingLabel,
-      douchesPerWeek: Math.round(douchesPerWeek),
+      douchesPerWeek,
       urenPerWeek: Math.round(urenPerWeek * 10) / 10,
       totaalTeams: maxTeams,
       aantalDouchekoppen: draft.context.gebouw?.aantalDouchekoppen,
+      piekUurLiters: pieken?.piekUurLiters,
+      piekDagLiters: pieken?.piekDagLiters,
+      doucheBeurtenPiekDag: pieken?.doucheBeurtenPiekDag,
+      piekDagNaam: pieken?.piekDagNaam ?? undefined,
+      piekUur: pieken?.piekUurMoment?.uur,
       andereMaatregelen: new Set(Object.keys(draft.gekozenMaatregelen).filter(id => id !== openDetailId)),
+      actieveSubsidies,
     };
-  }, [draft.trainingsSchema, draft.context, draft.gekozenMaatregelen, openDetailId]);
+  }, [draft.trainingsSchema, draft.context, draft.gekozenMaatregelen, openDetailId, instellingenQuery.data]);
 
   // Bouw waterverbruik-grafiekdata uit trainingsschema (of detail-input als fallback)
   const waterData = useMemo(() => bouwWaterverbruikData(draft), [draft]);
   const waterPerUurData = useMemo(
     () => bouwWaterPerUurData(draft.trainingsSchema, draft.context.club?.type),
     [draft.trainingsSchema, draft.context.club?.type],
+  );
+  const douchePieken = useMemo(
+    () => draft.trainingsSchema && draft.trainingsSchema.length > 0
+      ? berekenDouchePieken(draft.trainingsSchema, draft.context.club?.type)
+      : null,
+    [draft.trainingsSchema, draft.context.club?.type],
+  );
+  const tapwaterAdvies = useMemo(
+    () => douchePieken && douchePieken.piekUurLiters > 0
+      ? aanbevolenTapwaterOplossing(douchePieken.piekUurLiters)
+      : null,
+    [douchePieken],
   );
   const energiebalansData = useMemo(() => bouwEnergiebalansData(draft), [draft]);
   const kasstroomData = useMemo(() => bouwKasstroomData(cached), [cached]);
@@ -1383,6 +1411,59 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
         )}
 
         {/* Grafieken */}
+        {douchePieken && douchePieken.piekUurLiters > 0 && (
+          <div className="bg-gradient-to-br from-accent-orange/10 to-amber-50 border border-accent-orange/30 rounded-lg p-5 space-y-3">
+            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+              <span>🔥</span> Warm water — wat heb je écht nodig?
+            </h3>
+            <p className="text-xs text-gray-600 -mt-1">
+              Voor een passende warmtepomp tellen <strong>piek-uur</strong> en <strong>piek-dag</strong>, niet het jaartotaal. Hier de cijfers uit jouw schema:
+            </p>
+
+            <div className="grid sm:grid-cols-3 gap-3 mt-2">
+              <div className="bg-white/80 rounded-md p-3">
+                <p className="text-xs text-gray-500 uppercase tracking-wide">Piek-uur</p>
+                <p className="text-2xl font-bold text-accent-orange">{douchePieken.piekUurLiters} L<span className="text-sm text-gray-500">/uur</span></p>
+                <p className="text-xs text-gray-600 mt-1">
+                  {douchePieken.piekUurMoment ? `${douchePieken.piekUurMoment.dag} ${douchePieken.piekUurMoment.uur}:00` : '—'}
+                  {' · '}≈ {douchePieken.benodigdVermogenPiekKw} kW thermisch
+                </p>
+              </div>
+              <div className="bg-white/80 rounded-md p-3">
+                <p className="text-xs text-gray-500 uppercase tracking-wide">Piek-dag</p>
+                <p className="text-2xl font-bold text-accent-orange">{douchePieken.piekDagLiters} L</p>
+                <p className="text-xs text-gray-600 mt-1">
+                  {douchePieken.piekDagNaam ?? '—'} · {douchePieken.doucheBeurtenPiekDag} douches
+                </p>
+              </div>
+              <div className="bg-white/80 rounded-md p-3">
+                <p className="text-xs text-gray-500 uppercase tracking-wide">Min. buffer</p>
+                <p className="text-2xl font-bold text-accent-orange">{douchePieken.minBufferLiters} L</p>
+                <p className="text-xs text-gray-600 mt-1">
+                  Om piek direct op te vangen (aftapfactor 0,85)
+                </p>
+              </div>
+            </div>
+
+            {tapwaterAdvies && (
+              <div className="bg-white border-l-4 border-primary-500 rounded-md p-3 mt-2">
+                <p className="text-sm font-semibold text-primary-900">💡 Aanbeveling: {tapwaterAdvies.oplossing}</p>
+                <p className="text-xs text-gray-700 mt-1.5 leading-relaxed">{tapwaterAdvies.korteOnderbouwing}</p>
+                <p className="text-xs text-gray-500 mt-2 italic">Alternatief: {tapwaterAdvies.alternatief}</p>
+                <p className="text-xs text-primary-700 mt-2">
+                  👉 Bij Stap 2 vind je deze maatregel onder <em>warmtepompen</em>. Bij toevoegen krijg je dit advies opnieuw met aanvullende tips.
+                </p>
+              </div>
+            )}
+
+            <div className="text-xs text-gray-600 bg-white/50 rounded-md p-2.5 mt-2">
+              <strong>💡 Tip voor sportclubs:</strong> splits tapwater en ruimteverwarming.
+              Q-ton CO₂-warmtepomp voor douches (hoge T 60°C+), aparte lucht/water-WP voor verwarming (lage T 35-45°C met vloer- of LT-radiatoren).
+              Veel efficiënter dan één alleskunner.
+            </div>
+          </div>
+        )}
+
         {waterPerUurData.length > 0 && (
           <ChartCard
             titel="Waterverbruik per uur (gemiddelde week)"
@@ -1391,8 +1472,7 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             toelichting={
               <>
                 <strong>Hoe is dit berekend?</strong> Voor elk trainings-/wedstrijdmoment uit het schema rekenen we met
-                35 liter warm water per persoon-met-douche, gespreid over de duur van het moment.
-                Vul het trainingsschema in stap 1 nauwkeuriger in voor een specifieker beeld.
+                35 liter warm water per persoon-met-douche, gespreid in waves over de duur van het moment.
               </>
             }
           >

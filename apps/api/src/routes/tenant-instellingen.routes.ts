@@ -75,6 +75,7 @@ const instellingenSchema = z.object({
     isdePct: z.number().min(0).max(100),
     dumavaPct: z.number().min(0).max(100),
     scePct: z.number().min(0).max(100),
+    actief: z.record(z.string(), z.boolean()).optional(),
   }).optional(),
 });
 

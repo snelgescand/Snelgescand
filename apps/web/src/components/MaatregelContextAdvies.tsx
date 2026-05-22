@@ -34,8 +34,29 @@ export interface ContextData {
   totaalTeams?: number;
   /** Aantal douchekoppen uit gebouwgegevens */
   aantalDouchekoppen?: number;
+  /** Piek-uur warm water (L/uur) — bepaalt benodigd WP-vermogen */
+  piekUurLiters?: number;
+  /** Piek-dag totaal warm water (L) — bepaalt buffer-grootte */
+  piekDagLiters?: number;
+  /** Aantal douchebeurten op piek-dag */
+  doucheBeurtenPiekDag?: number;
+  /** Welke dag is piek (zaterdag/zondag etc.) */
+  piekDagNaam?: string;
+  /** In welk uur valt de piek (0-23) */
+  piekUur?: number;
+  /** Tapwater-WP-advies obv piek (van aanbevolenTapwaterOplossing) */
+  tapwaterAdvies?: {
+    oplossing: string;
+    korteOnderbouwing: string;
+    vermogenKw: number;
+    bufferLiters: number;
+    alternatief: string;
+    maatregelId: string;
+  };
   /** IDs van andere geselecteerde maatregelen — bepaalt wisselwerking */
   andereMaatregelen: Set<string>;
+  /** Actieve subsidies — filter voor advies-tegels. Default: alles aan. */
+  actieveSubsidies?: Set<string>;
 }
 
 export interface AdviesItem {
@@ -351,51 +372,77 @@ function vermogenSchattingWarmtepomp(ctx: ContextData): number {
 function adviesQtonWarmtepomp(ctx: ContextData, _huidigeInput: Record<string, unknown>): AdviesItem[] {
   const adviezen: AdviesItem[] = [];
 
-  // Aantal douches per dag bepalen
-  if (ctx.douchesPerWeek && ctx.douchesPerWeek > 0) {
-    const douchesPerDag = ctx.douchesPerWeek / 7;
-    let aanbevolen: string;
-    let kortLabel: string;
-    if (douchesPerDag < 30) {
-      aanbevolen = 'HMA30A (350 L tank, geschikt tot ~30 douches/dag)';
-      kortLabel = 'HMA30A';
-    } else if (douchesPerDag < 60) {
-      aanbevolen = 'HMA45A (500 L tank, geschikt tot ~50-60 douches/dag)';
-      kortLabel = 'HMA45A';
+  // === Piek-gebaseerd advies (kernoutput) ===
+  if (ctx.piekUurLiters && ctx.piekUurLiters > 0) {
+    const piekL = ctx.piekUurLiters;
+    const piekTijd = ctx.piekDagNaam && ctx.piekUur !== undefined
+      ? `${ctx.piekDagNaam} ${ctx.piekUur}:00`
+      : 'piek-uur';
+
+    // Q-ton specifiek aanbeveling
+    let model: string, modelArgument: string, vermogen: string, buffer: string, isde: string;
+    if (piekL < 150) {
+      model = 'NIET Q-ton, maar warmtepompboiler';
+      modelArgument = 'Bij jouw lage piek-vraag is een Q-ton overkill. Een standaard warmtepompboiler 200-300L is goedkoper en simpeler.';
+      vermogen = '2 kW'; buffer = '250L'; isde = '~€1000';
+    } else if (piekL < 400) {
+      model = 'Q-ton HMA30A';
+      modelArgument = 'Klassieke sportclub-keuze. CO₂-koudemiddel levert efficiënt warm water tot 90°C — ruime marge boven legionella-T (60°C). 350L buffer overbrugt de douche-piek direct na training.';
+      vermogen = '3 kW'; buffer = '350L'; isde = '€2.500';
+    } else if (piekL < 800) {
+      model = 'Q-ton HMA45A';
+      modelArgument = `Voor jouw piek van ${piekL} L/uur op ${piekTijd} is HMA30A te krap. HMA45A levert ook tijdens je zaterdag-piek voldoende warm water.`;
+      vermogen = '4,5 kW'; buffer = '500L'; isde = '€3.700';
     } else {
-      aanbevolen = '2x HMA45A in parallel of grotere variant (>60 douches/dag)';
-      kortLabel = '2x HMA45A';
+      model = '2x Q-ton HMA45A in cascade';
+      modelArgument = 'Eén unit dekt deze piek niet — cascade geeft modulatie + redundantie. Alternatief: bodem-WP met grotere tap-tank.';
+      vermogen = '9 kW totaal'; buffer = '1000L'; isde = '2x €3.700';
     }
+
+    const isdeText = subsidieActief(ctx, 'ISDE') ? ` ISDE-subsidie ${isde}.` : '';
     adviezen.push({
       type: 'suggestie',
-      titel: `Aanbevolen Q-ton model: ${kortLabel}`,
-      body: `Schema-data: ${ctx.douchesPerWeek} douches/week ≈ ${Math.round(douchesPerDag)} per dag. Daarmee past: ${aanbevolen}. Q-ton gebruikt CO₂ als koudemiddel — efficiënt voor warm water tot 90°C.`,
+      titel: `Aanbevolen: ${model}`,
+      body: modelArgument + ` Vermogen ${vermogen}, buffer ${buffer}.${isdeText}`,
+    });
+
+    // Piek-context tegel
+    adviezen.push({
+      type: 'kader',
+      titel: `Jouw piek: ${piekL} L/u (${piekTijd})`,
+      body: `Daarvoor is ${ctx.piekUurLiters > 0 ? `${(piekL * 4.19 * 50 / 3600).toFixed(1)} kW thermisch` : '?'} nodig om de piek direct te dekken. Met buffer kun je dat halveren — dat is de bedoeling van een Q-ton.`,
     });
   } else {
     adviezen.push({
-      type: 'info',
-      titel: 'Vul trainingsschema in stap 1 voor douche-schatting',
-      body: 'Q-ton is vooral een warm-watertoestel. Zonder schema kan ik geen model adviseren — vul het schema in (eventueel met de 🎲 valsspeel-knop).',
+      type: 'waarschuwing',
+      titel: 'Vul eerst het trainingsschema in (stap 1)',
+      body: 'Zonder schema kan ik geen piek-vraag berekenen — en zonder piek-vraag geen passende Q-ton adviseren. Gebruik bij voorkeur de 🎲 valsspeel-knop om snel te starten.',
     });
   }
 
-  // Gas-besparing potentieel
+  // === Combinatie-advies: split tapwater + ruimteverwarming ===
+  const heeftRuimteWP = ctx.andereMaatregelen.has('lucht-water-warmtepomp')
+    || ctx.andereMaatregelen.has('hybride-warmtepomp')
+    || ctx.andereMaatregelen.has('lmnt-warmtepomp');
+  if (!heeftRuimteWP && ctx.gasM3PerJaar && ctx.gasM3PerJaar > 1000) {
+    adviezen.push({
+      type: 'info',
+      titel: 'Combinatie-advies: Q-ton voor tapwater + lucht/water voor verwarming',
+      body: 'Voor sportclubs werkt het BETER om tapwater en ruimteverwarming te splitsen: Q-ton dekt tapwater (hoge T 60°C+) efficiënt, een aparte lucht/water-WP doet ruimteverwarming op LAGE T (35-45°C met vloer- of LT-radiatoren). Dat is veel efficiënter dan één alleskunner.',
+    });
+  }
+
+  // === Gas-besparing schatting ===
   if (ctx.gasM3PerJaar && ctx.gasM3PerJaar > 0) {
-    const gasAandeelDouches = 0.35; // typisch 35% van gas gaat naar warm water bij sportclub
-    const besparingM3 = Math.round(ctx.gasM3PerJaar * gasAandeelDouches);
+    // Tapwater-gas: ~35% van sportclub-gasverbruik
+    const tapwaterAandeel = 0.35;
+    const besparing = Math.round(ctx.gasM3PerJaar * tapwaterAandeel);
     adviezen.push({
       type: 'kader',
-      titel: `Potentiële gasbesparing: ≈ ${fmt(besparingM3)} m³/jaar`,
-      body: `Typisch gaat ~35% van het sportclub-gas naar warm water. Q-ton vervangt dat volledig. Combineer met eventueel afsluiten gasaansluiting als ook ruimteverwarming wordt geëlektrificeerd → check vermijdbaar vastrecht.`,
+      titel: `Geschatte gasbesparing: ≈ ${fmt(besparing)} m³/jaar`,
+      body: `Ongeveer 35% van het sportclub-gas gaat naar warm water. Q-ton vervangt dat volledig (gas-aandeel tapwater → 0). Bij ${fmt(ctx.gasM3PerJaar)} m³ huidig = ${fmt(besparing)} m³ besparing.`,
     });
   }
-
-  // ISDE-tip
-  adviezen.push({
-    type: 'info',
-    titel: 'ISDE-subsidie',
-    body: 'Q-ton HMA30A: €2.500 · HMA45A: €3.700 ISDE-subsidie (zakelijke tabel, indicatief 2025). Aanvragen binnen 1 jaar na facturatie.',
-  });
 
   return adviezen;
 }
@@ -438,18 +485,33 @@ function adviesLmntWarmtepomp(ctx: ContextData, _huidigeInput: Record<string, un
 function adviesLuchtWaterWarmtepomp(ctx: ContextData, _huidigeInput: Record<string, unknown>): AdviesItem[] {
   const adviezen: AdviesItem[] = [];
   const vermogen = vermogenSchattingWarmtepomp(ctx);
+
+  // Belangrijke nuance: lucht/water doet typisch RUIMTEVERWARMING op LAGE T
+  adviezen.push({
+    type: 'info',
+    titel: 'Tip: gebruik lucht/water alleen voor ruimteverwarming (lage T)',
+    body: 'Voor sportclubs werkt het BETER om tapwater en ruimteverwarming te splitsen. Lucht/water op 35-45°C (vloer-/LT-radiatoren) is veel efficiënter dan op 60°C. Voor tapwater (douches): kies een aparte Q-ton CO₂-warmtepomp.',
+  });
+
   if (vermogen > 0) {
     adviezen.push({
       type: 'suggestie',
-      titel: `Geschat benodigd vermogen: ≈ ${vermogen} kW`,
-      body: `BVO ${ctx.bvoM2} m² × 60 W/m². Bij lage buitentemperaturen (-10°C) levert lucht/water typisch 60-70% van nominaal — laat installateur dit dimensioneren met TRY-tabellen.`,
+      titel: `Geschat benodigd vermogen ruimteverwarming: ≈ ${vermogen} kW`,
+      body: `BVO ${ctx.bvoM2} m² × 60 W/m². Bij lage buitentemperaturen (-10°C) levert lucht/water typisch 60-70% van nominaal — laat installateur dit dimensioneren.`,
     });
   }
   if (ctx.bouwjaar && ctx.bouwjaar < 1990 && !ctx.renovatiejaar) {
     adviezen.push({
       type: 'waarschuwing',
       titel: 'Oudere bouw — afgiftesysteem checken',
-      body: 'Lucht/water werkt het best bij afgiftetemperaturen 35-45°C. Bij hoge-temperatuur radiatoren wordt SCOP lager — overweeg hybride of eerst LT-vloerverwarming aanleggen.',
+      body: 'Lucht/water werkt het best bij afgiftetemperaturen 35-45°C. Bij hoge-temperatuur radiatoren wordt SCOP veel lager — overweeg hybride of eerst LT-vloerverwarming aanleggen.',
+    });
+  }
+  if (ctx.andereMaatregelen.has('qton-warmtepomp')) {
+    adviezen.push({
+      type: 'kader',
+      titel: '✓ Goede combinatie met Q-ton',
+      body: 'Je hebt al Q-ton gekozen voor tapwater. Lucht/water hier dekt dan alleen ruimteverwarming → kan op lage T → hoge SCOP (3,5-4,5).',
     });
   }
   const extra = schatExtraVerbruikWarmtepomp(ctx);
@@ -556,29 +618,52 @@ function adviesHybrideWarmtepomp(ctx: ContextData, _huidigeInput: Record<string,
   return adviezen;
 }
 
+/** Check of een subsidie actief is. Default = aan als context geen subsidies-set heeft. */
+function subsidieActief(ctx: ContextData, subsidie: string): boolean {
+  if (!ctx.actieveSubsidies) return true;
+  return ctx.actieveSubsidies.has(subsidie);
+}
+
 function adviesWarmtepompboiler(ctx: ContextData, _huidigeInput: Record<string, unknown>): AdviesItem[] {
   const adviezen: AdviesItem[] = [];
-  if (ctx.douchesPerWeek && ctx.douchesPerWeek > 0) {
-    const douchesPerDag = ctx.douchesPerWeek / 7;
-    if (douchesPerDag > 30) {
+
+  // Piek-gebaseerd advies
+  if (ctx.piekUurLiters && ctx.piekUurLiters > 0) {
+    const piekL = ctx.piekUurLiters;
+    if (piekL < 150) {
+      adviezen.push({
+        type: 'suggestie',
+        titel: `Goede keuze: piek ${piekL} L/uur past binnen één warmtepompboiler`,
+        body: `Standaard 200-300L warmtepompboiler dekt jouw piek prima. Plaats in technische ruimte ≥ 20 m³ voor lucht-aanvoer.`,
+      });
+    } else if (piekL < 400) {
       adviezen.push({
         type: 'waarschuwing',
-        titel: `${Math.round(douchesPerDag)} douches/dag — boiler mogelijk onvoldoende`,
-        body: 'Standaard warmtepompboilers hebben 200-300 L tank — voldoende voor ~15-25 douches/dag. Bij dit gebruik: overweeg Q-ton of meerdere boilers in cascade.',
+        titel: `Piek ${piekL} L/u is aan de grens — overweeg Q-ton`,
+        body: `Een 300L warmtepompboiler kan dit wel net aan, maar Q-ton HMA30A is dan eleganter (groter buffer, sneller opnieuw opladen). Wegen tegen de meerprijs (~€8k vs €4k).`,
       });
     } else {
       adviezen.push({
-        type: 'info',
-        titel: `${Math.round(douchesPerDag)} douches/dag — past binnen één boiler`,
-        body: 'Een standaard 200-300 L warmtepompboiler kan dit aan. Plaats wel zodanig dat lucht-aanvoer goed is (technische ruimte ≥ 20 m³).',
+        type: 'waarschuwing',
+        titel: `Piek ${piekL} L/u is TE GROOT voor één warmtepompboiler`,
+        body: `Bij deze piek raakt de boiler leeg tijdens de piek-uur. Kies Q-ton HMA30A (< 400 L/u) of HMA45A (< 800 L/u) i.p.v. warmtepompboiler.`,
       });
     }
+  } else {
+    adviezen.push({
+      type: 'info',
+      titel: 'Vul trainingsschema in voor piek-berekening',
+      body: 'Zonder schema kan ik niet bepalen of een 200/300L boiler voldoende is. Gebruik de 🎲 valsspeel-knop.',
+    });
   }
-  adviezen.push({
-    type: 'info',
-    titel: 'ISDE-subsidie',
-    body: '€750 - €1.500 ISDE-subsidie per unit (zakelijke tabel). Combineer met PV voor maximaal eigen verbruik.',
-  });
+
+  if (subsidieActief(ctx, 'ISDE')) {
+    adviezen.push({
+      type: 'info',
+      titel: 'ISDE-subsidie',
+      body: '€750 - €1.500 per warmtepompboiler-unit (zakelijke tabel 2025). Combineer met PV voor maximaal eigen verbruik.',
+    });
+  }
   return adviezen;
 }
 
