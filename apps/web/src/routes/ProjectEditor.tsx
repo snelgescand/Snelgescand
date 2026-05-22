@@ -30,7 +30,7 @@ import { MaatregelDetail } from '../components/MaatregelDetail';
 import { HuidigeSituatie } from '../components/HuidigeSituatie';
 import { MaatregelSuggesties } from '../components/MaatregelSuggesties';
 import { ChartCard, WaterverbruikChart, KasstroomChart, EnergiebalansChart, WaterverbruikPerUurChart } from '../components/Charts';
-import { TrainingsSchemaInvoer, analyseSchema, type TrainingsSchema } from '../components/TrainingsSchema';
+import { TrainingsSchemaInvoer, analyseSchema, getSportConfig, douchePercentage, LITERS_PER_DOUCHE, type TrainingsSchema, type TrainingMoment } from '../components/TrainingsSchema';
 import { EnergielabelKaart } from '../components/EnergielabelKaart';
 import { HistorischVerbruik } from '../components/HistorischVerbruik';
 import { berekenEnergielabel, berekenLabelNaMaatregelen, bepaalLabelSprong } from '../util/energielabel';
@@ -644,7 +644,7 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
   // Wordt 3D BAG-data getoond?
   const bouwhoogte = draft.context.gebouw?.bouwhoogteM;
   const trainAnalyse = (draft.trainingsSchema && draft.trainingsSchema.length > 0)
-    ? analyseSchema(draft.trainingsSchema) : null;
+    ? analyseSchema(draft.trainingsSchema, draft.context.club?.type) : null;
 
   return (
     <div className="grid lg:grid-cols-[3fr_2fr] gap-6">
@@ -1169,7 +1169,10 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
 
   // Bouw waterverbruik-grafiekdata uit trainingsschema (of detail-input als fallback)
   const waterData = useMemo(() => bouwWaterverbruikData(draft), [draft]);
-  const waterPerUurData = useMemo(() => bouwWaterPerUurData(draft.trainingsSchema), [draft.trainingsSchema]);
+  const waterPerUurData = useMemo(
+    () => bouwWaterPerUurData(draft.trainingsSchema, draft.context.club?.type),
+    [draft.trainingsSchema, draft.context.club?.type],
+  );
   const energiebalansData = useMemo(() => bouwEnergiebalansData(draft), [draft]);
   const kasstroomData = useMemo(() => bouwKasstroomData(cached), [cached]);
 
@@ -1449,53 +1452,158 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
  * ============================================================ */
 
 const DAGEN_VOLGORDE = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'] as const;
-const LITERS_PER_DOUCHE = 35;
-const SPELERS_PER_TEAM = { onder13: 10, vanaf13: 18 };
 
-// Douche-percentage o.b.v. leeftijd, type activiteit en dag (uit Excel Rekenmodel)
-function douchePct(leeftijd: 'onder13' | 'vanaf13', type: string, _dag: string): number {
-  if (type === 'sociaal') return 0;
-  const isWedstrijd = type === 'wedstrijd';
-  if (leeftijd === 'onder13') return isWedstrijd ? 0.50 : 0.25;
-  return isWedstrijd ? 1.00 : 0.95;
-}
-
+/**
+ * Waterverbruik per dag — gebruikt nu sport-config voor personen-per-eenheid en
+ * douche-%, in plaats van hardcoded voetbal-aannames.
+ */
 function bouwWaterverbruikData(draft: ProjectState) {
   const schema = draft.trainingsSchema;
-  if (schema && schema.length > 0) {
-    const perDag: Record<string, { jeugdL: number; senL: number }> = {};
-    for (const m of schema) {
-      if (!perDag[m.dag]) perDag[m.dag] = { jeugdL: 0, senL: 0 };
-      const spelersO13 = (m.aantalTeamsOnder13 ?? 0) * SPELERS_PER_TEAM.onder13;
-      const spelersV13 = (m.aantalTeamsVanaf13 ?? 0) * SPELERS_PER_TEAM.vanaf13;
-      perDag[m.dag].jeugdL += spelersO13 * douchePct('onder13', m.type, m.dag) * LITERS_PER_DOUCHE;
-      perDag[m.dag].senL += spelersV13 * douchePct('vanaf13', m.type, m.dag) * LITERS_PER_DOUCHE;
-    }
-    return DAGEN_VOLGORDE.filter(d => perDag[d]).map(d => ({
-      dag: d,
-      trainingL: Math.round(perDag[d].jeugdL),
-      wedstrijdL: Math.round(perDag[d].senL),
-    }));
+  if (!schema || schema.length === 0) return [];
+  const typeVereniging = draft.context.club?.type;
+  const config = getSportConfig(typeVereniging);
+
+  const perDag: Record<string, { jeugdL: number; senL: number }> = {};
+  for (const m of schema) {
+    if (!perDag[m.dag]) perDag[m.dag] = { jeugdL: 0, senL: 0 };
+    const douchesG1 = (m.aantalTeamsOnder13 ?? 0) * config.personenPerEenheid1
+      * douchePercentage('onder13', m.type, m.dag, typeVereniging);
+    const douchesG2 = (m.aantalTeamsVanaf13 ?? 0) * config.personenPerEenheid2
+      * douchePercentage('vanaf13', m.type, m.dag, typeVereniging);
+    perDag[m.dag].jeugdL += douchesG1 * LITERS_PER_DOUCHE;
+    perDag[m.dag].senL += douchesG2 * LITERS_PER_DOUCHE;
   }
-  return [];
+  return DAGEN_VOLGORDE.filter(d => perDag[d]).map(d => ({
+    dag: d,
+    trainingL: Math.round(perDag[d].jeugdL),
+    wedstrijdL: Math.round(perDag[d].senL),
+  }));
 }
 
-/** Waterverbruik per uur-van-de-dag (0–23), met leeftijdsspecifiek douche-percentage */
-function bouwWaterPerUurData(schema?: TrainingsSchema) {
+/**
+ * Waterverbruik per uur-van-de-dag (0-23).
+ *
+ * === Model: wave-based douche-verdeling ===
+ *
+ * Mensen douchen niet allemaal op exact één tijdstip. Ze gaan douchen direct
+ * na hun activiteit-blok. Per moment-type een ander patroon:
+ *
+ *   Training ≤ 2u            → 1 wave aan het einde (klassiek)
+ *   Wedstrijd > 2.5u          → meerdere waves (1 per uur — wedstrijden
+ *                               eindigen gefaseerd over de hele dag)
+ *   Racketsport > 2.5u        → idem — banen rouleren, douches verspreid
+ *   Sociaal                   → niemand doucht
+ *
+ * Per wave: 60% in dat uur, 30% in uur erna (langzame doucher),
+ *           10% in uur ervoor (snelle doucher die net klaar is).
+ *
+ * Concrete voorbeelden:
+ *   Voetbal di 19:30-21:00 (training, 1.5u, teamsport)
+ *     → 1 wave op 21:00 → 10% in uur 20, 60% in 21, 30% in 22
+ *
+ *   Voetbal za 09:00-12:30 (wedstrijd, 3.5u, teamsport)
+ *     → 4 waves om ~10:00, 11:00, 12:00, 12:30
+ *
+ *   Tennis 19:00-22:30 (training, 3.5u, racketsport)
+ *     → 4 waves om 20:00, 21:00, 22:00, 22:30 — banen rouleren elk uur
+ *
+ *   Tenniscompetitie za 10:00-17:00 (wedstrijd, 7u, racketsport)
+ *     → 7 waves verspreid over 11:00-17:00 — realistische hele competitiedag
+ */
+function bouwWaterPerUurData(schema?: TrainingsSchema, typeVereniging?: string) {
   if (!schema || schema.length === 0) return [];
+  const config = getSportConfig(typeVereniging);
   const perUur: number[] = new Array(24).fill(0);
+
   for (const m of schema) {
-    const spelersO13 = (m.aantalTeamsOnder13 ?? 0) * SPELERS_PER_TEAM.onder13 * douchePct('onder13', m.type, m.dag);
-    const spelersV13 = (m.aantalTeamsVanaf13 ?? 0) * SPELERS_PER_TEAM.vanaf13 * douchePct('vanaf13', m.type, m.dag);
-    const liters = (spelersO13 + spelersV13) * LITERS_PER_DOUCHE;
-    const startU = parseInt(m.startTijd.split(':')[0] ?? '0', 10);
-    const eindU = parseInt(m.eindTijd.split(':')[0] ?? '0', 10);
-    const laatste = Math.max(startU, eindU - 1);
-    const eenNaLaatst = Math.max(startU, eindU - 2);
-    perUur[laatste] += liters * 0.7;
-    if (eenNaLaatst !== laatste) perUur[eenNaLaatst] += liters * 0.3;
+    if (m.type === 'sociaal') continue;
+
+    // Totaal douche-liters voor dit moment
+    const douchesG1 = (m.aantalTeamsOnder13 ?? 0) * config.personenPerEenheid1
+      * douchePercentage('onder13', m.type, m.dag, typeVereniging);
+    const douchesG2 = (m.aantalTeamsVanaf13 ?? 0) * config.personenPerEenheid2
+      * douchePercentage('vanaf13', m.type, m.dag, typeVereniging);
+    const totaalLiters = (douchesG1 + douchesG2) * LITERS_PER_DOUCHE;
+    if (totaalLiters === 0) continue;
+
+    // Parse start/eind als decimaal uur (incl. minuten)
+    const [sh, sm] = (m.startTijd ?? '0:00').split(':').map(Number);
+    const [eh, em] = (m.eindTijd ?? '0:00').split(':').map(Number);
+    const startUur = (sh ?? 0) + (sm ?? 0) / 60;
+    const eindUur = (eh ?? 0) + (em ?? 0) / 60;
+    const duur = Math.max(0.5, eindUur - startUur);
+
+    // Bepaal wave-tijdstippen (absolute uren waarop een groep klaar is met sporten)
+    const waveTijden = bepaalWaveTijden(m.type, duur, startUur, eindUur, config.categorie);
+    const litersPerWave = totaalLiters / waveTijden.length;
+
+    for (const waveEinde of waveTijden) {
+      verdeelWavePiekOverUren(perUur, waveEinde, litersPerWave);
+    }
   }
+
   return perUur.map((l, u) => ({ uur: `${u}:00`, liters: Math.round(l) }));
+}
+
+/**
+ * Bepaal op welke ABSOLUTE uren (24-uurs klok) waves eindigen voor één moment.
+ *
+ * Heuristiek:
+ *  - Korte training of korte wedstrijd (≤ 2.5u): 1 wave aan het einde
+ *  - Lange wedstrijd: 1 wave per uur (geleidelijke einde-stromen)
+ *  - Lange racketsport: idem — banen rouleren elk uur
+ *  - Lange "training" niet-racket: 1 wave aan het einde (zeldzaam scenario)
+ */
+function bepaalWaveTijden(
+  type: TrainingMoment['type'],
+  duur: number,
+  startUur: number,
+  eindUur: number,
+  categorie: 'teamsport' | 'racketsport' | 'individueel' | 'baansport',
+): number[] {
+  const isLang = duur >= 2.5;
+  const isWedstrijd = type === 'wedstrijd';
+  const isRacket = categorie === 'racketsport';
+
+  // Standaard: 1 wave aan het einde
+  if (!isLang) {
+    return [eindUur];
+  }
+
+  // Lange wedstrijd OF lange racket-sessie: verdeel waves over de duur
+  if (isWedstrijd || isRacket) {
+    const aantalWaves = Math.max(2, Math.ceil(duur)); // ~1 wave per uur
+    const interval = duur / aantalWaves;
+    return Array.from({ length: aantalWaves }, (_, i) =>
+      Math.min(eindUur, startUur + interval * (i + 1))
+    );
+  }
+
+  // Lange training niet-racket (atletiek-uithoudingstraining, zwemtraining):
+  // 2 waves — halverwege en aan het einde (groepen-wissel halverwege)
+  if (duur >= 3) {
+    return [startUur + duur / 2, eindUur];
+  }
+
+  return [eindUur];
+}
+
+/**
+ * Verdeel het liter-volume van één wave over 3 uren rondom de wave-piek:
+ * 10% in uur ervoor, 60% in piek-uur, 30% in uur erna.
+ *
+ * Overflow voor 23:xx wordt teruggevouwen in uur 23.
+ */
+function verdeelWavePiekOverUren(perUur: number[], waveEindeUur: number, liters: number) {
+  const piekUur = Math.floor(Math.max(0, Math.min(23.99, waveEindeUur)));
+  const vorigUur = piekUur - 1;
+  const volgendUur = piekUur + 1;
+
+  perUur[piekUur] += liters * 0.6;
+  if (vorigUur >= 0) perUur[vorigUur] += liters * 0.1;
+  else perUur[piekUur] += liters * 0.1; // overflow naar piek
+  if (volgendUur < 24) perUur[volgendUur] += liters * 0.3;
+  else perUur[23] += liters * 0.3; // overflow naar uur 23
 }
 
 function bouwKasstroomData(cached: any) {
@@ -1523,7 +1631,7 @@ function bouwEnergiebalansData(draft: ProjectState) {
 
   const schema = draft.trainingsSchema;
   if (schema && schema.length > 0) {
-    const analyse = analyseSchema(schema);
+    const analyse = analyseSchema(schema, draft.context.club?.type);
     // Tapwater-gas: 2 m³ per 10 doucheboeben (HR-ketel ~80% rend), per week × 52
     const tapwaterM3PerJaar = (analyse.totaalDoucheBeurtenPerWeek * 0.2) * 52;
     // Ruimteverwarming-gas: rest minus 10% overig
