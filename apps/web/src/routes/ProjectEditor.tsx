@@ -1011,36 +1011,8 @@ interface Stap2Props {
 function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFout, pptFout, kanBerekenen, onTerugStap1 }: Stap2Props) {
   const gekozenIds = Object.keys(draft.gekozenMaatregelen);
 
-  // Welk maatregel-detail-paneel is uitgeklapt? (één tegelijk voor focus)
+  // Welke maatregel-detail-modal staat open? null = dicht.
   const [openDetailId, setOpenDetailId] = useState<string | null>(null);
-
-  // Counter zodat ELKE klik op "✏️ Aanpassen" een unieke re-render triggert,
-  // zelfs als hetzelfde paneel al openstond. Anders zou React de useEffect
-  // niet opnieuw runnen bij een tweede klik op dezelfde knop.
-  const [openTrigger, setOpenTrigger] = useState(0);
-
-  // Bij klik op "✏️ Aanpassen": open het detail-paneel én scroll ernaartoe.
-  // Lange timeout zodat React tijd heeft om eerst het paneel uit te klappen
-  // VOORDAT we scrollen — anders scrollt hij naar de dichte versie en daarna
-  // duwt het uitklappen alles weer omlaag.
-  const openDetail = (id: string) => {
-    setOpenDetailId(id);
-    setOpenTrigger(t => t + 1);
-    // Twee animatieframes wachten + 250ms zodat de DOM zeker geüpdatet is
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          const el = document.getElementById(`detail-${id}`);
-          if (el) {
-            console.log('[InlineEdit] Scrolling to', `detail-${id}`);
-            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          } else {
-            console.warn('[InlineEdit] Element niet gevonden:', `detail-${id}`);
-          }
-        }, 250);
-      });
-    });
-  };
 
   // Bouw waterverbruik-grafiekdata uit trainingsschema (of detail-input als fallback)
   const waterData = useMemo(() => bouwWaterverbruikData(draft), [draft]);
@@ -1097,6 +1069,29 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
                 stroomverbruikKwh: draft.context.energie?.stroomverbruikTotaalKwh,
                 gasprijsPerM3: draft.context.energie?.gasprijsPerM3,
                 stroomprijsKaalPerKwh: draft.context.energie?.stroomprijsKaalPerKwh,
+                aantalDouchekoppen: draft.context.gebouw?.aantalDouchekoppen,
+                douchesPerWeek: (() => {
+                  const s = draft.trainingsSchema ?? [];
+                  if (s.length === 0) return undefined;
+                  let total = 0;
+                  for (const m of s) {
+                    const o13 = m.aantalTeamsOnder13 * 10;
+                    const v13 = m.aantalTeamsVanaf13 * 15;
+                    total += (o13 + v13) * 0.6;  // 60% van spelers doucht
+                  }
+                  return Math.round(total);
+                })(),
+                gasDouchePerJaar: (() => {
+                  const s = draft.trainingsSchema ?? [];
+                  if (s.length === 0) return undefined;
+                  let total = 0;
+                  for (const m of s) {
+                    const o13 = m.aantalTeamsOnder13 * 10;
+                    const v13 = m.aantalTeamsVanaf13 * 15;
+                    total += (o13 + v13) * 0.6;
+                  }
+                  return Math.round(total * 42 * 0.5);
+                })(),
               }}
               huidigeSituatie={draft.huidigeSituatie ?? {}}
               gekozenIds={gekozenIds}
@@ -1105,48 +1100,72 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
                 if (id in next) delete next[id];
                 else {
                   next[id] = defaults;
-                  // bij selectie direct het detail-paneel openen
-                  setTimeout(() => openDetail(id), 100);
+                  // Bij selectie direct de modal openen
+                  setTimeout(() => setOpenDetailId(id), 100);
                 }
                 return { ...s, gekozenMaatregelen: next };
               })}
-              onOpenDetail={openDetail}
+              onOpenDetail={setOpenDetailId}
             />
           </Sectie>
         )}
 
-        {/* Details per gekozen maatregel */}
-        {gekozenIds.length > 0 && modulesQuery.data && (
-          <Sectie titel="Details per gekozen maatregel" tooltipTekst="Pas hier de aannames per maatregel aan.">
-            <div className="space-y-2">
-              {gekozenIds.map(modId => {
-                const mod = modulesQuery.data?.modules.find(m => m.id === modId);
-                // Bij open-actie wordt openTrigger verhoogd, wat de key wijzigt.
-                // React mount dan deze MaatregelDetail opnieuw met defaultOpen=true.
-                const isOpen = openDetailId === modId;
-                const key = isOpen ? `${modId}-open-${openTrigger}` : modId;
-                return (
-                  <div id={`detail-${modId}`} key={key}>
-                    <MaatregelDetail
-                      startOpen={isOpen}
-                      maatregelId={modId}
-                      maatregelNaam={mod?.naam ?? modId}
-                      input={draft.gekozenMaatregelen[modId] as Record<string, unknown> ?? {}}
-                      bouwjaar={draft.context.gebouw?.bouwjaar}
-                      onChange={(input) => updateDraft(s => ({ ...s, gekozenMaatregelen: { ...s.gekozenMaatregelen, [modId]: input } }))}
-                      onRemove={() => updateDraft(s => {
-                        const next = { ...s.gekozenMaatregelen };
-                        delete next[modId];
-                        return { ...s, gekozenMaatregelen: next };
-                      })}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </Sectie>
-        )}
+        {/* Modal voor het bewerken van één maatregel — voorkomt scroll/timing issues
+            van een inline collapsible. Werkt altijd consistent: klik aanpassen → modal opent,
+            edits opslaan automatisch, klik buiten modal of op X om te sluiten. */}
       </div>
+
+      {/* MODAL: maatregel-detail bewerken */}
+      {openDetailId && modulesQuery.data && draft.gekozenMaatregelen[openDetailId] !== undefined && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setOpenDetailId(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between z-10">
+              <h2 className="text-base font-semibold text-primary-900">
+                ✏️ {modulesQuery.data.modules.find(m => m.id === openDetailId)?.naam ?? openDetailId}
+              </h2>
+              <button
+                onClick={() => setOpenDetailId(null)}
+                className="text-gray-500 hover:text-gray-900 p-1 rounded hover:bg-gray-100"
+                aria-label="Sluiten"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5">
+              <MaatregelDetail
+                startOpen={true}
+                maatregelId={openDetailId}
+                maatregelNaam={modulesQuery.data.modules.find(m => m.id === openDetailId)?.naam ?? openDetailId}
+                input={(draft.gekozenMaatregelen[openDetailId] as Record<string, unknown>) ?? {}}
+                bouwjaar={draft.context.gebouw?.bouwjaar}
+                onChange={(input) => updateDraft(s => ({ ...s, gekozenMaatregelen: { ...s.gekozenMaatregelen, [openDetailId]: input } }))}
+                onRemove={() => {
+                  updateDraft(s => {
+                    const next = { ...s.gekozenMaatregelen };
+                    delete next[openDetailId];
+                    return { ...s, gekozenMaatregelen: next };
+                  });
+                  setOpenDetailId(null);
+                }}
+              />
+            </div>
+            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-5 py-3 flex justify-end gap-2">
+              <button
+                onClick={() => setOpenDetailId(null)}
+                className="btn-accent"
+              >
+                Klaar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Rechter kolom: resultaat + grafieken */}
       <div className="space-y-5">
