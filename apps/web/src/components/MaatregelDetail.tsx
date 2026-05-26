@@ -6,7 +6,7 @@
  * een speciaal sub-component getoond.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { rcDefault } from '@sportief-opgewekt/calc-core';
 import { InfoTooltip } from './InfoTooltip';
 import { MAATREGEL_META, GLAS_OPTIES, DAG_NAMEN, type VeldDef } from '../data/maatregel-velden';
@@ -40,6 +40,27 @@ export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, o
   const [open, setOpen] = useState(startOpen);
 
   const meta = MAATREGEL_META[maatregelId];
+
+  /**
+   * Auto-fill voor warmtepomp-maatregelen: vul het verborgen calc-veld
+   * `litersPerJaar` automatisch met (week-vraag × 48). De UI toont dit
+   * veld niet meer — gebruikers werken alleen met buffer/vermogen-advies.
+   */
+  useEffect(() => {
+    const isBoilerMaatregel = ['warmtepompboiler', 'qton-warmtepomp', 'lmnt-warmtepomp', 'pvt-tapwater'].includes(maatregelId);
+    if (!isBoilerMaatregel) return;
+    const huidige = (input.litersPerJaar as number | undefined) ?? 0;
+    // Alleen pre-fillen als nog leeg of 0 — laat handmatige overrides intact
+    if (huidige > 0) return;
+    // Schat uit week-data van adviesContext (uren-en-douches via piekUurLiters is niet voldoende — gebruik douchesPerWeek)
+    const douchesPerWeek = context?.douchesPerWeek ?? 0;
+    if (douchesPerWeek <= 0) return;
+    const litersPerWeek = douchesPerWeek * 35;
+    const litersPerJaar = Math.round(litersPerWeek * 48); // 48 actieve weken
+    onChange({ ...input, litersPerJaar });
+    // ESLint-uit: onChange is stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maatregelId, context?.douchesPerWeek]);
 
   function updateVeld(pad: string, waarde: unknown) {
     onChange({ ...input, [pad]: waarde });

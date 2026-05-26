@@ -34,6 +34,8 @@ export interface ContextData {
   totaalTeams?: number;
   /** Aantal douchekoppen uit gebouwgegevens */
   aantalDouchekoppen?: number;
+  /** Daktype — bepaalt PV-pasbaarheid */
+  daktype?: 'plat' | 'schuin' | 'gemengd' | 'onbekend';
   /** Piek-uur warm water (L/uur) — bepaalt benodigd WP-vermogen */
   piekUurLiters?: number;
   /** Piek-dag totaal warm water (L) — bepaalt buffer-grootte */
@@ -281,7 +283,43 @@ function adviesZonnepanelen(ctx: ContextData, huidigeInput: Record<string, unkno
     suggestie: { pad: 'eigenVerbruikRatio', waarde: Math.round(eigenVerbruik * 100) / 100, knopLabel: `Vul ${(eigenVerbruik * 100).toFixed(0)}% in` },
   });
 
-  // 4. Aansluit-check
+  // 4. MAXIMAAL AANTAL PANELEN OP HET DAK (op basis van daktype)
+  if (ctx.bvoM2 && ctx.bvoM2 > 0) {
+    const m2PerPaneel = 1.8;
+    const benutbareFactor =
+      ctx.daktype === 'plat'    ? 0.55 :
+      ctx.daktype === 'schuin'  ? 0.32 :
+      ctx.daktype === 'gemengd' ? 0.43 :
+                                   0.40; // onbekend / niet ingevuld → veilig gemiddelde
+    const daktypeLabel =
+      ctx.daktype === 'plat'    ? 'plat dak' :
+      ctx.daktype === 'schuin'  ? 'schuin dak' :
+      ctx.daktype === 'gemengd' ? 'gemengd dak' :
+                                  'dak (type onbekend)';
+    const beschikbaarM2 = ctx.bvoM2 * benutbareFactor;
+    const maxPanelen = Math.floor(beschikbaarM2 / m2PerPaneel);
+    const wpPerPaneel = (huidigeInput.wpPerPaneel as number) ?? 425;
+    const maxPiekKw = Math.round((maxPanelen * wpPerPaneel) / 1000);
+    const onderbouwing = ctx.daktype === 'schuin'
+      ? `Schuin dak: alleen zuid-/west-helft is goed bruikbaar (~50%), na aftrek van schaduw + dakranden ≈ 32% van BVO als opstelvlak.`
+      : ctx.daktype === 'plat'
+      ? `Plat dak: rekening met oost/west-opstelling, looppaden, dakranden en eventuele installaties → ~55% van BVO benutbaar.`
+      : `Gemengd dak — gemiddelde van plat en schuin (~43% benutbaar).`;
+    adviezen.push({
+      type: 'kader',
+      titel: `🏠 Max. ${maxPanelen} panelen passen op het dak (${daktypeLabel})`,
+      body: `BVO ${fmt(ctx.bvoM2)} m² × ${(benutbareFactor * 100).toFixed(0)}% benutbaar = ${fmt(beschikbaarM2)} m² → ${maxPanelen} panelen × ${wpPerPaneel} Wp = ${maxPiekKw} kWp piek. ${onderbouwing} Pas ingevulde aantal niet boven deze grens — anders past het fysiek niet.`,
+    });
+    if (!ctx.daktype || ctx.daktype === 'onbekend') {
+      adviezen.push({
+        type: 'waarschuwing',
+        titel: 'Daktype niet ingevuld in stap 1',
+        body: 'Vul "Daktype" in bij de gebouwgegevens van stap 1 voor een nauwkeuriger advies. Bij schuin dak passen typisch maar de helft van het aantal panelen als bij plat.',
+      });
+    }
+  }
+
+  // 5. Aansluit-check
   if (ctx.aansluitVermogenKw) {
     const aantalPanelen = (huidigeInput.aantalPanelen as number) ?? 0;
     const piekKw = (aantalPanelen * wpPerPaneel) / 1000;
@@ -380,30 +418,38 @@ function adviesQtonWarmtepomp(ctx: ContextData, _huidigeInput: Record<string, un
       : 'piek-uur';
 
     // Q-ton specifiek aanbeveling
-    let model: string, modelArgument: string, vermogen: string, buffer: string, isde: string;
+    let model: string, modelArgument: string, vermogen: string, bufferL: number, isde: string;
     if (piekL < 150) {
       model = 'NIET Q-ton, maar warmtepompboiler';
       modelArgument = 'Bij jouw lage piek-vraag is een Q-ton overkill. Een standaard warmtepompboiler 200-300L is goedkoper en simpeler.';
-      vermogen = '2 kW'; buffer = '250L'; isde = '~€1000';
+      vermogen = '2 kW'; bufferL = 250; isde = '~€1000';
     } else if (piekL < 400) {
       model = 'Q-ton HMA30A';
       modelArgument = 'Klassieke sportclub-keuze. CO₂-koudemiddel levert efficiënt warm water tot 90°C — ruime marge boven legionella-T (60°C). 350L buffer overbrugt de douche-piek direct na training.';
-      vermogen = '3 kW'; buffer = '350L'; isde = '€2.500';
+      vermogen = '3 kW'; bufferL = 350; isde = '€2.500';
     } else if (piekL < 800) {
       model = 'Q-ton HMA45A';
       modelArgument = `Voor jouw piek van ${piekL} L/uur op ${piekTijd} is HMA30A te krap. HMA45A levert ook tijdens je zaterdag-piek voldoende warm water.`;
-      vermogen = '4,5 kW'; buffer = '500L'; isde = '€3.700';
+      vermogen = '4,5 kW'; bufferL = 500; isde = '€3.700';
     } else {
       model = '2x Q-ton HMA45A in cascade';
       modelArgument = 'Eén unit dekt deze piek niet — cascade geeft modulatie + redundantie. Alternatief: bodem-WP met grotere tap-tank.';
-      vermogen = '9 kW totaal'; buffer = '1000L'; isde = '2x €3.700';
+      vermogen = '9 kW totaal'; bufferL = 1000; isde = '2x €3.700';
     }
 
     const isdeText = subsidieActief(ctx, 'ISDE') ? ` ISDE-subsidie ${isde}.` : '';
     adviezen.push({
       type: 'suggestie',
       titel: `Aanbevolen: ${model}`,
-      body: modelArgument + ` Vermogen ${vermogen}, buffer ${buffer}.${isdeText}`,
+      body: modelArgument + ` Vermogen ${vermogen}, buffer ${bufferL}L.${isdeText}`,
+    });
+
+    // PROMINENTE BOILERVAT-AANBEVELING — direct invulbaar
+    adviezen.push({
+      type: 'suggestie',
+      titel: `🛢️ Boilervat-grootte: ${bufferL} L`,
+      body: `Berekend uit jouw piek-uur (${piekL} L/u × 1,18 aftapfactor ≈ ${Math.round(piekL / 0.85)} L). Standaard tankmaten: 200, 300, 350, 500, 1000L. Kies de eerstvolgende ≥ aanbevolen.`,
+      suggestie: { pad: 'bufferLiters', waarde: bufferL, knopLabel: `Vul ${bufferL}L in als buffer` },
     });
 
     // Piek-context tegel
@@ -627,20 +673,24 @@ function subsidieActief(ctx: ContextData, subsidie: string): boolean {
 function adviesWarmtepompboiler(ctx: ContextData, _huidigeInput: Record<string, unknown>): AdviesItem[] {
   const adviezen: AdviesItem[] = [];
 
-  // Piek-gebaseerd advies
   if (ctx.piekUurLiters && ctx.piekUurLiters > 0) {
     const piekL = ctx.piekUurLiters;
+    // Standaard tankmaten — kies eerstvolgende ≥ piek (× aftapfactor 0.85)
+    const minBuffer = Math.round(piekL / 0.85);
+    const standaardMaten = [200, 300, 500, 750, 1000, 1500];
+    const aanbevolenBuffer = standaardMaten.find(s => s >= minBuffer) ?? standaardMaten[standaardMaten.length - 1];
+
     if (piekL < 150) {
       adviezen.push({
         type: 'suggestie',
-        titel: `Goede keuze: piek ${piekL} L/uur past binnen één warmtepompboiler`,
-        body: `Standaard 200-300L warmtepompboiler dekt jouw piek prima. Plaats in technische ruimte ≥ 20 m³ voor lucht-aanvoer.`,
+        titel: `✓ Warmtepompboiler past — piek ${piekL} L/uur is goed dekbaar`,
+        body: `Standaard warmtepompboiler (ATAG, Itho, Inventum) volstaat. Plaats in technische ruimte ≥ 20 m³ voor lucht-aanvoer.`,
       });
     } else if (piekL < 400) {
       adviezen.push({
         type: 'waarschuwing',
         titel: `Piek ${piekL} L/u is aan de grens — overweeg Q-ton`,
-        body: `Een 300L warmtepompboiler kan dit wel net aan, maar Q-ton HMA30A is dan eleganter (groter buffer, sneller opnieuw opladen). Wegen tegen de meerprijs (~€8k vs €4k).`,
+        body: `Een ${aanbevolenBuffer}L warmtepompboiler kan dit wel net aan, maar Q-ton HMA30A is dan eleganter (groter buffer, sneller opnieuw opladen). Wegen tegen de meerprijs (~€8k vs €4k).`,
       });
     } else {
       adviezen.push({
@@ -649,11 +699,19 @@ function adviesWarmtepompboiler(ctx: ContextData, _huidigeInput: Record<string, 
         body: `Bij deze piek raakt de boiler leeg tijdens de piek-uur. Kies Q-ton HMA30A (< 400 L/u) of HMA45A (< 800 L/u) i.p.v. warmtepompboiler.`,
       });
     }
+
+    // PROMINENTE BOILERVAT-AANBEVELING — direct invulbaar
+    adviezen.push({
+      type: 'suggestie',
+      titel: `🛢️ Boilervat-grootte: ${aanbevolenBuffer} L`,
+      body: `Berekend uit piek-uur (${piekL} L/u × 1,18 aftapfactor ≈ ${minBuffer} L). Eerstvolgende standaardmaat: ${aanbevolenBuffer}L. Tankmaten gangbaar: 200, 300, 500, 750, 1000L.`,
+      suggestie: { pad: 'bufferLiters', waarde: aanbevolenBuffer, knopLabel: `Vul ${aanbevolenBuffer}L in als buffer` },
+    });
   } else {
     adviezen.push({
       type: 'info',
       titel: 'Vul trainingsschema in voor piek-berekening',
-      body: 'Zonder schema kan ik niet bepalen of een 200/300L boiler voldoende is. Gebruik de 🎲 valsspeel-knop.',
+      body: 'Zonder schema kan ik niet bepalen welk boilervat-volume voldoende is. Gebruik de 🎲 valsspeel-knop.',
     });
   }
 

@@ -14,6 +14,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Stap3Financien, type EigenSubsidie, type Financiering } from '../components/Stap3Financien';
 import { projectsApi, modulesApi, ApiError, bagApi, instellingenApi } from '../api/client';
 import { berekenLokaal, BerekenValidatieFout } from '../util/lokaal-bereken';
 import { AppHeader } from '../components/AppHeader';
@@ -56,6 +57,8 @@ interface ProjectState {
       bvoTotaalM2?: number;
       plafondhoogteM?: number;
       bouwhoogteM?: number;
+      /** Plat, schuin of gemengd dak — beïnvloedt PV-paneelaantal */
+      daktype?: 'plat' | 'schuin' | 'gemengd' | 'onbekend';
       // Excel-velden uit Rekenmodel inputsheet
       typeSport?: string;
       aantalVeldenBanen?: number;
@@ -87,9 +90,13 @@ interface ProjectState {
   logo?: ClubLogo;
   huidigeSituatie?: HuidigeSituatieData;
   gekozenMaatregelen: Record<string, unknown>;
-  fase?: 1 | 2;
+  fase?: 1 | 2 | 3;
   /** Trainingsschema voor specifiekere gas/water-verdeling */
   trainingsSchema?: TrainingsSchema;
+  /** Door gebruiker handmatig toegevoegde subsidies/kortingen — stap 3 */
+  eigenSubsidies?: EigenSubsidie[];
+  /** Financierings-keuzes uit stap 3 (inleg, lening, rente, looptijd) */
+  financiering?: Financiering;
   /** Opgeslagen lokaal berekend resultaat — zodat backend het ook heeft voor PPT */
   berekendResultaat?: Record<string, unknown>;
   /** Project-fase voor lifecycle (concept/scan-gepland/etc) — zie data/lifecycle.ts */
@@ -121,7 +128,7 @@ export default function ProjectEditor() {
   });
 
   const [draft, setDraft] = useState<ProjectState | null>(null);
-  const [fase, setFase] = useState<1 | 2>(1);
+  const [fase, setFase] = useState<1 | 2 | 3>(1);
   const [berekenFout, setBerekenFout] = useState<string | null>(null);
   const [pptFout, setPptFout] = useState<string | null>(null);
   const [bevestigVerwijder, setBevestigVerwijder] = useState(false);
@@ -412,7 +419,7 @@ export default function ProjectEditor() {
     setBagStatus(status);
   }
 
-  function gaNaarFase(nieuweFase: 1 | 2) {
+  function gaNaarFase(nieuweFase: 1 | 2 | 3) {
     setFase(nieuweFase);
     if (draft) updateDraft(s => ({ ...s, fase: nieuweFase }));
   }
@@ -522,6 +529,15 @@ export default function ProjectEditor() {
               disabled={!energieCompleet}
               disabledReden="Vul eerst de energievelden in stap 1"
             />
+            <TabKnop
+              actief={fase === 3}
+              onClick={() => gaNaarFase(3)}
+              nummer={3}
+              titel="Financieel & lening"
+              ondertitel="Subsidies, eigen inleg, lening, TCO"
+              disabled={!energieCompleet || Object.keys(draft.gekozenMaatregelen).length === 0}
+              disabledReden="Kies eerst maatregelen in stap 2"
+            />
           </div>
         </div>
       </div>
@@ -539,7 +555,7 @@ export default function ProjectEditor() {
             huidigeEigenaarId={projectQuery.data?.eigenaarId}
             huidigeEigenaarNaam={projectQuery.data?.eigenaar?.naam}
           />
-        ) : (
+        ) : fase === 2 ? (
           <Stap2Maatregelen
             draft={draft}
             updateDraft={updateDraft}
@@ -549,6 +565,14 @@ export default function ProjectEditor() {
             pptFout={pptFout}
             kanBerekenen={kanBerekenen}
             onTerugStap1={() => gaNaarFase(1)}
+          />
+        ) : (
+          <Stap3Wrapper
+            draft={draft}
+            updateDraft={updateDraft}
+            modulesQuery={modulesQuery}
+            cached={cached}
+            onTerugStap2={() => gaNaarFase(2)}
           />
         )}
       </main>
@@ -840,6 +864,19 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
               <input type="number" className="input" placeholder="bv. 48"
                 value={draft.context.gebouw?.aantalDouchekoppen ?? ''}
                 onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, aantalDouchekoppen: e.target.value ? Number(e.target.value) : undefined } } }))} />
+            </Veld>
+            <Veld label="Daktype" tooltip="Voor PV-dimensionering: plat dak benut ~55% van BVO als opstelvlak, schuin dak alleen ~32% (max. helft is zuid/west). Maakt groot verschil voor aantal mogelijke panelen.">
+              <select
+                className="input"
+                value={draft.context.gebouw?.daktype ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, daktype: (e.target.value || undefined) as ('plat' | 'schuin' | 'gemengd' | 'onbekend' | undefined) } } }))}
+              >
+                <option value="">— kies —</option>
+                <option value="plat">Plat dak (~55% benutbaar)</option>
+                <option value="schuin">Schuin dak (~32% benutbaar, alleen zuid/west)</option>
+                <option value="gemengd">Gemengd / meerdere bouwdelen (~43%)</option>
+                <option value="onbekend">Onbekend</option>
+              </select>
             </Veld>
             <Veld label="Eigendom gebouw" tooltip="Het clubhuis: in eigen bezit, gehuurd van gemeente, of anderszins. DUMAVA-subsidie vereist eigen accommodatie.">
               <select
@@ -1173,6 +1210,7 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
       urenPerWeek: Math.round(urenPerWeek * 10) / 10,
       totaalTeams: maxTeams,
       aantalDouchekoppen: draft.context.gebouw?.aantalDouchekoppen,
+      daktype: draft.context.gebouw?.daktype,
       piekUurLiters: pieken?.piekUurLiters,
       piekDagLiters: pieken?.piekDagLiters,
       doucheBeurtenPiekDag: pieken?.doucheBeurtenPiekDag,
@@ -1532,6 +1570,78 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
  * ============================================================ */
 
 const DAGEN_VOLGORDE = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'] as const;
+
+/**
+ * Wrapper voor Stap3Financien — haalt instellingen op, mapt modules naar
+ * naam-record, bouwt actieveSubsidies-set en geeft alles door.
+ */
+interface Stap3WrapperProps {
+  draft: ProjectState;
+  updateDraft: (u: (s: ProjectState) => ProjectState) => void;
+  modulesQuery: { data?: { modules: Array<{ id: string; naam: string; defaultInput: unknown }>; groepen: Record<string, readonly string[]> } };
+  cached: any;
+  onTerugStap2: () => void;
+}
+
+function Stap3Wrapper({ draft, updateDraft, modulesQuery, cached, onTerugStap2 }: Stap3WrapperProps) {
+  // Tenant-instellingen voor subsidie-filter (zelfde query als stap 2)
+  const instellingenQuery = useQuery({
+    queryKey: ['tenant-instellingen'],
+    queryFn: instellingenApi.get,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const actieveSubsidies = useMemo(() => {
+    const flags = instellingenQuery.data?.instellingen.subsidies.actief ?? {};
+    const ALLE = ['ISDE', 'DUMAVA', 'SCE', 'SDE++', 'BOSA', 'SPUK', 'SPOK', 'SportNLGroen', 'IAS', 'OMV', 'SWS', 'dumava', 'isde', 'bosa', 'sce'];
+    const set = new Set<string>();
+    for (const naam of ALLE) {
+      if (flags[naam] !== false) set.add(naam);
+    }
+    return set;
+  }, [instellingenQuery.data]);
+
+  const modulesNaam = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const m of modulesQuery.data?.modules ?? []) out[m.id] = m.naam;
+    return out;
+  }, [modulesQuery.data]);
+
+  // Cached resultaat — bij verschijnen van stap 3 is dat het laatste van stap 2
+  if (!cached || !cached.perMaatregel) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-5">
+        <h3 className="font-semibold text-amber-900">Geen berekening beschikbaar</h3>
+        <p className="text-sm text-amber-800 mt-1">Ga terug naar stap 2 en klik op <strong>Bereken</strong>, dan kun je hier de financiering uitwerken.</p>
+        <button type="button" onClick={onTerugStap2}
+          className="mt-3 text-sm px-4 py-2 rounded border border-gray-300 hover:bg-gray-50">
+          ← Terug naar stap 2
+        </button>
+      </div>
+    );
+  }
+
+  const eigenSubsidies = draft.eigenSubsidies ?? [];
+  const financiering: Financiering = draft.financiering ?? {
+    eigenInleg: 0,
+    rentePct: 3.5,
+    looptijdJaren: 15,
+  };
+
+  return (
+    <Stap3Financien
+      berekend={cached}
+      modulesNaam={modulesNaam}
+      eigenSubsidies={eigenSubsidies}
+      financiering={financiering}
+      actieveSubsidies={actieveSubsidies}
+      onEigenSubsidiesChange={(subs) => updateDraft(s => ({ ...s, eigenSubsidies: subs }))}
+      onFinancieringChange={(fin) => updateDraft(s => ({ ...s, financiering: fin }))}
+      onTerugStap2={onTerugStap2}
+    />
+  );
+}
+
 
 /**
  * Waterverbruik per dag — gesplitst per moment-TYPE (training vs wedstrijd),

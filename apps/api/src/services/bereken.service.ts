@@ -115,7 +115,61 @@ export function berekenProject(rawState: unknown): BerekendProject {
     }
   }
 
-  // === Stap 4: rollup — ook in try/catch zodat één bug niet alles sloopt ===
+  // === Stap 4: DUMAVA-eligibility check ===
+  // DUMAVA-regeling (RVO, sinds 1-3-2023) vereist ECHTE verduurzaming:
+  //   - Minimaal 3 verduurzamingsmaatregelen die in de DUMAVA-lijst staan, OF
+  //   - Een labelsprong naar minimaal label B (bij start vanaf C of slechter)
+  //
+  // Voorheen kreeg elke maatregel los DUMAVA toegekend, ook als er maar 1 maatregel
+  // was gekozen of als het label niet verbeterde. Dat klopt niet. Hier filteren we
+  // DUMAVA eruit als de criteria niet vervuld zijn — dan blijven andere subsidies
+  // (ISDE, BOSA) gewoon staan.
+  const aantalMaatregelen = Object.values(resultaten).filter(r => r && r.brutoInvestering > 0).length;
+  const labelInfo = userCtx.energielabel as { huidig?: string; verwachtNa?: string } | undefined;
+  const labelHuidig = labelInfo?.huidig?.toUpperCase();
+  const labelNa = labelInfo?.verwachtNa?.toUpperCase();
+  // Labelsprong: van C/D/E/F/G naar A of B is een echte sprong; van B naar B is dat niet
+  const RANG = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+  const huidigRang = labelHuidig ? RANG.indexOf(labelHuidig) : -1;
+  const naRang = labelNa ? RANG.indexOf(labelNa) : -1;
+  const labelSprong = huidigRang >= 0 && naRang >= 0
+    && naRang < huidigRang   // lager indexgetal = beter label
+    && naRang <= 1;          // naar A of B
+  const dumavaToegestaan = aantalMaatregelen >= 3 || labelSprong;
+
+  if (!dumavaToegestaan) {
+    // Verwijder DUMAVA-subsidie uit alle maatregel-resultaten en herbereken totalen
+    for (const id of Object.keys(resultaten) as RegistryKey[]) {
+      const res = resultaten[id];
+      if (!res || !res.subsidies) continue;
+      const verwijderd = res.subsidies.filter(s => s.bron !== 'dumava');
+      if (verwijderd.length !== res.subsidies.length) {
+        const nieuweTotaleSubsidie = verwijderd.reduce((s, x) => s + x.bedrag, 0);
+        resultaten[id] = {
+          ...res,
+          subsidies: verwijderd,
+          totaleSubsidie: nieuweTotaleSubsidie,
+          nettoInvestering: res.brutoInvestering - nieuweTotaleSubsidie,
+          // TVT herberekenen
+          terugverdientijdJaren: res.besparingPerJaar > 0
+            ? (res.brutoInvestering - nieuweTotaleSubsidie) / res.besparingPerJaar
+            : res.terugverdientijdJaren,
+          warnings: [
+            ...(res.warnings ?? []),
+            {
+              level: 'info' as const,
+              code: 'DUMAVA_NIET_VAN_TOEPASSING',
+              message: aantalMaatregelen < 3
+                ? `DUMAVA niet toegekend: vereist minimaal 3 verduurzamingsmaatregelen (nu ${aantalMaatregelen} gekozen). Voeg meer maatregelen toe of zorg voor een labelsprong naar A/B.`
+                : 'DUMAVA niet toegekend: huidig label en verwacht label-na vormen geen sprong naar A/B vanaf C of slechter.',
+            },
+          ],
+        };
+      }
+    }
+  }
+
+  // === Stap 5: rollup — ook in try/catch zodat één bug niet alles sloopt ===
   // Batterij-vermogen voor aansluitwaarde-check
   const batE = gekozen['batterij-eenvoudig'] as { vermogenKw?: number } | undefined;
   const batU = gekozen['batterij-uitgebreid'] as { vermogenKw?: number } | undefined;

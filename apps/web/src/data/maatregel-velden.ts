@@ -107,10 +107,10 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
   // VERWARMING / WARM WATER
   // ============================================================
   'warmtepompboiler': {
-    kort: 'Aparte warmtepomp voor tapwater. Vervangt gasgestookt warm water.',
+    kort: 'Aparte warmtepomp voor tapwater. Vervangt gasgestookt warm water. Het advies-paneel hierboven berekent automatisch de benodigde boilervat-grootte uit je trainingsschema.',
     velden: [
-      { pad: 'litersPerJaar', label: 'Warm water per jaar', type: 'number', eenheid: 'liter',
-        tooltip: 'Komt typisch uit de douche-analyse. Voor 100 leden × 1 keer/wk × 70L ≈ 365.000 L.' },
+      { pad: 'bufferLiters', label: 'Boilervat-grootte (buffer)', type: 'number', eenheid: 'liter',
+        tooltip: 'Bepaal je obv het advies hierboven (piek-uur warm water × 1,2). Standaard maten: 200L, 300L, 500L.', placeholder: 'bv. 300' },
       { pad: 'cop', label: 'COP (verhouding warmte/stroom)', type: 'number', stap: 0.1,
         tooltip: 'Default 3,5 voor moderne lucht/water-warmtepompboilers.' },
       { pad: 'aantalUnits', label: 'Aantal units', type: 'number', placeholder: 'bv. 1' },
@@ -119,7 +119,7 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
     ],
   },
   'qton-warmtepomp': {
-    kort: 'Mitsubishi Q-ton CO₂-warmtepomp. Hoog tapwatertemperatuur (tot 90°C), ideaal voor grote clubs.',
+    kort: 'Mitsubishi Q-ton CO₂-warmtepomp. Hoog tapwatertemperatuur (tot 90°C), ideaal voor grote clubs. Boilervat-grootte volgt automatisch uit het advies hierboven.',
     velden: [
       { pad: 'model', label: 'Model', type: 'select',
         opties: [
@@ -127,7 +127,8 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
           { waarde: 'HMA45A', label: 'HMA45A — 45 kW (€38.500)' },
         ]},
       { pad: 'aantalUnits', label: 'Aantal units', type: 'number', placeholder: 'bv. 1' },
-      { pad: 'litersPerJaar', label: 'Warm water per jaar', type: 'number', eenheid: 'liter' },
+      { pad: 'bufferLiters', label: 'Boilervat (buffer)', type: 'number', eenheid: 'liter',
+        tooltip: 'Standaard: 350L bij HMA30A, 500L bij HMA45A. Pas aan als piek-vraag uit advies groter is.', placeholder: '350' },
       { pad: 'warmwaterTemperatuurC', label: 'Tapwater-temperatuur', type: 'select',
         opties: [
           { waarde: '65', label: '65°C (standaard)' },
@@ -140,7 +141,8 @@ export const MAATREGEL_META: Record<string, MaatregelMeta> = {
     velden: [
       { pad: 'vermogenKw', label: 'Vermogen', type: 'number', eenheid: 'kW',
         tooltip: 'Stappen van 5 kW. 15 kW voor ~120 leden, 30 kW voor 300+ leden.', placeholder: 'bv. 15' },
-      { pad: 'litersPerJaar', label: 'Warm water per jaar', type: 'number', eenheid: 'liter' },
+      { pad: 'bufferLiters', label: 'Boilervat (buffer)', type: 'number', eenheid: 'liter',
+        tooltip: 'Volg het advies hierboven.', placeholder: '500' },
       { pad: 'warmwaterTemperatuurC', label: 'Tapwater-temperatuur', type: 'number', eenheid: '°C' },
       { pad: 'metLegionellaBoiler', label: 'Inclusief legionellaboiler?', type: 'select',
         opties: [{ waarde: 'true', label: 'Ja' }, { waarde: 'false', label: 'Nee' }] },

@@ -88,6 +88,12 @@ export interface GebouwKenmerken {
   bvoKleedkamersM2?: number;
   bvoOverigeRuimteM2?: number;
   plafondhoogteM?: number;
+  /** Daktype — bepaalt hoeveel PV-oppervlak beschikbaar is.
+   *  - 'plat':    ~55% van BVO benutbaar (rekening met schaduw, oost-west, looppaden)
+   *  - 'schuin':  ~32% (alleen zuid/west helft × afstand-tussen-rijen)
+   *  - 'gemengd': ~43% (gemiddelde)
+   */
+  daktype?: 'plat' | 'schuin' | 'gemengd' | 'onbekend';
   /** "<1965 met spouw isolatie afwezig" etc, optionele override van bouwjaar-default */
   constructieDetail?: string;
 }
