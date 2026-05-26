@@ -131,9 +131,10 @@ export function berekenProject(rawState: unknown): BerekendProject {
   //   - geen DUMAVA als 4+ maatregelen niet voldoen aan P.1-eisen
   const dumavaResult = pasDumavaRegimeToe(resultaten, context);
   // Voeg per maatregel de DUMAVA-warning toe
-  for (const [id, warning] of Object.entries(dumavaResult.warningPerMaatregel)) {
+  for (const [id, warningRaw] of Object.entries(dumavaResult.warningPerMaatregel)) {
     const res = resultaten[id as RegistryKey];
     if (!res) continue;
+    const warning = String(warningRaw); // explicit string cast — defensief tegen TS-strict
     resultaten[id as RegistryKey] = {
       ...res,
       warnings: [
