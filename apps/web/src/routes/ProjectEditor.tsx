@@ -78,6 +78,10 @@ interface ProjectState {
       stroomHistorischKwh?: number[];
       aansluitwaardeLabel?: string;  // bv "3x25 A"
       aansluitwaardeElektra?: { fase: 1 | 3; ampere: number; vermogenKw: number };
+      /** Gecontracteerd vermogen in kW — alleen relevant bij grootverbruik.
+       *  Bij sportclub-grootverbruik typisch 60-150 kW. Bepaalt vastrecht
+       *  netbeheerder (~€2-4/kW/maand). */
+      gecontracteerdVermogenKw?: number;
       /** Gasaansluiting — label (bv "G6", "G25") of "geen" voor gasloos */
       gasAansluitingLabel?: string;
       /** Maximale capaciteit van gasmeter in m³/h */
@@ -1016,6 +1020,39 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
                 </optgroup>
               </select>
             </Veld>
+
+            {/* Gecontracteerd vermogen — alleen relevant bij grootverbruik (GVA) */}
+            {draft.context.energie?.aansluitwaardeLabel?.startsWith('GV') && (
+              <Veld
+                label="Gecontracteerd vermogen"
+                tooltip="Bij grootverbruik (>3×80A) sluit je een contract af met de netbeheerder voor een bepaald piekvermogen (kW). Je betaalt vastrecht over dit gecontracteerd vermogen, ongeacht je werkelijke verbruik. Overschrijding kost extra. Staat op je netbeheerder-jaarafrekening (Liander/Stedin/Enexis) — bij sportclubs typisch 60-150 kW."
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    className="input max-w-[120px]"
+                    placeholder="bv. 100"
+                    min={0}
+                    step={10}
+                    value={draft.context.energie?.gecontracteerdVermogenKw ?? ''}
+                    onChange={e => updateDraft(s => ({
+                      ...s,
+                      context: {
+                        ...s.context,
+                        energie: {
+                          ...s.context.energie,
+                          gecontracteerdVermogenKw: e.target.value ? Number(e.target.value) : undefined,
+                        },
+                      },
+                    }))}
+                  />
+                  <span className="text-sm text-gray-600">kW</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  💡 Vastrecht: ~€2-4/kW/maand. Bij 100 kW = €2.400-€4.800/jaar — vaak een groot deel van de elektriciteitsrekening.
+                </p>
+              </Veld>
+            )}
           </div>
 
           {/* Gasaansluiting — relevant voor netbeheer-vastrecht en gasloos worden */}
@@ -1083,8 +1120,15 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
           />
         </Sectie>
 
-        {/* 6. Trainingsschema — bepaalt gas/water-verdeling */}
-        <Sectie titel="6. Trainingsschema" tooltipTekst="Aantal voetbalteams per moment. Bepaalt gas/water-verdeling (kantine vs. douches) in stap 2. Hoe vollediger, hoe nauwkeuriger.">
+        {/* 6. Trainingsschema — bepaalt gas/water-verdeling. Inklapbaar omdat
+            niet voor elke clubsoort even relevant (denk bv. atletiekverenigingen
+            zonder veel douchegebruik). Tooltip is sport-aware via SPORT_CONFIGS. */}
+        <Sectie
+          titel="6. Trainingsschema"
+          tooltipTekst={`${getSportConfig(draft.context?.club?.type).uitleg} Bepaalt de gas/water-verdeling (kantine vs. douches) in stap 2. Hoe vollediger, hoe nauwkeuriger.`}
+          inklapbaar
+          standaardOpen={(draft.trainingsSchema?.length ?? 0) > 0}
+        >
           <TrainingsSchemaInvoer
             schema={draft.trainingsSchema ?? []}
             onChange={(s) => updateDraft(d => ({ ...d, trainingsSchema: s }))}
@@ -1849,14 +1893,39 @@ function bouwEnergiebalansData(draft: ProjectState) {
   ];
 }
 
-function Sectie({ titel, tooltipTekst, children, accent }: { titel: string; tooltipTekst?: string; children: React.ReactNode; accent?: boolean }) {
+function Sectie({ titel, tooltipTekst, children, accent, inklapbaar, standaardOpen }: {
+  titel: string;
+  tooltipTekst?: string;
+  children: React.ReactNode;
+  accent?: boolean;
+  /** Maak deze sectie inklapbaar (default: niet) */
+  inklapbaar?: boolean;
+  /** Bij inklapbare secties: open of dicht default? Default: dicht */
+  standaardOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(standaardOpen ?? !inklapbaar);
   return (
     <section className={`card p-5 ${accent ? 'border-accent-orange/60 border-2' : ''}`}>
-      <h2 className="text-base font-semibold text-primary-900 mb-3 flex items-center">
-        {titel}
-        {tooltipTekst && <InfoTooltip>{tooltipTekst}</InfoTooltip>}
-      </h2>
-      <div className="space-y-3">{children}</div>
+      {inklapbaar ? (
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="w-full flex items-center justify-between text-left mb-0 hover:opacity-75 transition-opacity"
+        >
+          <h2 className="text-base font-semibold text-primary-900 flex items-center">
+            <span className={`mr-2 inline-block transition-transform ${open ? 'rotate-90' : ''}`}>›</span>
+            {titel}
+            {tooltipTekst && <InfoTooltip>{tooltipTekst}</InfoTooltip>}
+          </h2>
+          <span className="text-xs text-primary-600">{open ? 'Inklappen' : 'Uitklappen'}</span>
+        </button>
+      ) : (
+        <h2 className="text-base font-semibold text-primary-900 mb-3 flex items-center">
+          {titel}
+          {tooltipTekst && <InfoTooltip>{tooltipTekst}</InfoTooltip>}
+        </h2>
+      )}
+      {open && <div className={`space-y-3 ${inklapbaar ? 'mt-3' : ''}`}>{children}</div>}
     </section>
   );
 }
