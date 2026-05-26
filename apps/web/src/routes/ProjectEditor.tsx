@@ -1274,6 +1274,7 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
       piekUur: pieken?.piekUurMoment?.uur,
       andereMaatregelen: new Set(Object.keys(draft.gekozenMaatregelen).filter(id => id !== openDetailId)),
       actieveSubsidies,
+      lmntIncRuimteverwarming: draft.lmntIncRuimteverwarming,
     };
   }, [draft.trainingsSchema, draft.context, draft.gekozenMaatregelen, openDetailId, instellingenQuery.data]);
 
@@ -1613,10 +1614,32 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             modelVermogenKw={draft.tapwaterModelKw}
             bufferLiters={draft.tapwaterBufferLiters}
             lmntIncRuimteverwarming={draft.lmntIncRuimteverwarming}
-            onKeuzeChange={k => updateDraft(s => ({ ...s, tapwaterKeuze: k }))}
+            onKeuzeChange={k => updateDraft(s => {
+              // Bij wijziging van tapwater-keuze: verwijder ook automatisch
+              // de niet-gekozen alternatieven uit gekozenMaatregelen, zodat
+              // ze niet meer in de berekening blijven hangen als ze in stap 2
+              // verborgen worden.
+              const teVerwijderen = new Set<string>();
+              if (k === 'qton') { teVerwijderen.add('lmnt-warmtepomp'); teVerwijderen.add('warmtepompboiler'); teVerwijderen.add('pvt-tapwater'); }
+              else if (k === 'lmnt') { teVerwijderen.add('qton-warmtepomp'); teVerwijderen.add('warmtepompboiler'); teVerwijderen.add('pvt-tapwater'); }
+              else if (k === 'warmtepompboiler') { teVerwijderen.add('qton-warmtepomp'); teVerwijderen.add('lmnt-warmtepomp'); teVerwijderen.add('pvt-tapwater'); }
+              const nieuweGekozen = { ...s.gekozenMaatregelen };
+              for (const id of teVerwijderen) delete nieuweGekozen[id];
+              return { ...s, tapwaterKeuze: k, gekozenMaatregelen: nieuweGekozen };
+            })}
             onModelChange={kw => updateDraft(s => ({ ...s, tapwaterModelKw: kw }))}
             onBufferChange={l => updateDraft(s => ({ ...s, tapwaterBufferLiters: l }))}
-            onLmntRuimteverwarmingChange={b => updateDraft(s => ({ ...s, lmntIncRuimteverwarming: b }))}
+            onLmntRuimteverwarmingChange={b => updateDraft(s => {
+              // Bij LMNT-inclusief-ruimteverwarming AAN: verwijder ook
+              // lucht-water-warmtepomp en hybride-warmtepomp uit selectie,
+              // want LMNT vervangt die functie.
+              const nieuweGekozen = { ...s.gekozenMaatregelen };
+              if (b) {
+                delete nieuweGekozen['lucht-water-warmtepomp'];
+                delete nieuweGekozen['hybride-warmtepomp'];
+              }
+              return { ...s, lmntIncRuimteverwarming: b, gekozenMaatregelen: nieuweGekozen };
+            })}
           />
         )}
 

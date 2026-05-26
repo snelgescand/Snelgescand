@@ -52,6 +52,17 @@ export interface LmntInput {
   /** Of er een aparte legionella-spoelboiler (kost extra) nodig is */
   metLegionellaBoiler: boolean;
   legionellaBoilerKostenInclBtw: number;
+  /** Doet deze LMNT ook ruimteverwarming (lage T 35-50°C)?
+   *  Zo ja: dan vervangt het ook (een deel van) de gasketel voor verwarming
+   *  en is een aparte lucht/water-warmtepomp niet meer nodig. */
+  inclusiefRuimteverwarming?: boolean;
+  /** Extra gas-besparing per jaar voor ruimteverwarming (m³/jaar).
+   *  Alleen meegerekend als inclusiefRuimteverwarming=true.
+   *  Vuistregel: ~55% van sportclub-gasverbruik gaat naar ruimteverwarming. */
+  extraGasBesparingRuimteverwarmingM3?: number;
+  /** Afgiftetemperatuur voor ruimteverwarming (typisch 35-50°C bij LT).
+   *  Bepaalt de SCOP voor het verwarmings-deel — lager = beter. Default 45°C. */
+  ruimteverwarmingTemperatuurC?: number;
   extraSubsidies?: Subsidie[];
 }
 
@@ -103,14 +114,44 @@ export const lmntWarmtepompModule: MaatregelModule<LmntInput, LmntResultaat> = {
       });
     }
 
+    // === Tapwater-deel ===
     const deltaT = input.warmwaterTemperatuurC - input.koudwaterTemperatuurC;
     const qKj = input.litersPerJaar * C_WATER * deltaT;
-    const qKwh = qKj / 3600;
+    const qTapwaterKwh = qKj / 3600;
 
-    const scop = input.scopOverride ?? schatScopLmnt(input.warmwaterTemperatuurC, input.buitenTemperatuurC);
+    const scopTapwater = input.scopOverride ?? schatScopLmnt(input.warmwaterTemperatuurC, input.buitenTemperatuurC);
 
-    const gasverbruikOudM3 = qKwh / GAS_LHV_KWH_M3 / input.gasketelRendement;
-    const stroomverbruikNieuwKwh = qKwh / scop;
+    const gasverbruikOudTapwaterM3 = qTapwaterKwh / GAS_LHV_KWH_M3 / input.gasketelRendement;
+    const stroomverbruikNieuwTapwaterKwh = qTapwaterKwh / scopTapwater;
+
+    // === Ruimteverwarming-deel (optioneel) ===
+    // LMNT kan ook ruimteverwarming op LT (35-50°C) — dan vervangt het de gasketel
+    // óók voor verwarming en is een aparte lucht/water-WP overbodig. De gebruiker
+    // geeft het te besparen gasvolume mee (typisch 55% van sportclub-gasverbruik).
+    let extraGasBesparingM3 = 0;
+    let extraStroomVerwarmingKwh = 0;
+    let scopVerwarming = scopTapwater;
+    if (input.inclusiefRuimteverwarming && input.extraGasBesparingRuimteverwarmingM3) {
+      extraGasBesparingM3 = input.extraGasBesparingRuimteverwarmingM3;
+      const tVerwarming = input.ruimteverwarmingTemperatuurC ?? 45;
+      scopVerwarming = input.scopOverride ?? schatScopLmnt(tVerwarming, input.buitenTemperatuurC);
+      // Warmte-vraag uit gas terug-rekenen, dan via SCOP naar stroom
+      const qVerwarmingKwh = extraGasBesparingM3 * GAS_LHV_KWH_M3 * input.gasketelRendement;
+      extraStroomVerwarmingKwh = qVerwarmingKwh / scopVerwarming;
+
+      // Capaciteits-warning: vermogen moet beide pieken aankunnen
+      // Tapwater-piek + verwarmings-piek tegelijkertijd vereist meer kW
+      if (input.vermogenKw < 25) {
+        warnings.push({
+          level: 'warning',
+          code: 'LMNT_RUIMTE_KAPACITEIT',
+          message: `Bij ruimteverwarming + tapwater is ${input.vermogenKw} kW mogelijk krap — overweeg 25-50 kW (LMNT-22 of LMNT-28). Een installateur moet dimensioneren.`,
+        });
+      }
+    }
+
+    const totaleGasBesparingM3 = gasverbruikOudTapwaterM3 + extraGasBesparingM3;
+    const totaalStroomNieuwKwh = stroomverbruikNieuwTapwaterKwh + extraStroomVerwarmingKwh;
 
     const wpInvestering = input.vermogenKw * input.prijsPerKwInclBtw;
     const boilerInvestering = input.metLegionellaBoiler ? input.legionellaBoilerKostenInclBtw : 0;
@@ -127,8 +168,8 @@ export const lmntWarmtepompModule: MaatregelModule<LmntInput, LmntResultaat> = {
       maatregelId: 'lmnt-warmtepomp',
       brutoInvestering,
       subsidies,
-      besparingGasM3: gasverbruikOudM3,
-      extraStroomverbruikKwh: stroomverbruikNieuwKwh,
+      besparingGasM3: totaleGasBesparingM3,
+      extraStroomverbruikKwh: totaalStroomNieuwKwh,
       piekVermogenKw: input.vermogenKw,
       context,
       warnings,
@@ -137,8 +178,8 @@ export const lmntWarmtepompModule: MaatregelModule<LmntInput, LmntResultaat> = {
     return {
       ...baseResult,
       vermogenKw: input.vermogenKw,
-      warmtevraagKwh: qKwh,
-      scop,
+      warmtevraagKwh: qTapwaterKwh,
+      scop: scopTapwater,
     };
   },
 };

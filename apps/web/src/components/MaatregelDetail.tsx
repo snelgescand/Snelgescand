@@ -62,6 +62,34 @@ export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maatregelId, context?.douchesPerWeek]);
 
+  /**
+   * Auto-fill voor LMNT bij ruimteverwarming-inclusief (uit stap 1):
+   *   - inclusiefRuimteverwarming = true
+   *   - extraGasBesparingRuimteverwarmingM3 = 55% van totaal gasverbruik
+   *
+   * Vuistregel sportclubs: ~55% van gas gaat naar ruimteverwarming.
+   * Gebruiker kan dit handmatig overrulen in detail-popup.
+   */
+  useEffect(() => {
+    if (maatregelId !== 'lmnt-warmtepomp') return;
+    const stapeenKeuze = context?.lmntIncRuimteverwarming;
+    if (stapeenKeuze === undefined) return; // niet relevant
+    const huidigeKeuze = input.inclusiefRuimteverwarming;
+    // Sync alleen als nog niet handmatig ingesteld op iets anders
+    if (huidigeKeuze === stapeenKeuze) return;
+    const gasM3 = context?.gasM3PerJaar ?? 0;
+    const aandeelRuimteverwarming = 0.55;
+    const geschattGas = stapeenKeuze ? Math.round(gasM3 * aandeelRuimteverwarming) : 0;
+    onChange({
+      ...input,
+      inclusiefRuimteverwarming: stapeenKeuze,
+      extraGasBesparingRuimteverwarmingM3: stapeenKeuze
+        ? ((input.extraGasBesparingRuimteverwarmingM3 as number | undefined) || geschattGas)
+        : 0,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maatregelId, context?.lmntIncRuimteverwarming, context?.gasM3PerJaar]);
+
   function updateVeld(pad: string, waarde: unknown) {
     onChange({ ...input, [pad]: waarde });
   }

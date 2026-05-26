@@ -55,6 +55,9 @@ export interface ContextData {
     alternatief: string;
     maatregelId: string;
   };
+  /** Bij LMNT-keuze: ook ruimteverwarming inclusief? — wordt automatisch
+   *  doorgegeven aan de LMNT-module zodat extra gasbesparing wordt meegerekend. */
+  lmntIncRuimteverwarming?: boolean;
   /** IDs van andere geselecteerde maatregelen — bepaalt wisselwerking */
   andereMaatregelen: Set<string>;
   /** Actieve subsidies — filter voor advies-tegels. Default: alles aan. */

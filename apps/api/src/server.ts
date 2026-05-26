@@ -116,11 +116,24 @@ async function buildServer() {
   // ===== Plugins =====
   await app.register(authPlugin);
 
-  // Strakker rate limit op auth endpoints (brute-force defense)
+  // Auth-routes registreren met selectieve rate limiting:
+  //
+  //  - /api/auth/login en /users (POST): 30/min — brute-force defense
+  //  - /api/auth/me en /api/auth/logout: 200/min globaal — wordt elke pagina-load
+  //    aangeroepen voor sessie-verificatie, mag niet de bottleneck zijn
+  //
+  // Voorheen: ALLE auth-routes hadden 10/min limit, waardoor /me-checks tijdens
+  // navigatie de limiet uitputten — gebruikers kregen daarna "Too many requests"
+  // bij het volgende login-attempt.
   await app.register(async (scoped) => {
-    await scoped.register(rateLimit, {
-      max: 10,
-      timeWindow: '1 minute',
+    // Strakker limit alleen op de write/auth-mutating endpoints
+    scoped.addHook('onRoute', (route) => {
+      if (route.path === '/login' || (route.path === '/users' && route.method === 'POST')) {
+        route.config = {
+          ...(route.config ?? {}),
+          rateLimit: { max: 30, timeWindow: '1 minute' },
+        };
+      }
     });
     await scoped.register(authRoutes, { prefix: '/api/auth' });
   });
@@ -177,6 +190,17 @@ async function start() {
   // Eerst seeden (als DB leeg is), daarna pas requests accepteren
   await autoSeedAlsLeeg(app.log);
 
+  // RESET_PASSWORD_FOR + RESET_PASSWORD_TO env-vars — eenmalige wachtwoord-reset
+  // via Render env-vars zonder shell nodig.
+  //
+  // Gebruik:
+  //   1. Zet in Render dashboard: RESET_PASSWORD_FOR=email@adres.nl
+  //                               RESET_PASSWORD_TO=nieuwwachtwoord
+  //   2. Herstart de service (auto na env-var change)
+  //   3. Log toont "✓ wachtwoord gereset voor email@adres.nl"
+  //   4. VERWIJDER beide env-vars uit Render zodra je weer kunt inloggen
+  await resetWachtwoordViaEnv(app.log);
+
   try {
     await app.listen({ port: cfg.PORT, host: cfg.HOST });
     app.log.info(`🚀 Sportief Opgewekt API draait op ${cfg.HOST}:${cfg.PORT}`);
@@ -194,6 +218,41 @@ async function start() {
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+}
+
+/**
+ * Eenmalige password-reset via env-vars. Veilig omdat:
+ *  - Alleen wie Render-toegang heeft kan env-vars zetten
+ *  - Render bewaart env-vars encrypted
+ *  - Bart kan ze direct na gebruik verwijderen (volgende deploy = geen reset)
+ *
+ * Logt duidelijk wat er gebeurt zodat Bart in Render-logs ziet of het werkte.
+ */
+async function resetWachtwoordViaEnv(log: { info: (o: object, m: string) => void; warn: (o: object, m: string) => void; error: (o: object, m: string) => void }) {
+  const email = process.env.RESET_PASSWORD_FOR;
+  const nieuwWachtwoord = process.env.RESET_PASSWORD_TO;
+  if (!email || !nieuwWachtwoord) return; // niet geconfigureerd, sla over
+
+  if (nieuwWachtwoord.length < 6) {
+    log.error({ email }, '❌ RESET_PASSWORD_TO te kort (minimaal 6 tekens)');
+    return;
+  }
+
+  try {
+    const gebruiker = await prisma.user.findFirst({ where: { email } });
+    if (!gebruiker) {
+      log.warn({ email }, `⚠ Geen gebruiker gevonden voor reset-email — controleer spelling`);
+      return;
+    }
+    const { hashWachtwoord: hash } = await import('./plugins/auth.js');
+    await prisma.user.update({
+      where: { id: gebruiker.id },
+      data: { passwordHash: await hash(nieuwWachtwoord) },
+    });
+    log.info({ email }, `✓ wachtwoord gereset — VERWIJDER nu RESET_PASSWORD_FOR + RESET_PASSWORD_TO uit Render env-vars`);
+  } catch (err) {
+    log.error({ err, email }, 'Reset mislukt');
+  }
 }
 
 // Alleen starten als dit het main-bestand is (niet bij import voor tests)
