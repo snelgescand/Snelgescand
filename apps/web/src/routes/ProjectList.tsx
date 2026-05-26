@@ -250,12 +250,6 @@ export default function ProjectList() {
             </div>
           </div>
         )}
-
-        {/* Footer-tip */}
-        <div className="mt-8 text-center text-xs text-gray-500">
-          Vragen over berekeningen of aannames? Zie de{' '}
-          <Link to="/kennisbank" className="text-primary-700 hover:underline">Kennisbank</Link>.
-        </div>
       </main>
       <Footer />
     </div>
