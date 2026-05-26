@@ -143,39 +143,71 @@ export function bepaalLabelSprong(
   nieuw: EnergielabelInschatting['label'],
   /** Bestemming: 'sport' (default voor sportclubs) of 'overig' (kantoor etc.) */
   bestemming: 'sport' | 'overig' = 'sport',
+  /** Aantal gekozen maatregelen — bepaalt of losse (1-3) of integraal (4+) regime geldt.
+   *  Niet meegegeven → alleen op basis van eindlabel + sprong, voor UI-indicatie. */
+  aantalMaatregelen?: number,
 ): LabelSprong {
   const sprongen = labelIndex(oud) - labelIndex(nieuw);
 
-  // 40% — eind-label A++ (sport) of A+++ (overig)
+  // === RVO DUMAVA 2025 — strikt volgens regeling ===
+  //
+  // Voor INTEGRAAL regime (30% of 40%) zijn ALLE volgende eisen verplicht:
+  //   1. 4+ maatregelen
+  //   2. ≥3 labelsprongen
+  //   3. Eindlabel minimaal B (voor 30%) of renovatiestandaard A++/A+++ (voor 40%)
+  //
+  // Anders: losse regime 20% (max 3 maatregelen), of GEEN DUMAVA als 4+ maatregelen
+  // niet aan integraal-eisen voldoen.
+
+  // Check 1: voldoende maatregelen voor integraal?
+  // Als aantal niet opgegeven: assume "ja, mogelijk" voor UI-indicatie (toon potentieel)
+  const aantalOk = aantalMaatregelen === undefined || aantalMaatregelen >= 4;
+
+  // Check 2: voldoende labelsprongen voor integraal?
+  const sprongenOk = sprongen >= 3;
+
+  // Check 3a: eindlabel A++/A+++ voor 40%?
   const drempel40 = bestemming === 'sport' ? 'A++' : 'A+++';
-  if (labelMinstens(nieuw, drempel40)) {
+  const eindlabel40 = labelMinstens(nieuw, drempel40);
+
+  // Check 3b: eindlabel ≥ B voor 30%?
+  const eindlabel30 = labelMinstens(nieuw, 'B');
+
+  // === Bepaal regime ===
+
+  if (aantalOk && sprongenOk && eindlabel40) {
     return {
-      oudLabel: oud,
-      nieuwLabel: nieuw,
-      sprongen,
+      oudLabel: oud, nieuwLabel: nieuw, sprongen,
       dumavaPercentage: 40,
-      dumavaToelichting: `Nieuw label ${nieuw} ≥ ${drempel40} bij ${bestemming === 'sport' ? 'sportbestemming' : 'overige bestemming'} → 40% subsidie bij integraal pakket`,
+      dumavaToelichting: `${sprongen} labelsprongen + eindlabel ${nieuw} ≥ ${drempel40} → 40% mogelijk (mits 4+ maatregelen, kleine onderneming, renovatiestandaard)`,
     };
   }
 
-  // 30% — eind-label B of beter
-  if (labelMinstens(nieuw, 'B')) {
+  if (aantalOk && sprongenOk && eindlabel30) {
     return {
-      oudLabel: oud,
-      nieuwLabel: nieuw,
-      sprongen,
+      oudLabel: oud, nieuwLabel: nieuw, sprongen,
       dumavaPercentage: 30,
-      dumavaToelichting: `Nieuw label ${nieuw} ≥ B → 30% subsidie bij integraal pakket`,
+      dumavaToelichting: `${sprongen} labelsprongen + eindlabel ${nieuw} ≥ B → 30% (mits 4+ maatregelen + Maatwerkadvies)`,
     };
   }
 
-  // Anders 20% — losse maatregelen
+  // Niet aan integraal-eisen → 20% (losse regime, max 3 maatregelen)
+  // Toelichting vertelt expliciet WAAROM niet hoger:
+  let reden: string;
+  if (!sprongenOk) {
+    reden = `${sprongen} labelsprong${sprongen === 1 ? '' : 'en'} (minimaal 3 nodig voor 30%/40%)`;
+  } else if (!eindlabel30) {
+    reden = `eindlabel ${nieuw} (minimaal B nodig)`;
+  } else if (!aantalOk) {
+    reden = `${aantalMaatregelen} maatregelen (minimaal 4 voor integraal regime)`;
+  } else {
+    reden = 'voorwaarden integraal niet vervuld';
+  }
+
   return {
-    oudLabel: oud,
-    nieuwLabel: nieuw,
-    sprongen,
+    oudLabel: oud, nieuwLabel: nieuw, sprongen,
     dumavaPercentage: 20,
-    dumavaToelichting: `Nieuw label ${nieuw} haalt B-grens nog niet → 20% subsidie voor losse maatregelen`,
+    dumavaToelichting: `20% voor losse maatregelen (1-3 stuks). Hoger niet mogelijk: ${reden}.`,
   };
 }
 

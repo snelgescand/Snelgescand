@@ -67,8 +67,7 @@ export function EnergielabelKaart({ huidig, nieuw, sprong }: Props) {
               {sprong.dumavaToelichting}
             </p>
             <p className="text-gray-500 text-[10px] mt-1 italic">
-              Voorwaarden 2025/2026: 40% vereist eind-label ≥ A++ (sportbestemming) of ≥ A+++ (kantoor/overig);
-              30% vereist eind-label ≥ B; 20% standaard voor 1–3 losse maatregelen.
+              Voorwaarden DUMAVA 2025: 20% bij 1-3 losse maatregelen; 30% vereist 4+ maatregelen + Maatwerkadvies + ≥3 labelsprongen + eindlabel ≥ B; 40% bovenop dat ook renovatiestandaard (A++/A+++) + kleine onderneming.
             </p>
           </div>
         )}
@@ -94,7 +93,7 @@ export function EnergielabelKaart({ huidig, nieuw, sprong }: Props) {
               Dit is het verbruiksniveau waarmee het gebouw bijdraagt aan de doelen van het Klimaatakkoord van Parijs.
             </p>
             <p>
-              <strong>DUMAVA-tier</strong>: 20% bij 1 labelsprong, 30% bij 2 sprongen, 40% bij 3+ sprongen of een integraal pakket. Bron: RVO.
+              <strong>DUMAVA-tier</strong>: 20% bij 1-3 losse maatregelen (geen labelsprong-eis); 30% bij integraal pakket (4+ maatregelen + Maatwerkadvies A.2 + ≥3 labelsprongen + eindlabel ≥ B); 40% als bovenstaande EN renovatiestandaard (A++/A+++) EN kleine onderneming (&lt;250 fte, &lt;€50M omzet). Bron: RVO 2025.
             </p>
           </div>
         </details>

@@ -1332,7 +1332,7 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
         stroomBesparingKwh: r.totaleBesparingStroomKwh ?? 0,
         extraStroomverbruikKwh: r.totaalExtraStroomverbruikKwh ?? 0,
       });
-      const sprong = bepaalLabelSprong(huidig.label, nieuw.label);
+      const sprong = bepaalLabelSprong(huidig.label, nieuw.label, 'sport', Object.keys(draft.gekozenMaatregelen).length);
       return { huidig, nieuw, sprong };
     }
     return { huidig };

@@ -231,17 +231,17 @@ function tapwaterSuggestie(ctx: ScanContext): Suggestie {
   const vergelijking = [
     {
       titel: 'Q-ton CO₂-warmtepomp',
-      type: 'beide' as const,
+      type: 'tapwater' as const,
       voordelen: [
         'Hoge temperatuur (tot 90°C) → ideaal voor douches',
         'CO₂ als koudemiddel (geen F-gassen)',
-        'Kan zowel tapwater ALS ruimteverwarming',
+        'Alleen voor TAPWATER (90°C is te hoog voor LT-CV)',
         'Hoge SCOP (>3,5) bij sportclub-profielen',
       ],
       nadelen: [
         'Hoge investering (€40-55k incl. boilervat)',
         'Buitenunit nodig — geluid en ruimte',
-        'Subsidie ISDE wel mogelijk',
+        'Voor ruimteverwarming heb je een aparte WP nodig (of kies LMNT)',
       ],
       gechiktVoor: 'Sportclubs met >200 douches/week of >2000 m³ gas/jaar douche',
     },
