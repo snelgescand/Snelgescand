@@ -31,6 +31,7 @@ import { MaatregelDetail } from '../components/MaatregelDetail';
 import { HuidigeSituatie } from '../components/HuidigeSituatie';
 import { MaatregelSuggesties } from '../components/MaatregelSuggesties';
 import { ChartCard, WaterverbruikChart, KasstroomChart, EnergiebalansChart, WaterverbruikPerUurChart } from '../components/Charts';
+import { KopieerKnop } from '../util/kopieer';
 import { TrainingsSchemaInvoer, analyseSchema, getSportConfig, douchePercentage, LITERS_PER_DOUCHE, berekenDouchePieken, aanbevolenTapwaterOplossing, type TrainingsSchema, type TrainingMoment } from '../components/TrainingsSchema';
 import { EnergielabelKaart } from '../components/EnergielabelKaart';
 import { HistorischVerbruik } from '../components/HistorischVerbruik';
@@ -1318,9 +1319,35 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
           <button onClick={onTerugStap1} className="text-sm text-gray-600 hover:text-primary-700">
             ← Terug naar stap 1
           </button>
-          <p className="text-xs text-gray-500">
-            {gekozenIds.length} maatregel{gekozenIds.length === 1 ? '' : 'en'} gekozen
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-gray-500">
+              {gekozenIds.length} maatregel{gekozenIds.length === 1 ? '' : 'en'} gekozen
+            </p>
+            {cached?.perMaatregel && gekozenIds.length > 0 && (
+              <KopieerKnop
+                label="Kopieer maatregel-tabel"
+                geefData={() => ({
+                  titel: 'Gekozen maatregelen',
+                  kolommen: ['Maatregel', 'Bruto (€)', 'Subsidies (€)', 'Netto (€)', 'Besparing/jr (€)', 'TVT (jaren)'],
+                  rijen: gekozenIds
+                    .map(id => {
+                      const r = cached.perMaatregel[id] as { brutoInvestering: number; totaleSubsidie: number; nettoInvestering: number; besparingPerJaar: number; terugverdientijdJaren: number } | null | undefined;
+                      const naam = modulesQuery.data?.modules.find(m => m.id === id)?.naam ?? id;
+                      if (!r) return [naam, '—', '—', '—', '—', '—'] as Array<string | number>;
+                      return [
+                        naam,
+                        Math.round(r.brutoInvestering),
+                        Math.round(r.totaleSubsidie),
+                        Math.round(r.nettoInvestering),
+                        Math.round(r.besparingPerJaar),
+                        r.terugverdientijdJaren && Number.isFinite(r.terugverdientijdJaren) ? r.terugverdientijdJaren.toFixed(1) : '—',
+                      ] as Array<string | number>;
+                    }),
+                  voet: 'Bron: Snelgescand.nl — bedragen zijn ramingen, definitieve prijzen via offerte',
+                })}
+              />
+            )}
+          </div>
         </div>
 
         {/* Aanbevolen maatregelen, gesorteerd */}
@@ -1458,6 +1485,25 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
           )}
           {cached?.rollup && (
             <>
+              <div className="flex justify-end mb-2">
+                <KopieerKnop
+                  label="Kopieer overzicht"
+                  geefData={() => ({
+                    titel: 'Businesscase — totaaloverzicht',
+                    kolommen: ['Onderdeel', 'Waarde'],
+                    rijen: [
+                      ['Bruto investering', formatEur(cached.rollup.totaleInvestering)],
+                      ['Subsidies', formatEur(cached.rollup.totaleSubsidie)],
+                      ['Netto investering', formatEur(cached.rollup.nettoInvestering)],
+                      ['Besparing per jaar', formatEur(cached.rollup.totaleBesparingPerJaar)],
+                      ['Gemiddelde TVT', cached.rollup.gemiddeldeTerugverdientijdJaren && Number.isFinite(cached.rollup.gemiddeldeTerugverdientijdJaren)
+                        ? `${cached.rollup.gemiddeldeTerugverdientijdJaren.toFixed(1)} jaar` : 'n.v.t.'],
+                      ['CO₂-besparing', `${(cached.rollup.totaleCo2BesparingKg / 1000).toFixed(1)} ton/jaar`],
+                    ],
+                    voet: 'Bron: Snelgescand.nl quickscan',
+                  })}
+                />
+              </div>
               <dl className="space-y-1.5 text-sm">
                 <Stat label="Bruto investering" value={formatEur(cached.rollup.totaleInvestering)} />
                 <Stat label="Subsidies" value={formatEur(cached.rollup.totaleSubsidie)} />
@@ -1551,6 +1597,17 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             titel="Waterverbruik per uur (gemiddelde week)"
             ondertitel="Berekend uit het trainingsschema in stap 1"
             hoogte={220}
+            actie={
+              <KopieerKnop
+                label="Kopieer data"
+                geefData={() => ({
+                  titel: 'Waterverbruik per uur (gemiddelde week)',
+                  kolommen: ['Uur van de dag', 'Liter warm water'],
+                  rijen: waterPerUurData.map(d => [d.uur, Math.round(d.liters)]),
+                  voet: '35 L warm water per persoon-met-douche · wave-spreiding 60/30/10 rond piek',
+                })}
+              />
+            }
             toelichting={
               <>
                 <strong>Hoe is dit berekend?</strong> Voor elk trainings-/wedstrijdmoment uit het schema rekenen we met
@@ -1567,6 +1624,16 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             titel="Waterverbruik per dag"
             ondertitel="Op basis van trainingsschema (of douches-analyse)"
             hoogte={240}
+            actie={
+              <KopieerKnop
+                label="Kopieer data"
+                geefData={() => ({
+                  titel: 'Waterverbruik per dag (training + wedstrijd)',
+                  kolommen: ['Dag', 'Training (L)', 'Wedstrijd (L)', 'Totaal (L)'],
+                  rijen: waterData.map(d => [d.dag, d.trainingL, d.wedstrijdL, d.trainingL + d.wedstrijdL]),
+                })}
+              />
+            }
             toelichting="Gestapelde balken: training (teal) en wedstrijd (oranje). 35 L warm water per persoon-met-douche."
           >
             <WaterverbruikChart data={waterData} />
@@ -1578,6 +1645,17 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             titel="Cumulatief netto rendement"
             ondertitel="Over 15 jaar, na aftrek netto investering"
             hoogte={240}
+            actie={
+              <KopieerKnop
+                label="Kopieer data"
+                geefData={() => ({
+                  titel: 'Cumulatief netto rendement (15 jaar)',
+                  kolommen: ['Jaar', 'Cumulatief saldo (€)'],
+                  rijen: kasstroomData.map(d => [d.jaar, Math.round(d.cumulatief)]),
+                  voet: 'Conservatief zonder energieprijs-stijging — werkelijke besparing zal hoger zijn',
+                })}
+              />
+            }
             toelichting="Cumulatieve som van jaarlijkse besparingen, minus de netto-investering in jaar 0. Conservatief gerekend zonder energieprijs-stijging."
           >
             <KasstroomChart data={kasstroomData} />
@@ -1591,6 +1669,23 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
               ? 'Berekend uit trainingsschema'
               : 'Heuristische verdeling (vul trainingsschema in voor specifieker beeld)'}
             hoogte={260}
+            actie={
+              <KopieerKnop
+                label="Kopieer data"
+                geefData={() => ({
+                  titel: 'Verdeling huidig gasverbruik',
+                  kolommen: ['Categorie', 'Gas (m³)', 'Aandeel (%)'],
+                  rijen: (() => {
+                    const totaal = energiebalansData.reduce((s, d) => s + d.m3, 0);
+                    return energiebalansData.map(d => [
+                      d.naam,
+                      Math.round(d.m3),
+                      totaal > 0 ? ((d.m3 / totaal) * 100).toFixed(1) : '0',
+                    ]);
+                  })(),
+                })}
+              />
+            }
             toelichting={
               <>
                 <strong>Hoe is dit berekend?</strong> {draft.trainingsSchema && draft.trainingsSchema.length > 0

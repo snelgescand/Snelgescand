@@ -39,6 +39,16 @@ export interface Financiering {
   obligatieLooptijdJaren?: number;
   /** Huurinkomsten (extra, ten gevolge van verduurzaming bv. zelf opwekken voor huurders) */
   huurinkomstenExtraPerJaar?: number;
+  /** Jaarlijkse stijging energieprijzen in % (gas + stroom kale prijs).
+   *  Default 5%. Tussen 2021-2024 was de werkelijke stijging gemiddeld 8-12% per jaar,
+   *  CPB raamt 4-6% structureel voor de komende jaren. */
+  stijgingEnergiePctPerJaar?: number;
+  /** Jaarlijkse stijging vastrecht-tarieven netbeheerder in %.
+   *  Default 7%. Liander/Stedin/Enexis verhogen vastrecht structureel sneller dan
+   *  inflatie i.v.m. netuitbreidingen (netcongestie). */
+  stijgingVastrechtPctPerJaar?: number;
+  /** Algemene inflatie in % (voor onderhouds- en gebruikskosten). Default 2,5%. */
+  inflatiePctPerJaar?: number;
 }
 
 interface BerekendInline {
@@ -154,10 +164,49 @@ export function Stap3Financien({
   const totaleJaarlast = jaarlast + (obligaties > 0 ? obligatieAnnuiteit : 0);
   const nettoKasstroomPerJaar = totaalBesparing + huurinkomstenExtra - totaleJaarlast;
 
-  // TCO over de looptijd
+  // === Prijsstijgingen / indexatie ===
+  //
+  // Sportclubs hebben energie-vastrecht en kale kWh/m³-prijzen die fors stijgen.
+  // De besparing van jaar 1 is dus LAGER dan die van jaar 15 — vooral gas + vastrecht
+  // stijgen sneller dan inflatie (CO₂-heffing, schaarste, netcongestie).
+  //
+  // Defaults gebaseerd op de Op-Naar-Nul-PPT prijsindex 2021-2025:
+  //   - Energie kale prijs: 5%/jaar (CPB raamt 4-6% structureel)
+  //   - Vastrecht netbeheer: 7%/jaar (Liander/Stedin/Enexis verhogen 7-10%)
+  //   - Algemene inflatie: 2,5%
+  //
+  // Geometrische reeks voor cumulatieve geïndexeerde som:
+  //   S = b × ((1+g)^n − 1) / g   (mits g > 0)
+  //   S = b × n                   (als g = 0)
+  const stijgingEnergie = (financiering.stijgingEnergiePctPerJaar ?? 5) / 100;
+  const stijgingVastrecht = (financiering.stijgingVastrechtPctPerJaar ?? 7) / 100;
+  const inflatie = (financiering.inflatiePctPerJaar ?? 2.5) / 100;
+
+  // Gewogen besparing-stijging: 80% energie + 20% vastrecht (vuistregel sportclub)
+  const gemBesparingStijging = stijgingEnergie * 0.8 + stijgingVastrecht * 0.2;
+
+  function cumulatiefGeindexeerd(jaarwaarde: number, groei: number, jaren: number): number {
+    if (jaren <= 0 || jaarwaarde === 0) return 0;
+    if (groei === 0) return jaarwaarde * jaren;
+    return jaarwaarde * (Math.pow(1 + groei, jaren) - 1) / groei;
+  }
+
+  // Cumulatieve besparing met indexatie (in plaats van naïef × looptijd)
+  const cumBesparing = cumulatiefGeindexeerd(totaalBesparing, gemBesparingStijging, looptijd);
+  // Huurinkomsten volgen meestal de algemene inflatie (huurindex)
+  const cumHuur = cumulatiefGeindexeerd(huurinkomstenExtra, inflatie, looptijd);
+  const cumBesparingTotaal = cumBesparing + cumHuur;
+
+  // TCO over de looptijd (met indexatie)
   const tco = eigenInbreng + obligaties + totaleRenteLening + totaleRenteObligaties
+    - cumBesparingTotaal
+    - totaalSubsidieAll;
+
+  // TCO ZONDER indexatie — voor vergelijking (toont impact van indexatie)
+  const tcoZonderIndexatie = eigenInbreng + obligaties + totaleRenteLening + totaleRenteObligaties
     - (totaalBesparing + huurinkomstenExtra) * looptijd
     - totaalSubsidieAll;
+  const winstDoorIndexatie = tcoZonderIndexatie - tco; // positief = indexatie maakt het beter
 
   // Mismatch indicator
   const totaalFinanciering = eigenInleg + sponsoracties + obligaties + lening;
@@ -348,6 +397,48 @@ export function Stap3Financien({
           )}
         </div>
 
+        {/* === Prijsstijgingen — energie en vastrecht stijgen FORS === */}
+        <details className="bg-white/60 rounded-lg border border-primary-200 p-3">
+          <summary className="cursor-pointer text-sm font-medium text-primary-900">
+            📈 Prijsstijgingen (energie + vastrecht) — meegerekend in TCO
+            <span className="ml-2 text-xs text-gray-500 font-normal">
+              klik om percentages aan te passen
+            </span>
+          </summary>
+          <div className="mt-3 grid sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Energieprijzen (gas + stroom, %/jr)</label>
+              <input type="number" step="0.5" className="input py-1 text-sm"
+                value={financiering.stijgingEnergiePctPerJaar ?? 5}
+                onChange={e => onFinancieringChange({ ...financiering, stijgingEnergiePctPerJaar: Number(e.target.value) || 0 })}
+              />
+              <p className="text-xs text-gray-500 mt-1">CPB raamt 4-6% structureel. Default 5%.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Vastrecht netbeheer (%/jr)</label>
+              <input type="number" step="0.5" className="input py-1 text-sm"
+                value={financiering.stijgingVastrechtPctPerJaar ?? 7}
+                onChange={e => onFinancieringChange({ ...financiering, stijgingVastrechtPctPerJaar: Number(e.target.value) || 0 })}
+              />
+              <p className="text-xs text-gray-500 mt-1">Liander/Stedin/Enexis 7-10% (netcongestie). Default 7%.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Algemene inflatie (%/jr)</label>
+              <input type="number" step="0.1" className="input py-1 text-sm"
+                value={financiering.inflatiePctPerJaar ?? 2.5}
+                onChange={e => onFinancieringChange({ ...financiering, inflatiePctPerJaar: Number(e.target.value) || 0 })}
+              />
+              <p className="text-xs text-gray-500 mt-1">Voor onderhoud + huurindex. Default 2,5%.</p>
+            </div>
+          </div>
+          <p className="text-xs text-gray-600 mt-2 leading-relaxed">
+            💡 De jaarbesparing van vandaag is over 15 jaar veel meer waard. Met deze indexatie wordt de cumulatieve
+            besparing in de TCO realistisch berekend: <strong>{fmtEuro(cumBesparingTotaal)}</strong> i.p.v. simpel
+            jaar-1 × looptijd ({fmtEuro((totaalBesparing + huurinkomstenExtra) * looptijd)}).
+            Indexatie maakt deze case <strong className="text-green-700">{fmtEuro(Math.abs(winstDoorIndexatie))} aantrekkelijker</strong>.
+          </p>
+        </details>
+
         {/* Resultaat-blokken */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-primary-200">
           <KpiBlok label="Bank-lening" value={fmtEuro(lening)} sub="Restant na inleg, sponsor, obligaties" />
@@ -377,7 +468,17 @@ export function Stap3Financien({
         )}
 
         {/* TCO — positief geframed */}
-        <TcoBlok tco={tco} looptijd={looptijd} totaalBesparing={totaalBesparing + huurinkomstenExtra} eigenInbreng={eigenInbreng + obligaties} totaleRente={totaleRenteLening + totaleRenteObligaties} subsidies={totaalSubsidieAll} />
+        <TcoBlok
+          tco={tco}
+          looptijd={looptijd}
+          cumBesparing={cumBesparingTotaal}
+          jaarBesparing={totaalBesparing + huurinkomstenExtra}
+          eigenInbreng={eigenInbreng + obligaties}
+          totaleRente={totaleRenteLening + totaleRenteObligaties}
+          subsidies={totaalSubsidieAll}
+          winstDoorIndexatie={winstDoorIndexatie}
+          gemBesparingStijgingPct={gemBesparingStijging * 100}
+        />
 
         {/* Taartdiagram financieringsmix */}
         <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -682,18 +783,24 @@ function KpiBlok({ label, value, sub, positief, waarschuwing }: {
   );
 }
 
-function TcoBlok({ tco, looptijd, totaalBesparing, eigenInbreng, totaleRente, subsidies }: {
-  tco: number; looptijd: number; totaalBesparing: number;
+function TcoBlok({ tco, looptijd, cumBesparing, jaarBesparing, eigenInbreng, totaleRente, subsidies, winstDoorIndexatie, gemBesparingStijgingPct }: {
+  tco: number; looptijd: number;
+  /** Cumulatieve, GEÏNDEXEERDE besparing over de hele looptijd */
+  cumBesparing: number;
+  /** Besparing in jaar 1 (ter referentie in opbouw-toelichting) */
+  jaarBesparing: number;
   eigenInbreng: number; totaleRente: number; subsidies: number;
+  /** Hoeveel aantrekkelijker indexatie de case maakt (positief = winst) */
+  winstDoorIndexatie: number;
+  /** Gewogen gemiddelde besparing-stijging in %/jr (voor toelichting) */
+  gemBesparingStijgingPct: number;
 }) {
   const isWinst = tco < 0;
-  // Toon ALTIJD in groen: bij winst toont het direct dat het zinvol is,
-  // bij neutraal/lichte kosten ook positief framed (verduurzaming is geen kosten-post)
   return (
     <div className={`bg-white border-2 ${isWinst ? 'border-green-400' : 'border-green-300'} rounded-lg p-4 mt-3`}>
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-600 uppercase tracking-wide">
-          Total Cost of Ownership ({looptijd} jaar)
+          Total Cost of Ownership ({looptijd} jaar, geïndexeerd)
         </p>
         <span className={`text-xs font-medium px-2 py-0.5 rounded ${isWinst ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
           {isWinst ? '✓ Levert geld op' : 'Netto kosten'}
@@ -704,20 +811,28 @@ function TcoBlok({ tco, looptijd, totaalBesparing, eigenInbreng, totaleRente, su
       </p>
       {isWinst ? (
         <p className="text-sm text-green-700 mt-1 font-medium">
-          🎉 Deze maatregelen leveren over {looptijd} jaar netto <strong>{fmtEuro(Math.abs(tco))}</strong> op (na alle inleg, rente en aflossingen).
+          🎉 Deze maatregelen leveren over {looptijd} jaar netto <strong>{fmtEuro(Math.abs(tco))}</strong> op
+          (na alle inleg, rente en aflossingen).
         </p>
       ) : (
         <p className="text-sm text-gray-700 mt-1">
-          Netto investering over {looptijd} jaar — vergelijk met "niets doen" om het positieve verschil te zien:
-          zonder verduurzaming blijft de club gas + dure stroom betalen.
+          Netto investering over {looptijd} jaar — vergelijk met "niets doen" om het positieve verschil te zien.
+          Zonder verduurzaming blijven energiekosten met {gemBesparingStijgingPct.toFixed(1)}%/jr verder stijgen.
         </p>
       )}
-      <p className="text-xs text-gray-600 mt-2">
-        Opbouw: eigen inbreng + obligaties ({fmtEuro(eigenInbreng)})
-        + rente totaal ({fmtEuro(totaleRente)})
-        − subsidies ({fmtEuro(subsidies)})
-        − besparingen × {looptijd} jr ({fmtEuro(totaalBesparing * looptijd)}).
-      </p>
+      <div className="text-xs text-gray-600 mt-3 space-y-1">
+        <p>
+          <strong>Opbouw:</strong> eigen inbreng + obligaties ({fmtEuro(eigenInbreng)})
+          + rente totaal ({fmtEuro(totaleRente)})
+          − subsidies ({fmtEuro(subsidies)})
+          − cumulatieve besparing geïndexeerd ({fmtEuro(cumBesparing)}).
+        </p>
+        <p className="text-green-700">
+          📈 Door de prijsstijgingen ({gemBesparingStijgingPct.toFixed(1)}%/jr gewogen) levert deze case
+          {' '}<strong>{fmtEuro(Math.abs(winstDoorIndexatie))} extra</strong> op vergeleken met
+          een statische berekening van {jaarBesparing > 0 ? `${fmtEuro(jaarBesparing)} × ${looptijd} jr` : 'jaar-1 × looptijd'}.
+        </p>
+      </div>
     </div>
   );
 }

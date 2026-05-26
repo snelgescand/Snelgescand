@@ -24,23 +24,24 @@ interface ChartContainerProps {
   ondertitel?: string;
   children: React.ReactNode;
   hoogte?: number;
-  /** Toelichting onder de grafiek — staat BUITEN het vaste-hoogte vlak,
-   * zodat lange tekst niet wordt geclipped en netjes onder de grafiek loopt. */
   toelichting?: React.ReactNode;
+  /** Optionele actie-knop(pen) rechts in de header, bv. een KopieerKnop. */
+  actie?: React.ReactNode;
 }
 
-export function ChartCard({ titel, ondertitel, children, hoogte = 280, toelichting }: ChartContainerProps) {
+export function ChartCard({ titel, ondertitel, children, hoogte = 280, toelichting, actie }: ChartContainerProps) {
   return (
     <div className="card p-4">
-      <div className="mb-3">
-        <h3 className="text-sm font-semibold text-primary-900">{titel}</h3>
-        {ondertitel && <p className="text-xs text-gray-500">{ondertitel}</p>}
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-primary-900">{titel}</h3>
+          {ondertitel && <p className="text-xs text-gray-500">{ondertitel}</p>}
+        </div>
+        {actie && <div className="shrink-0">{actie}</div>}
       </div>
-      {/* Vaste hoogte alleen voor het grafiek-canvas */}
       <div style={{ width: '100%', height: hoogte }}>
         {children}
       </div>
-      {/* Toelichting daarbuiten — geen hoogte-restrictie, krijgt alle ruimte */}
       {toelichting && (
         <div className="text-xs text-gray-500 mt-3 leading-snug">
           {toelichting}
