@@ -15,6 +15,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Stap3Financien, type EigenSubsidie, type Financiering } from '../components/Stap3Financien';
+import { TapwaterVergelijking } from '../components/TapwaterVergelijking';
 import { projectsApi, modulesApi, ApiError, bagApi, instellingenApi } from '../api/client';
 import { berekenLokaal, BerekenValidatieFout } from '../util/lokaal-bereken';
 import { AppHeader } from '../components/AppHeader';
@@ -106,6 +107,16 @@ interface ProjectState {
   berekendResultaat?: Record<string, unknown>;
   /** Project-fase voor lifecycle (concept/scan-gepland/etc) — zie data/lifecycle.ts */
   lifecycle?: string;
+  /** Tapwater-WP-keuze: exclusieve keuze tussen Q-ton, LMNT, warmtepompboiler of geen.
+   *  Sturt de maatregel-suggesties: kies LMNT → Q-ton uitgeschakeld en omgekeerd. */
+  tapwaterKeuze?: 'geen' | 'warmtepompboiler' | 'qton' | 'lmnt';
+  /** Bij Q-ton/LMNT: gekozen vermogenKw uit de modellenlijst */
+  tapwaterModelKw?: number;
+  /** Bij Q-ton/LMNT: gekozen buffer-volume in liter (37°C equivalent) */
+  tapwaterBufferLiters?: number;
+  /** Bij LMNT-keuze: ook ruimteverwarming via deze LMNT?
+   *  Zo ja, dan wordt lucht-water-warmtepomp niet aanbevolen (LMNT vervangt 'm). */
+  lmntIncRuimteverwarming?: boolean;
 }
 
 const LEGE_STATE: ProjectState = {
@@ -1387,6 +1398,8 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
                 })(),
               }}
               huidigeSituatie={draft.huidigeSituatie ?? {}}
+              tapwaterKeuze={draft.tapwaterKeuze}
+              lmntIncRuimteverwarming={draft.lmntIncRuimteverwarming}
               gekozenIds={gekozenIds}
               onToggle={(id, defaults) => updateDraft(s => {
                 const next = { ...s.gekozenMaatregelen };
@@ -1590,6 +1603,21 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
               Veel efficiënter dan één alleskunner.
             </div>
           </div>
+        )}
+
+        {/* Tapwater-WP keuze + buffer-simulatie grafiek (Excel-style) */}
+        {douchePieken && douchePieken.piekUurLiters > 0 && (
+          <TapwaterVergelijking
+            perDagPerUur={douchePieken.perDagPerUur}
+            keuze={draft.tapwaterKeuze ?? 'geen'}
+            modelVermogenKw={draft.tapwaterModelKw}
+            bufferLiters={draft.tapwaterBufferLiters}
+            lmntIncRuimteverwarming={draft.lmntIncRuimteverwarming}
+            onKeuzeChange={k => updateDraft(s => ({ ...s, tapwaterKeuze: k }))}
+            onModelChange={kw => updateDraft(s => ({ ...s, tapwaterModelKw: kw }))}
+            onBufferChange={l => updateDraft(s => ({ ...s, tapwaterBufferLiters: l }))}
+            onLmntRuimteverwarmingChange={b => updateDraft(s => ({ ...s, lmntIncRuimteverwarming: b }))}
+          />
         )}
 
         {waterPerUurData.length > 0 && (

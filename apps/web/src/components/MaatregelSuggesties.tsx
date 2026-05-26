@@ -33,6 +33,10 @@ interface MaatregelSuggestiesProps {
     aantalDouchekoppen?: number;
   };
   huidigeSituatie: HuidigeSituatieData;
+  /** Tapwater-WP exclusieve keuze uit stap 1 — verbergt niet-gekozen alternatieven */
+  tapwaterKeuze?: 'geen' | 'warmtepompboiler' | 'qton' | 'lmnt';
+  /** Bij LMNT-keuze: ook ruimteverwarming via LMNT? Dan ook lucht-water-WP verbergen */
+  lmntIncRuimteverwarming?: boolean;
   gekozenIds: string[];
   gekozenInputs?: Record<string, Record<string, unknown>>;
   onToggle: (id: string, defaultInput: unknown) => void;
@@ -103,6 +107,8 @@ export function MaatregelSuggesties({
   beschikbareModules,
   context,
   huidigeSituatie,
+  tapwaterKeuze,
+  lmntIncRuimteverwarming,
   gekozenIds,
   onToggle,
   onOpenDetail,
@@ -110,13 +116,34 @@ export function MaatregelSuggesties({
   const scores = useMemo(() => {
     const ctx: AanbevelingContext = { ...context, huidigeSituatie };
     const alleIds = beschikbareModules.modules.map(m => m.id);
-    // Filter maatregelen die expliciet als 'niet relevant' zijn gemarkeerd
-    // (bv. LED-binnenverlichting als clubhuis al volledig LED is — heeft geen zin
-    // om dan nog te tonen). Wel logische sortering op score.
-    return scoreAlleMaatregelen(alleIds, ctx)
+    // Exclusieve tapwater-WP keuze uit stap 1: verberg de niet-gekozen alternatieven.
+    // De gebruiker heeft expliciet aangegeven welke richting het op gaat, dus tonen
+    // van de andere opties leidt alleen tot verwarring.
+    const tapwaterFilter = (id: string): boolean => {
+      if (!tapwaterKeuze || tapwaterKeuze === 'geen') return true;
+      // Bij keuze 'qton': verberg LMNT, warmtepompboiler, PVT-tapwater
+      if (tapwaterKeuze === 'qton') {
+        return !['lmnt-warmtepomp', 'warmtepompboiler', 'pvt-tapwater'].includes(id);
+      }
+      // Bij keuze 'lmnt': verberg Q-ton, warmtepompboiler, PVT-tapwater
+      // PLUS: als LMNT ook ruimteverwarming doet → verberg lucht-water-warmtepomp
+      if (tapwaterKeuze === 'lmnt') {
+        const verbergIds = ['qton-warmtepomp', 'warmtepompboiler', 'pvt-tapwater'];
+        if (lmntIncRuimteverwarming) {
+          verbergIds.push('lucht-water-warmtepomp', 'hybride-warmtepomp');
+        }
+        return !verbergIds.includes(id);
+      }
+      // Bij keuze 'warmtepompboiler': verberg Q-ton, LMNT, PVT
+      if (tapwaterKeuze === 'warmtepompboiler') {
+        return !['qton-warmtepomp', 'lmnt-warmtepomp', 'pvt-tapwater'].includes(id);
+      }
+      return true;
+    };
+    return scoreAlleMaatregelen(alleIds.filter(tapwaterFilter), ctx)
       .filter(s => !s.nietRelevant)
       .sort((a, b) => b.score - a.score);
-  }, [beschikbareModules, context, huidigeSituatie]);
+  }, [beschikbareModules, context, huidigeSituatie, tapwaterKeuze, lmntIncRuimteverwarming]);
 
   const previews = useMemo(() => {
     const out: Record<string, ReturnType<typeof maatregelPreview>> = {};
