@@ -60,11 +60,21 @@ export function maakBusinessCase(input: BusinessCaseInput): MaatregelResultaat {
   };
 }
 
-/** Helper: maak een DUMAVA-subsidie standaard 20% op brutoInvestering */
+/** Helper: maak een DUMAVA-subsidie standaard 20% op brutoInvestering.
+ *
+ * Naam-keuze conform RVO (sinds 1-3-2023): "DUMAVA losse maatregelen" voor
+ * aanvragen met ≤3 maatregelen tegelijk. Een aanvraag met >3 maatregelen
+ * valt onder "DUMAVA integraal verduurzamingsproject" — dan is het percentage
+ * hoger (30-40%) maar wel onder strengere voorwaarden (verplichte labelsprong
+ * van minimaal 3 stappen).
+ *
+ * De post-processing in berekenProject (services/bereken.service.ts) bepaalt
+ * uiteindelijk welke variant (losse / integraal / niet toegekend) actief is.
+ */
 export function dumavaSubsidie(brutoInvestering: number, context: ProjectContext): Subsidie {
   return {
     bron: 'dumava',
-    naam: 'DUMAVA stap 1',
+    naam: 'DUMAVA losse maatregelen',
     bedrag: brutoInvestering * context.defaultSubsidiePercentages.dumava,
     percentage: context.defaultSubsidiePercentages.dumava,
   };

@@ -115,58 +115,104 @@ export function berekenProject(rawState: unknown): BerekendProject {
     }
   }
 
-  // === Stap 4: DUMAVA-eligibility check ===
-  // DUMAVA-regeling (RVO, sinds 1-3-2023) vereist ECHTE verduurzaming:
-  //   - Minimaal 3 verduurzamingsmaatregelen die in de DUMAVA-lijst staan, OF
-  //   - Een labelsprong naar minimaal label B (bij start vanaf C of slechter)
+  // === Stap 4: DUMAVA-regime bepalen ===
+  // RVO DUMAVA kent twee aanvraag-varianten (sinds 1-3-2023):
   //
-  // Voorheen kreeg elke maatregel los DUMAVA toegekend, ook als er maar 1 maatregel
-  // was gekozen of als het label niet verbeterde. Dat klopt niet. Hier filteren we
-  // DUMAVA eruit als de criteria niet vervuld zijn — dan blijven andere subsidies
-  // (ISDE, BOSA) gewoon staan.
+  //   A. "Losse maatregelen" (≤3 maatregelen)
+  //      • 20% subsidie op bruto investering
+  //      • Geen verplichte labelsprong
+  //      • Naam in Subsidie-record: "DUMAVA losse maatregelen"
+  //
+  //   B. "Integraal verduurzamingsproject" (>3 maatregelen)
+  //      • 30% subsidie (kan oplopen tot 40% bij bouwkundige + installatie-mix)
+  //      • Verplicht: labelsprong van minimaal 3 stappen op de A-G schaal
+  //      • Voorbeeld: van E naar B = 3 stappen (E→D→C→B) ✓
+  //      • Naam: "DUMAVA integraal verduurzamingsproject"
+  //
+  //   C. Geen DUMAVA — als >3 maatregelen ZONDER de 3-staps-labelsprong
+  //
+  // Het calc-core module-pakket geeft per maatregel een DUMAVA-subsidie van 20%
+  // mee (losse-regime default). Hier herinterpreteren we project-breed:
   const aantalMaatregelen = Object.values(resultaten).filter(r => r && r.brutoInvestering > 0).length;
   const labelInfo = userCtx.energielabel as { huidig?: string; verwachtNa?: string } | undefined;
   const labelHuidig = labelInfo?.huidig?.toUpperCase();
   const labelNa = labelInfo?.verwachtNa?.toUpperCase();
-  // Labelsprong: van C/D/E/F/G naar A of B is een echte sprong; van B naar B is dat niet
   const RANG = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
   const huidigRang = labelHuidig ? RANG.indexOf(labelHuidig) : -1;
   const naRang = labelNa ? RANG.indexOf(labelNa) : -1;
-  const labelSprong = huidigRang >= 0 && naRang >= 0
-    && naRang < huidigRang   // lager indexgetal = beter label
-    && naRang <= 1;          // naar A of B
-  const dumavaToegestaan = aantalMaatregelen >= 3 || labelSprong;
+  // Stappen labelsprong: positief = beter (lager rangnummer)
+  const aantalStappen = (huidigRang >= 0 && naRang >= 0) ? (huidigRang - naRang) : 0;
 
-  if (!dumavaToegestaan) {
-    // Verwijder DUMAVA-subsidie uit alle maatregel-resultaten en herbereken totalen
-    for (const id of Object.keys(resultaten) as RegistryKey[]) {
-      const res = resultaten[id];
-      if (!res || !res.subsidies) continue;
-      const verwijderd = res.subsidies.filter(s => s.bron !== 'dumava');
-      if (verwijderd.length !== res.subsidies.length) {
-        const nieuweTotaleSubsidie = verwijderd.reduce((s, x) => s + x.bedrag, 0);
-        resultaten[id] = {
-          ...res,
-          subsidies: verwijderd,
-          totaleSubsidie: nieuweTotaleSubsidie,
-          nettoInvestering: res.brutoInvestering - nieuweTotaleSubsidie,
-          // TVT herberekenen
-          terugverdientijdJaren: res.besparingPerJaar > 0
-            ? (res.brutoInvestering - nieuweTotaleSubsidie) / res.besparingPerJaar
-            : res.terugverdientijdJaren,
-          warnings: [
-            ...(res.warnings ?? []),
-            {
-              level: 'info' as const,
-              code: 'DUMAVA_NIET_VAN_TOEPASSING',
-              message: aantalMaatregelen < 3
-                ? `DUMAVA niet toegekend: vereist minimaal 3 verduurzamingsmaatregelen (nu ${aantalMaatregelen} gekozen). Voeg meer maatregelen toe of zorg voor een labelsprong naar A/B.`
-                : 'DUMAVA niet toegekend: huidig label en verwacht label-na vormen geen sprong naar A/B vanaf C of slechter.',
-            },
-          ],
+  type DumavaRegime = 'losse' | 'integraal' | 'geen';
+  let regime: DumavaRegime;
+  let regimePercentage = 0;
+  let regimeNaam = '';
+  if (aantalMaatregelen === 0) {
+    regime = 'geen';
+  } else if (aantalMaatregelen <= 3) {
+    regime = 'losse';
+    regimePercentage = 0.20;
+    regimeNaam = 'DUMAVA losse maatregelen';
+  } else if (aantalStappen >= 3) {
+    regime = 'integraal';
+    regimePercentage = 0.30; // 30% standaard, kan tot 40% bij bouwkundige+installatie mix — pas later met UI-toggle
+    regimeNaam = 'DUMAVA integraal verduurzamingsproject';
+  } else {
+    regime = 'geen';
+  }
+
+  // Loop alle resultaten langs en pas de DUMAVA-rij aan o.b.v. regime
+  for (const id of Object.keys(resultaten) as RegistryKey[]) {
+    const res = resultaten[id];
+    if (!res || !res.subsidies) continue;
+    const dumavaIdx = res.subsidies.findIndex(s => s.bron === 'dumava');
+    if (dumavaIdx < 0) continue; // module heeft geen DUMAVA-rij
+
+    let nieuweSubsidies = [...res.subsidies];
+    let warningExtra: { level: 'info' | 'warning'; code: string; message: string } | null = null;
+
+    if (regime === 'geen') {
+      // Verwijder DUMAVA volledig
+      nieuweSubsidies = nieuweSubsidies.filter((_, i) => i !== dumavaIdx);
+      warningExtra = {
+        level: 'info',
+        code: 'DUMAVA_NIET_VAN_TOEPASSING',
+        message: aantalMaatregelen > 3
+          ? `DUMAVA niet toegekend: bij >3 maatregelen geldt het "integraal verduurzamings-regime", dat vereist een labelsprong van minimaal 3 stappen (nu ${aantalStappen}). Anders: kies maximaal 3 maatregelen voor de "losse maatregelen"-regeling.`
+          : 'DUMAVA niet toegekend: er zijn geen verduurzamingsmaatregelen gekozen.',
+      };
+    } else {
+      // Vervang de DUMAVA-rij met regime-percentage en juiste naam
+      const nieuwBedrag = res.brutoInvestering * regimePercentage;
+      nieuweSubsidies[dumavaIdx] = {
+        ...nieuweSubsidies[dumavaIdx],
+        naam: regimeNaam,
+        bedrag: nieuwBedrag,
+        percentage: regimePercentage,
+      };
+      if (regime === 'integraal') {
+        warningExtra = {
+          level: 'info',
+          code: 'DUMAVA_INTEGRAAL',
+          message: `Integraal-regime: ${aantalMaatregelen} maatregelen + ${aantalStappen} labelsprong-stappen (${labelHuidig} → ${labelNa}). 30% standaard, controleer of 40% van toepassing is (bouwkundige + installatie-mix).`,
         };
+      } else if (regime === 'losse' && aantalMaatregelen > 3) {
+        // Onmogelijk gegeven de boom, maar veiligheidsnet
+        warningExtra = null;
       }
     }
+
+    const nieuweTotaleSubsidie = nieuweSubsidies.reduce((s, x) => s + x.bedrag, 0);
+    resultaten[id] = {
+      ...res,
+      subsidies: nieuweSubsidies,
+      totaleSubsidie: nieuweTotaleSubsidie,
+      nettoInvestering: res.brutoInvestering - nieuweTotaleSubsidie,
+      terugverdientijdJaren: res.besparingPerJaar > 0
+        ? (res.brutoInvestering - nieuweTotaleSubsidie) / res.besparingPerJaar
+        : res.terugverdientijdJaren,
+      warnings: warningExtra ? [...(res.warnings ?? []), warningExtra] : (res.warnings ?? []),
+    };
   }
 
   // === Stap 5: rollup — ook in try/catch zodat één bug niet alles sloopt ===
