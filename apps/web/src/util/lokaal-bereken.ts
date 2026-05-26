@@ -15,6 +15,7 @@ import {
   MODULE_REGISTRY,
   rollupProject,
   defaultContext,
+  pasDumavaRegimeToe,
   type MaatregelResultaat,
   type ProjectContext,
   type RegistryKey,
@@ -36,6 +37,10 @@ export class BerekenValidatieFout extends Error {
 interface ProjectState {
   context?: Partial<ProjectContext>;
   gekozenMaatregelen?: Record<string, unknown>;
+  /** Voor DUMAVA-regime: huidig label, verwacht label na, renovatiestandaard */
+  energielabel?: { huidig?: string; verwachtNa?: string; renovatiestandaard?: boolean };
+  /** Voor DUMAVA: kleine/grote onderneming */
+  organisatie?: { grooteOnderneming?: boolean };
 }
 
 export function berekenLokaal(rawState: unknown): BerekendProject {
@@ -71,6 +76,8 @@ export function berekenLokaal(rawState: unknown): BerekendProject {
       },
     } as ProjectContext['energie'],
     defaultSubsidiePercentages: baseCtx.defaultSubsidiePercentages,
+    energielabel: state.energielabel,
+    organisatie: state.organisatie,
   };
 
   // === Maatregelen ===
@@ -102,6 +109,12 @@ export function berekenLokaal(rawState: unknown): BerekendProject {
       overgeslagen.push({ id: maatregelId, reden: err instanceof Error ? err.message : String(err) });
     }
   }
+
+  // === DUMAVA-regime project-breed toepassen (RVO 2025 regels) ===
+  // Past per maatregel de DUMAVA-rij aan: verwijdert, of zet naar 30%/40%
+  // afhankelijk van aantal maatregelen + labelsprong + eindlabel + onderneming.
+  // Werkt identiek aan backend bereken.service.ts dankzij gedeelde helper.
+  pasDumavaRegimeToe(resultaten as Record<string, MaatregelResultaat | undefined>, context);
 
   // === Rollup met try/catch fallback ===
   // Batterij-vermogen verzamelen om door te geven aan de aansluitwaarde-check.

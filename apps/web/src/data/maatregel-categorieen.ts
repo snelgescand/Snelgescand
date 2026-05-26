@@ -122,14 +122,14 @@ export const MAATREGEL_CATEGORIE: Record<string, Categorie> = {
 export type WarmtepompType = 'tapwater' | 'cv' | 'beide';
 
 export const WARMTEPOMP_TYPE: Record<string, WarmtepompType> = {
-  'qton-warmtepomp': 'beide',           // Q-ton CO₂ kan tot 90°C → ook CV mogelijk
+  'qton-warmtepomp': 'tapwater',         // Q-ton CO₂ levert 90°C — ALLEEN tapwater (geen LT-CV mogelijk)
   'pvt-tapwater': 'tapwater',
   'warmtepompboiler': 'tapwater',
   'eboiler': 'tapwater',
   'lucht-water-warmtepomp': 'cv',        // Typisch lage T (35-55°C)
   'lucht-lucht-warmtepomp': 'cv',        // Lucht (kan ook koelen)
   'hybride-warmtepomp': 'cv',            // CV-vervanger ipv tapwater
-  'lmnt-warmtepomp': 'beide',            // LMNT kan tap + CV
+  'lmnt-warmtepomp': 'beide',            // LMNT (lucht/water modulair) kan tap én CV
 };
 
 /**
@@ -349,17 +349,19 @@ function ruimteverwarmingSuggestie(ctx: ScanContext): Suggestie {
       gechiktVoor: 'Matig geïsoleerde gebouwen of tussenstap voor later',
     },
     {
-      titel: 'Q-ton voor zowel tapwater als CV',
+      titel: 'LMNT voor zowel tapwater als CV',
       type: 'beide' as const,
       voordelen: [
-        'Eén systeem voor douches ÉN ruimteverwarming',
-        'Hoge temperatuur — geen radiator-vervanging nodig',
+        'Eén lucht/water-systeem voor douches ÉN ruimteverwarming',
+        'Modulair op te schalen (5-150 kW per unit)',
+        'Tapwater 55-65°C, ruimteverwarming op LT 35-50°C',
       ],
       nadelen: [
-        'Hoge investering (€45-60k)',
-        'Niet alle installateurs ervaring',
+        'Vereist LT-afgiftesysteem voor verwarming (vloer of LT-radiator)',
+        'Buffer + legionellaboiler nodig (lagere T dan Q-ton)',
+        'Vermogen moet beide pieken aankunnen — 25-50 kW typisch',
       ],
-      gechiktVoor: 'Clubs met grote douche-vraag én ruimteverwarming-vraag',
+      gechiktVoor: 'Clubs met douche-vraag én verwarmings-vraag, mét LT-afgifte (Q-ton kan dit NIET — alleen tapwater)',
     },
   ];
 

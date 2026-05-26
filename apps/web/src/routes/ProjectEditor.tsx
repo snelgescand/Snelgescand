@@ -117,6 +117,20 @@ interface ProjectState {
   /** Bij LMNT-keuze: ook ruimteverwarming via deze LMNT?
    *  Zo ja, dan wordt lucht-water-warmtepomp niet aanbevolen (LMNT vervangt 'm). */
   lmntIncRuimteverwarming?: boolean;
+  /** Energielabel-info — gebruikt voor DUMAVA-regime check (P.1 vs P.2 vs losse) */
+  energielabel?: {
+    /** Huidig label A-G — auto-bepaald maar overrulebaar */
+    huidig?: string;
+    /** Verwacht label NA maatregelen — auto-bepaald, overrulebaar */
+    verwachtNa?: string;
+    /** Renovatiestandaard / hoge energieprestatie behaald? — voor DUMAVA 40% (P.2) */
+    renovatiestandaard?: boolean;
+  };
+  /** Onderneming-grootte — voor DUMAVA: grootbedrijf krijgt max 30% ongeacht renovatiestandaard.
+   *  Sportclub is bijna altijd kleine onderneming (<250 fte EN <€50M omzet). */
+  organisatie?: {
+    grooteOnderneming?: boolean;
+  };
 }
 
 const LEGE_STATE: ProjectState = {
@@ -1324,6 +1338,27 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
     return { huidig };
   }, [draft, cached]);
 
+  // Sync berekende energielabels naar draft.energielabel zodat DUMAVA-regime
+  // ze kan gebruiken. Alleen overschrijven als ze nog niet handmatig zijn
+  // ingevuld of als ze veranderd zijn t.o.v. eerdere waarde.
+  useEffect(() => {
+    if (!energielabelData) return;
+    const huidigBerekend = energielabelData.huidig?.label;
+    const naBerekend = energielabelData.nieuw?.label;
+    const huidigOpgeslagen = draft.energielabel?.huidig;
+    const naOpgeslagen = draft.energielabel?.verwachtNa;
+    if (huidigBerekend === huidigOpgeslagen && naBerekend === naOpgeslagen) return;
+    updateDraft(s => ({
+      ...s,
+      energielabel: {
+        ...(s.energielabel ?? {}),
+        huidig: huidigBerekend ?? s.energielabel?.huidig,
+        verwachtNa: naBerekend ?? s.energielabel?.verwachtNa,
+      },
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [energielabelData?.huidig?.label, energielabelData?.nieuw?.label]);
+
   return (
     <div className="grid lg:grid-cols-[3fr_2fr] gap-6">
       <div className="space-y-5">
@@ -1550,6 +1585,76 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             nieuw={energielabelData.nieuw}
             sprong={energielabelData.sprong}
           />
+        )}
+
+        {/* DUMAVA-toggles — alleen tonen als gas+stroom+bvo ingevuld (anders is label-info onbruikbaar) */}
+        {energielabelData && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+            <div className="flex items-start justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-primary-900">🏛️ DUMAVA-context (subsidiepercentage)</h3>
+                <p className="text-xs text-gray-600 mt-1">
+                  Bepaalt of je 20% (losse), 30% (integraal P.1) of 40% (P.2 met renovatiestandaard) DUMAVA krijgt volgens RVO-regels 2025.
+                </p>
+              </div>
+            </div>
+
+            {/* Labels (read-only weergave, auto-bepaald uit gas/stroom/bvo) */}
+            <div className="grid sm:grid-cols-2 gap-2 text-xs">
+              <div className="bg-gray-50 rounded p-2">
+                <span className="text-gray-500">Huidig label (auto):</span>{' '}
+                <strong className="text-gray-900">{draft.energielabel?.huidig ?? '—'}</strong>
+                {' '}
+                <span className="text-gray-400">(uit gas+stroom+BVO)</span>
+              </div>
+              <div className="bg-gray-50 rounded p-2">
+                <span className="text-gray-500">Verwacht na maatregelen:</span>{' '}
+                <strong className="text-gray-900">{draft.energielabel?.verwachtNa ?? '—'}</strong>
+                {' '}
+                <span className="text-gray-400">{cached?.rollup ? '(uit gekozen maatregelen)' : '(bereken eerst)'}</span>
+              </div>
+            </div>
+
+            {/* Toggle: renovatiestandaard */}
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={draft.energielabel?.renovatiestandaard ?? false}
+                onChange={e => updateDraft(s => ({
+                  ...s,
+                  energielabel: { ...(s.energielabel ?? {}), renovatiestandaard: e.target.checked },
+                }))}
+              />
+              <span className="text-xs text-gray-700">
+                <strong>Project haalt renovatiestandaard (hoge energieprestatie)?</strong>{' '}
+                <span className="text-gray-500">
+                  Bijlage 4 van de regeling. Voor sportclubs typisch A++/A+++. Alleen aanvinken bij {' '}
+                  4+ maatregelen, ≥3 labelsprong, en kleine onderneming → activeert 40% i.p.v. 30%.
+                </span>
+              </span>
+            </label>
+
+            {/* Toggle: grote onderneming */}
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={draft.organisatie?.grooteOnderneming ?? false}
+                onChange={e => updateDraft(s => ({
+                  ...s,
+                  organisatie: { ...(s.organisatie ?? {}), grooteOnderneming: e.target.checked },
+                }))}
+              />
+              <span className="text-xs text-gray-700">
+                <strong>Grote onderneming?</strong>{' '}
+                <span className="text-gray-500">
+                  &gt;250 fte ÓF &gt;€50M omzet. Bijna nooit voor sportclubs — dan blijft 40% mogelijk.
+                  Aanvinken → max. 30% DUMAVA.
+                </span>
+              </span>
+            </label>
+          </div>
         )}
 
         {/* Grafieken */}

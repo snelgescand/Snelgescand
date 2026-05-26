@@ -184,6 +184,21 @@ export interface ProjectContext {
     ias: number;        // 0.60
     bosa: number;       // 0.40
   };
+  /** Energielabel-info — gebruikt voor DUMAVA-regime check (P.1 vs P.2 vs losse).
+   *  Officiële regels (RVO 2025):
+   *    - Losse 20%: 1-3 maatregelen
+   *    - Integraal P.1 30%: 4+ maatregelen + Maatwerkadvies + ≥3 labelsprong + eindlabel ≥ B
+   *    - Integraal P.2 40%: bovenstaande + renovatiestandaard + kleine onderneming */
+  energielabel?: {
+    huidig?: string;
+    verwachtNa?: string;
+    renovatiestandaard?: boolean;
+  };
+  /** Onderneming-grootte voor DUMAVA. Grootbedrijf (>250 fte OF >€50M omzet) max. 30%.
+   *  Sportclub is bijna altijd kleine onderneming. */
+  organisatie?: {
+    grooteOnderneming?: boolean;
+  };
 }
 
 /** Generieke maatregel-module */

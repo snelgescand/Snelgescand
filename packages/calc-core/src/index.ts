@@ -1,215 +1,248 @@
 /**
- * Public API van @sportief-opgewekt/calc-core.
+ * Centrale domeintypes voor de rekenkern.
  *
- * Alle types, modules en utilities die de UI/API/PPT-export nodig heeft
- * staan hier expliciet geëxporteerd. Niets anders is publiek bedoeld.
+ * Deze types beschrijven de invoer (Project) en de uitvoer (Resultaat) van het
+ * model. Alle modules implementeren dezelfde MaatregelModule<I, R> interface
+ * zodat de penningmeester-rollup ze uniform kan optellen.
  */
 
-// Types & constanten
-export * from './types/index.js';
+/* ============================================================================
+ * Identificatoren
+ * ========================================================================== */
 
-// Data-lookups (UI heeft soms direct toegang nodig)
-export {
-  rcDefault,
-  rcByDetail,
-  uWaarde,
-  alleConstructieDetails,
-} from './data/rc-waarden.js';
+export type ProjectId = string;
+export type MaatregelId =
+  | 'douches-analyse'
+  | 'dakisolatie'
+  | 'spouwmuurisolatie'
+  | 'vloerisolatie'
+  | 'glasisolatie'
+  | 'waterzijdig-inregelen'
+  | 'wtw'
+  | 'warmtepompboiler'
+  | 'eboiler'
+  | 'pvt-tapwater'
+  | 'qton-warmtepomp'
+  | 'lmnt-warmtepomp'
+  | 'lucht-water-warmtepomp'
+  | 'lucht-lucht-warmtepomp'
+  | 'hybride-warmtepomp'
+  | 'binnenverlichting'
+  | 'ledveldverlichting'
+  | 'zonnepanelen'
+  | 'batterij-eenvoudig'
+  | 'batterij-uitgebreid'
+  | 'batterij-tijdreeks';
 
-export type { ConstructieDetail, ConstructieDeel } from './data/rc-waarden.js';
+/* ============================================================================
+ * Constanten (zie docs/FORMULES.md voor herkomst)
+ * ========================================================================== */
 
-export {
-  AANSLUITINGEN,
-  KLEINVERBRUIK_GRENS_KW,
-  aansluitingByLabel,
-  aansluitingToType,
-  alleAansluitingen,
-} from './data/aansluitwaarden.js';
+/** Soortelijke warmte water in kJ/(kg·K) */
+export const C_WATER = 4.19;
+/** Dichtheid water in kg/L */
+export const RHO_WATER = 1.0;
+/**
+ * Onderwaarde Gronings aardgas in MJ/m³.
+ * NB: het Excel gebruikt op verschillende plekken zowel 31.65 (MJ/m³) als 10.1 (kWh/m³).
+ * 31.65 MJ = 8.79 kWh, dus dit zou consistent moeten zijn — maar Excel gebruikt
+ * 10.1 kWh/m³ in warmtepomp-formules, wat lijkt op een primaire-energie factor.
+ * Voor warmteverlies-besparing gebruiken we de zuivere calorische waarde.
+ */
+export const GAS_LHV_MJ_M3 = 31.65;
+export const GAS_LHV_KWH_M3 = GAS_LHV_MJ_M3 / 3.6; // 8.79
 
-export type { AansluitingRow } from './data/aansluitwaarden.js';
+/**
+ * Equivalent Excel gebruikt in warmtepomp-tabbladen (vermoedelijk primaire energie).
+ * Bewust apart om de Excel-uitkomsten te kunnen reproduceren.
+ */
+export const GAS_EXCEL_WP_KWH_M3 = 10.1;
 
-export {
-  PV_STAFFEL,
-  PV_DEFAULT_PANEEL_WP,
-  PV_DEFAULT_INSTRALINGSFACTOR,
-  PV_DEGRADATIE_PER_JAAR,
-  PV_DEFAULT_EIGEN_VERBRUIK_RATIO,
-  PV_CO2_REDUCTIE_PER_KWH,
-  GLAS,
-  pvPrijsPerWp,
-  glasInfo,
-} from './data/pv-en-glas.js';
+/** CO₂-emissiefactor aardgas in kg/m³ */
+export const CO2_GAS = 2.05;
+/** CO₂-emissiefactor stroom NL grid-mix in kg/kWh (rekenmodel) */
+export const CO2_STROOM = 0.337;
+/** CO₂ NL grid-mix in kg/kWh (accumodel — kleine afwijking) */
+export const CO2_STROOM_ACCUMODEL = 0.328;
 
-export type { Glassoort } from './data/pv-en-glas.js';
+/* ============================================================================
+ * Project-niveau structuren
+ * ========================================================================== */
 
-export {
-  luchtWaterWPerM2,
-  luchtLuchtWPerM3,
-  hybrideVollasturen,
-  WTW_BESPARING_FACTOR,
-  HYBRIDE_DEFAULT_BETA,
-  HYBRIDE_DEFAULT_COP,
-  LW_DEFAULT_COP,
-  LL_DEFAULT_COP,
-} from './data/warmtepomp.js';
+export interface ClubInfo {
+  naam: string;
+  type?: string;                     // bv "voetbal", "tennis", "hockey"
+  aantalLeden?: number;
+  aantalVelden?: number;
+  aantalKleedkamers?: number;
+  aantalDouchekoppen?: number;
+  eigendom?: 'koop' | 'huur' | 'gemeente';
+}
 
-export type { IsolatieNiveau } from './data/warmtepomp.js';
+export interface GebouwKenmerken {
+  bouwjaar: number;
+  bouwjaarTweedeBouwdeel?: number;
+  bouwjaarDerdeBouwdeel?: number;
+  bvoTotaalM2?: number;             // mag ook leeg zijn (BAG vult later)
+  bvoClubgebouwM2?: number;
+  bvoKleedkamersM2?: number;
+  bvoOverigeRuimteM2?: number;
+  plafondhoogteM?: number;
+  /** Daktype — bepaalt hoeveel PV-oppervlak beschikbaar is.
+   *  - 'plat':    ~55% van BVO benutbaar (rekening met schaduw, oost-west, looppaden)
+   *  - 'schuin':  ~32% (alleen zuid/west helft × afstand-tussen-rijen)
+   *  - 'gemengd': ~43% (gemiddelde)
+   */
+  daktype?: 'plat' | 'schuin' | 'gemengd' | 'onbekend';
+  /** "<1965 met spouw isolatie afwezig" etc, optionele override van bouwjaar-default */
+  constructieDetail?: string;
+}
 
-// Modules
-export { dakisolatieModule } from './modules/dakisolatie.js';
-export type { DakisolatieInput, DakisolatieResultaat } from './modules/dakisolatie.js';
+export interface AansluitingType {
+  fase: 1 | 3;
+  ampere: number;  // gangbaar 16-200 voor kleinverbruik, hoger voor grootverbruik
+  /** afgeleid uit fase × ampere, gecached */
+  vermogenKw: number;
+}
 
-export { spouwmuurisolatieModule } from './modules/spouwmuurisolatie.js';
-export type { SpouwmuurInput, SpouwmuurResultaat } from './modules/spouwmuurisolatie.js';
+export interface EnergieSituatie {
+  stroomverbruikTotaalKwh: number;
+  stroomverbruikDalKwh?: number;
+  stroomverbruikPiekKwh?: number;
+  gasverbruikM3: number;
+  waterverbruikM3?: number;
+  bestaandePvOpwekKwh?: number;
+  aansluitwaardeElektra: AansluitingType;
+  aansluitwaardeGas?: string;       // "G6", "G10", "G25" etc
+  gecontracteerdVermogenKw?: number;
+  stroomprijsKaalPerKwh: number;    // €/kWh excl btw
+  gasprijsPerM3: number;            // €/m³
+  terugleverVergoedingPerKwh?: number;
+  groenOpgewekt: 'via-leverancier' | 'eigen-pv' | 'nee';
+}
 
-export { vloerisolatieModule } from './modules/vloerisolatie.js';
-export type { VloerisolatieInput, VloerisolatieResultaat } from './modules/vloerisolatie.js';
+/* ============================================================================
+ * Subsidie-structuren
+ * ========================================================================== */
 
-export { glasisolatieModule } from './modules/glasisolatie.js';
-export type {
-  GlasisolatieInput,
-  GlasisolatieResultaat,
-  GlasSegment,
-} from './modules/glasisolatie.js';
+export type SubsidieBron = 'dumava' | 'isde' | 'bosa' | 'derde-regeling-gemeente' | 'ias' | 'overig';
 
-export { waterzijdigInregelenModule } from './modules/waterzijdig-inregelen.js';
-export type {
-  WaterzijdigInregelenInput,
-  WaterzijdigInregelenResultaat,
-} from './modules/waterzijdig-inregelen.js';
+export interface Subsidie {
+  bron: SubsidieBron;
+  naam: string;
+  bedrag: number;                   // €
+  /** Welk percentage van de bruto-investering deze subsidie dekt (informatief) */
+  percentage?: number;
+  voorwaarden?: string;
+}
 
-export { wtwModule } from './modules/wtw.js';
-export type { WtwInput, WtwResultaat } from './modules/wtw.js';
+/* ============================================================================
+ * Maatregel-input & resultaat (universeel)
+ * ========================================================================== */
 
-export { warmtepompBoilerModule } from './modules/warmtepompboiler.js';
-export type {
-  WarmtepompBoilerInput,
-  WarmtepompBoilerResultaat,
-} from './modules/warmtepompboiler.js';
+export interface Warning {
+  level: 'info' | 'warning' | 'error';
+  code: string;
+  message: string;
+}
 
-export { eBoilerModule } from './modules/eboiler.js';
-export type { EBoilerInput, EBoilerResultaat } from './modules/eboiler.js';
+export interface MaatregelResultaat {
+  maatregelId: MaatregelId;
+  /** Bruto investering inclusief btw, € */
+  brutoInvestering: number;
+  subsidies: Subsidie[];
+  /** Som van alle subsidies, € */
+  totaleSubsidie: number;
+  /** brutoInvestering - totaleSubsidie, € */
+  nettoInvestering: number;
+  /** Jaarlijkse besparing in €, gebaseerd op huidige tarieven */
+  besparingPerJaar: number;
+  /** Gas-besparing in m³/jaar (positief = besparing) */
+  besparingGasM3?: number;
+  /** Stroom-besparing in kWh/jaar (positief = besparing) */
+  besparingStroomKwh?: number;
+  /** Eventueel extra stroomverbruik door deze maatregel (bv warmtepomp), kWh/jaar */
+  extraStroomverbruikKwh?: number;
+  /** CO₂-besparing in kg/jaar */
+  co2BesparingKg: number;
+  /** Eenvoudige terugverdientijd in jaren (nettoInv / besparingPerJaar) */
+  terugverdientijdJaren: number;
+  /** Toegevoegd piekvermogen aan elektrische zijde, kW */
+  piekVermogenKw?: number;
+  warnings: Warning[];
+}
 
-export { pvtTapwaterModule } from './modules/pvt-tapwater.js';
-export type { PvtTapwaterInput, PvtResultaat } from './modules/pvt-tapwater.js';
+/** Project-brede context die alle modules nodig hebben */
+export interface ProjectContext {
+  club: ClubInfo;
+  gebouw: GebouwKenmerken;
+  energie: EnergieSituatie;
+  /** Default-subsidies die gebruiker overschrijven kan */
+  defaultSubsidiePercentages: {
+    dumava: number;     // 0.20
+    derdeRegelingGemeente: number; // 0.333
+    ias: number;        // 0.60
+    bosa: number;       // 0.40
+  };
+  /** Energielabel-info — gebruikt voor DUMAVA-regime check (P.1 vs P.2 vs losse).
+   *  Officiële regels (RVO 2025):
+   *    - Losse 20%: 1-3 maatregelen
+   *    - Integraal P.1 30%: 4+ maatregelen + Maatwerkadvies + ≥3 labelsprong + eindlabel ≥ B
+   *    - Integraal P.2 40%: bovenstaande + renovatiestandaard + kleine onderneming */
+  energielabel?: {
+    huidig?: string;
+    verwachtNa?: string;
+    renovatiestandaard?: boolean;
+  };
+  /** Onderneming-grootte voor DUMAVA. Grootbedrijf (>250 fte OF >€50M omzet) max. 30%.
+   *  Sportclub is bijna altijd kleine onderneming. */
+  organisatie?: {
+    grooteOnderneming?: boolean;
+  };
+}
 
-export { qtonWarmtepompModule, QTON_MODELLEN } from './modules/qton-warmtepomp.js';
-export type { QtonInput, QtonResultaat, QtonModel } from './modules/qton-warmtepomp.js';
+/** Generieke maatregel-module */
+export interface MaatregelModule<TInput, TResultaat extends MaatregelResultaat> {
+  id: MaatregelId;
+  naam: string;
+  bereken(input: TInput, context: ProjectContext): TResultaat;
+  defaultInput(context: ProjectContext): TInput;
+}
 
-export { lmntWarmtepompModule } from './modules/lmnt-warmtepomp.js';
-export type { LmntInput, LmntResultaat } from './modules/lmnt-warmtepomp.js';
+/* ============================================================================
+ * Project-resultaat (rollup)
+ * ========================================================================== */
 
-export { luchtWaterWarmtepompModule } from './modules/lucht-water-warmtepomp.js';
-export type {
-  LuchtWaterWPInput,
-  LuchtWaterWPResultaat,
-} from './modules/lucht-water-warmtepomp.js';
+export interface ProjectResultaat {
+  totaleInvestering: number;
+  totaleSubsidie: number;
+  nettoInvestering: number;
+  totaleBesparingPerJaar: number;
+  gemiddeldeTerugverdientijdJaren: number;
+  totaleBesparingGasM3: number;
+  totaleBesparingStroomKwh: number;
+  totaalExtraStroomverbruikKwh: number;
+  totaleCo2BesparingKg: number;
+  totaalToegevoegdPiekvermogenKw: number;
+  nieuwePiekBelastingKw: number;
+  aansluitwaardeVoldoende: boolean;
+  /** Per maatregel het deelresultaat */
+  perMaatregel: Record<MaatregelId, MaatregelResultaat | undefined>;
+  warnings: Warning[];
+}
 
-export { luchtLuchtWarmtepompModule } from './modules/lucht-lucht-warmtepomp.js';
-export type {
-  LuchtLuchtWPInput,
-  LuchtLuchtWPResultaat,
-} from './modules/lucht-lucht-warmtepomp.js';
+export interface GeselecteerdeMaatregelen {
+  // sleutel = MaatregelId, waarde = input voor dat moduleframe of `false` om uit te zetten
+  // TS heeft geen perfecte typing voor heterogene maps zonder klassieke discriminated unions,
+  // dus in registry.ts staat de vertaling. Hier alleen het minimale contract:
+  [k: string]: unknown;
+}
 
-export { hybrideWarmtepompModule } from './modules/hybride-warmtepomp.js';
-export type {
-  HybrideWarmtepompInput,
-  HybrideWarmtepompResultaat,
-} from './modules/hybride-warmtepomp.js';
-
-export { binnenverlichtingModule } from './modules/binnenverlichting.js';
-export type {
-  BinnenverlichtingInput,
-  BinnenverlichtingResultaat,
-} from './modules/binnenverlichting.js';
-
-export { ledVeldverlichtingModule } from './modules/ledveldverlichting.js';
-export type {
-  VeldverlichtingInput,
-  VeldverlichtingResultaat,
-} from './modules/ledveldverlichting.js';
-
-export { zonnepanelenModule } from './modules/zonnepanelen.js';
-export type {
-  ZonnepanelenInput,
-  ZonnepanelenResultaat,
-  PvJaarResultaat,
-} from './modules/zonnepanelen.js';
-
-export { batterijEenvoudigModule } from './modules/batterij-eenvoudig.js';
-export type {
-  BatterijEenvoudigInput,
-  BatterijEenvoudigResultaat,
-} from './modules/batterij-eenvoudig.js';
-
-export { batterijUitgebreidModule } from './modules/batterij-uitgebreid.js';
-export type {
-  BatterijUitgebreidInput,
-  BatterijUitgebreidResultaat,
-} from './modules/batterij-uitgebreid.js';
-
-export {
-  simuleerBatterijTijdreeks,
-} from './modules/batterij-tijdreeks.js';
-export type {
-  BatterijConfig,
-  BatterijTijdreeksInput,
-  BatterijTijdreeksResultaat,
-  BatterijUurResultaat,
-} from './modules/batterij-tijdreeks.js';
-
-export {
-  douchesAnalyseModule,
-  berekenDouchenGasSimpel,
-  berekenDouchenGedetailleerd,
-} from './modules/douches.js';
-export type {
-  DouchesSimpelInput,
-  DouchesGedetailleerdInput,
-  DouchesAnalyseInput,
-  DouchesAnalyseResultaat,
-  DagSchema,
-  DagVanWeek,
-  TijdSlot,
-} from './modules/douches.js';
-
-export {
-  dimensioneerBoiler,
-  defaultBoilerDimensioneerInput,
-} from './modules/boiler-dimensionering.js';
-export type {
-  BoilerDimensioneerInput,
-  BoilerDimensioneerResultaat,
-} from './modules/boiler-dimensionering.js';
-
-// Utilities
-export {
-  maakBusinessCase,
-  dumavaSubsidie,
-  isdeSubsidie,
-  bosaSportSubsidie,
-  defaultContext,
-} from './util/business-case.js';
-
-export type { BusinessCaseInput } from './util/business-case.js';
-
-export {
-  controleerAansluitwaarde,
-} from './util/aansluitwaarde-check.js';
-
-export type {
-  AansluitwaardeCheckInput,
-  AansluitwaardeCheckResultaat,
-} from './util/aansluitwaarde-check.js';
-
-export { rollupProject } from './util/rollup.js';
-export type { RollupInput } from './util/rollup.js';
-
-// Registry
-export {
-  MODULE_REGISTRY,
-  MAATREGEL_GROEPEN,
-  getModule,
-} from './registry.js';
-
-export type { RegistryKey } from './registry.js';
+export interface Project {
+  id: ProjectId;
+  meta: { naam: string; createdAt: string; updatedAt: string };
+  club: ClubInfo;
+  gebouw: GebouwKenmerken;
+  energie: EnergieSituatie;
+  maatregelen: GeselecteerdeMaatregelen;
+}

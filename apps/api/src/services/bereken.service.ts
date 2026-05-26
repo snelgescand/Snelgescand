@@ -14,6 +14,7 @@ import {
   MODULE_REGISTRY,
   rollupProject,
   defaultContext,
+  pasDumavaRegimeToe,
   type MaatregelResultaat,
   type ProjectContext,
   type RegistryKey,
@@ -23,6 +24,9 @@ import {
 interface ProjectState {
   context?: Partial<ProjectContext>;
   gekozenMaatregelen?: Record<string, unknown>;
+  /** Voor DUMAVA-regime — door UI meegestuurd */
+  energielabel?: { huidig?: string; verwachtNa?: string; renovatiestandaard?: boolean };
+  organisatie?: { grooteOnderneming?: boolean };
 }
 
 export interface BerekendProject {
@@ -79,6 +83,8 @@ export function berekenProject(rawState: unknown): BerekendProject {
       },
     } as ProjectContext['energie'],
     defaultSubsidiePercentages: baseCtx.defaultSubsidiePercentages,
+    energielabel: state.energielabel,
+    organisatie: state.organisatie,
   };
 
   // === Stap 3: maatregelen berekenen, individueel afgeschermd ===
@@ -115,103 +121,34 @@ export function berekenProject(rawState: unknown): BerekendProject {
     }
   }
 
-  // === Stap 4: DUMAVA-regime bepalen ===
-  // RVO DUMAVA kent twee aanvraag-varianten (sinds 1-3-2023):
-  //
-  //   A. "Losse maatregelen" (≤3 maatregelen)
-  //      • 20% subsidie op bruto investering
-  //      • Geen verplichte labelsprong
-  //      • Naam in Subsidie-record: "DUMAVA losse maatregelen"
-  //
-  //   B. "Integraal verduurzamingsproject" (>3 maatregelen)
-  //      • 30% subsidie (kan oplopen tot 40% bij bouwkundige + installatie-mix)
-  //      • Verplicht: labelsprong van minimaal 3 stappen op de A-G schaal
-  //      • Voorbeeld: van E naar B = 3 stappen (E→D→C→B) ✓
-  //      • Naam: "DUMAVA integraal verduurzamingsproject"
-  //
-  //   C. Geen DUMAVA — als >3 maatregelen ZONDER de 3-staps-labelsprong
-  //
-  // Het calc-core module-pakket geeft per maatregel een DUMAVA-subsidie van 20%
-  // mee (losse-regime default). Hier herinterpreteren we project-breed:
-  const aantalMaatregelen = Object.values(resultaten).filter(r => r && r.brutoInvestering > 0).length;
-  const labelInfo = userCtx.energielabel as { huidig?: string; verwachtNa?: string } | undefined;
-  const labelHuidig = labelInfo?.huidig?.toUpperCase();
-  const labelNa = labelInfo?.verwachtNa?.toUpperCase();
-  const RANG = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
-  const huidigRang = labelHuidig ? RANG.indexOf(labelHuidig) : -1;
-  const naRang = labelNa ? RANG.indexOf(labelNa) : -1;
-  // Stappen labelsprong: positief = beter (lager rangnummer)
-  const aantalStappen = (huidigRang >= 0 && naRang >= 0) ? (huidigRang - naRang) : 0;
-
-  type DumavaRegime = 'losse' | 'integraal' | 'geen';
-  let regime: DumavaRegime;
-  let regimePercentage = 0;
-  let regimeNaam = '';
-  if (aantalMaatregelen === 0) {
-    regime = 'geen';
-  } else if (aantalMaatregelen <= 3) {
-    regime = 'losse';
-    regimePercentage = 0.20;
-    regimeNaam = 'DUMAVA losse maatregelen';
-  } else if (aantalStappen >= 3) {
-    regime = 'integraal';
-    regimePercentage = 0.30; // 30% standaard, kan tot 40% bij bouwkundige+installatie mix — pas later met UI-toggle
-    regimeNaam = 'DUMAVA integraal verduurzamingsproject';
-  } else {
-    regime = 'geen';
-  }
-
-  // Loop alle resultaten langs en pas de DUMAVA-rij aan o.b.v. regime
-  for (const id of Object.keys(resultaten) as RegistryKey[]) {
-    const res = resultaten[id];
-    if (!res || !res.subsidies) continue;
-    const dumavaIdx = res.subsidies.findIndex(s => s.bron === 'dumava');
-    if (dumavaIdx < 0) continue; // module heeft geen DUMAVA-rij
-
-    let nieuweSubsidies = [...res.subsidies];
-    let warningExtra: { level: 'info' | 'warning'; code: string; message: string } | null = null;
-
-    if (regime === 'geen') {
-      // Verwijder DUMAVA volledig
-      nieuweSubsidies = nieuweSubsidies.filter((_, i) => i !== dumavaIdx);
-      warningExtra = {
-        level: 'info',
-        code: 'DUMAVA_NIET_VAN_TOEPASSING',
-        message: aantalMaatregelen > 3
-          ? `DUMAVA niet toegekend: bij >3 maatregelen geldt het "integraal verduurzamings-regime", dat vereist een labelsprong van minimaal 3 stappen (nu ${aantalStappen}). Anders: kies maximaal 3 maatregelen voor de "losse maatregelen"-regeling.`
-          : 'DUMAVA niet toegekend: er zijn geen verduurzamingsmaatregelen gekozen.',
-      };
-    } else {
-      // Vervang de DUMAVA-rij met regime-percentage en juiste naam
-      const nieuwBedrag = res.brutoInvestering * regimePercentage;
-      nieuweSubsidies[dumavaIdx] = {
-        ...nieuweSubsidies[dumavaIdx],
-        naam: regimeNaam,
-        bedrag: nieuwBedrag,
-        percentage: regimePercentage,
-      };
-      if (regime === 'integraal') {
-        warningExtra = {
-          level: 'info',
-          code: 'DUMAVA_INTEGRAAL',
-          message: `Integraal-regime: ${aantalMaatregelen} maatregelen + ${aantalStappen} labelsprong-stappen (${labelHuidig} → ${labelNa}). 30% standaard, controleer of 40% van toepassing is (bouwkundige + installatie-mix).`,
-        };
-      } else if (regime === 'losse' && aantalMaatregelen > 3) {
-        // Onmogelijk gegeven de boom, maar veiligheidsnet
-        warningExtra = null;
-      }
-    }
-
-    const nieuweTotaleSubsidie = nieuweSubsidies.reduce((s, x) => s + x.bedrag, 0);
-    resultaten[id] = {
+  // === Stap 4: DUMAVA-regime project-breed toepassen ===
+  // Logica zit in gedeelde calc-core helper `pasDumavaRegimeToe` zodat
+  // frontend (lokaal-bereken) en backend identieke uitkomsten geven.
+  // Regels: zie /packages/calc-core/src/util/dumava-regime.ts
+  //   - 20% losse (1-3 maatregelen)
+  //   - 30% integraal P.1 (4+ maatregelen + ≥3 labelsprong + eindlabel ≥ B)
+  //   - 40% integraal P.2 (P.1 + renovatiestandaard + kleine onderneming)
+  //   - geen DUMAVA als 4+ maatregelen niet voldoen aan P.1-eisen
+  const dumavaResult = pasDumavaRegimeToe(resultaten, context);
+  // Voeg per maatregel de DUMAVA-warning toe
+  for (const [id, warning] of Object.entries(dumavaResult.warningPerMaatregel)) {
+    const res = resultaten[id as RegistryKey];
+    if (!res) continue;
+    resultaten[id as RegistryKey] = {
       ...res,
-      subsidies: nieuweSubsidies,
-      totaleSubsidie: nieuweTotaleSubsidie,
-      nettoInvestering: res.brutoInvestering - nieuweTotaleSubsidie,
+      warnings: [
+        ...(res.warnings ?? []),
+        {
+          level: dumavaResult.regime.regime === 'geen' ? 'warning' as const : 'info' as const,
+          code: dumavaResult.regime.regime === 'geen'
+            ? 'DUMAVA_NIET_VAN_TOEPASSING'
+            : `DUMAVA_${dumavaResult.regime.regime.toUpperCase()}`,
+          message: warning,
+        },
+      ],
       terugverdientijdJaren: res.besparingPerJaar > 0
-        ? (res.brutoInvestering - nieuweTotaleSubsidie) / res.besparingPerJaar
+        ? res.nettoInvestering / res.besparingPerJaar
         : res.terugverdientijdJaren,
-      warnings: warningExtra ? [...(res.warnings ?? []), warningExtra] : (res.warnings ?? []),
     };
   }
 
