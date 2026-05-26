@@ -43,6 +43,10 @@ export interface BatterijEenvoudigInput {
 export interface BatterijEenvoudigResultaat extends MaatregelResultaat {
   omzetEpexEur: number;
   energieDoorvoerKwh: number;
+  /** C-rate = vermogenKw / capaciteitKwh — bepaalt de prijsopslag */
+  cRate: number;
+  /** Effectieve prijs per kWh ná C-rate-correctie */
+  effectievePrijsPerKwhInclBtw: number;
 }
 
 export const batterijEenvoudigModule: MaatregelModule<BatterijEenvoudigInput, BatterijEenvoudigResultaat> = {
@@ -68,7 +72,36 @@ export const batterijEenvoudigModule: MaatregelModule<BatterijEenvoudigInput, Ba
     const omzetEpex = energieDoorvoer * input.gemiddeldeEpexSpreadPerKwh;
     const totaleOpbrengst = omzetEpex + input.besparingPiekvermogenEur;
 
-    const brutoInvestering = input.capaciteitKwh * input.prijsPerKwhInclBtw;
+    // === Variabele prijs op basis van C-rate (vermogen / capaciteit) ===
+    //
+    // Een batterij met hoog vermogen t.o.v. capaciteit ("hoge C-rate") vereist
+    // een zwaardere inverter en duurder PCS (Power Conversion System).
+    // Vuistregels NL zakelijke markt 2025:
+    //   - C-rate ≤ 0,3 (zelfconsumptie/PV-opslag) → ~10% korting (kleine inverter)
+    //   - C-rate 0,5 (standaard) → basisprijs (input.prijsPerKwhInclBtw)
+    //   - C-rate 1,0 ("snel") → +30% (zwaardere PCS)
+    //   - C-rate 2,0 (handel/EPEX-arbitrage) → +90% (high-power PCS)
+    //
+    // Lineair model: factor = max(0,9, 1 + (cRate − 0,5) × 0,6)
+    // De input `prijsPerKwhInclBtw` blijft de basis-prijs bij C=0,5.
+    const cRate = input.capaciteitKwh > 0 ? input.vermogenKw / input.capaciteitKwh : 0.5;
+    const cRateFactor = Math.max(0.9, 1 + (cRate - 0.5) * 0.6);
+    const effectievePrijsPerKwh = input.prijsPerKwhInclBtw * cRateFactor;
+    const brutoInvestering = input.capaciteitKwh * effectievePrijsPerKwh;
+
+    if (cRate > 1.5) {
+      warnings.push({
+        level: 'warning',
+        code: 'BATTERIJ_HOGE_CRATE',
+        message: `Hoge C-rate (${cRate.toFixed(2)}) — inverter is zwaarder en kost ~${Math.round((cRateFactor - 1) * 100)}% meer per kWh. Overweeg de capaciteit te verhogen of het vermogen te verlagen voor een gunstigere prijs.`,
+      });
+    } else if (cRate < 0.2) {
+      warnings.push({
+        level: 'info',
+        code: 'BATTERIJ_LAGE_CRATE',
+        message: `Lage C-rate (${cRate.toFixed(2)}) — de batterij kan slechts ${Math.round(cRate * 100)}% van zijn capaciteit per uur leveren. Geschikt voor zelfconsumptie, niet voor EPEX-arbitrage.`,
+      });
+    }
 
     const subsidies: Subsidie[] = [
       dumavaSubsidie(brutoInvestering, context),
@@ -97,6 +130,8 @@ export const batterijEenvoudigModule: MaatregelModule<BatterijEenvoudigInput, Ba
       ...baseResult,
       omzetEpexEur: omzetEpex,
       energieDoorvoerKwh: energieDoorvoer,
+      cRate,
+      effectievePrijsPerKwhInclBtw: effectievePrijsPerKwh,
     };
   },
 };

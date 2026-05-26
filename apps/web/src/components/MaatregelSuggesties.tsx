@@ -110,7 +110,12 @@ export function MaatregelSuggesties({
   const scores = useMemo(() => {
     const ctx: AanbevelingContext = { ...context, huidigeSituatie };
     const alleIds = beschikbareModules.modules.map(m => m.id);
-    return scoreAlleMaatregelen(alleIds, ctx).sort((a, b) => b.score - a.score);
+    // Filter maatregelen die expliciet als 'niet relevant' zijn gemarkeerd
+    // (bv. LED-binnenverlichting als clubhuis al volledig LED is — heeft geen zin
+    // om dan nog te tonen). Wel logische sortering op score.
+    return scoreAlleMaatregelen(alleIds, ctx)
+      .filter(s => !s.nietRelevant)
+      .sort((a, b) => b.score - a.score);
   }, [beschikbareModules, context, huidigeSituatie]);
 
   const previews = useMemo(() => {

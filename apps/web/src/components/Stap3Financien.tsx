@@ -129,7 +129,13 @@ export function Stap3Financien({
   }, [berekend, modulesNaam, eigenSubsidies, actieveSubsidies]);
 
   const projectBredeSubs = eigenSubsidies.filter(s => s.maatregelId === 'alle');
-  const projectBredeBedrag = projectBredeSubs.reduce((s, x) => s + x.bedrag, 0);
+  const totaalBrutoProject = perMaatregel.reduce((s, m) => s + m.brutoInv, 0);
+  const projectBredeBedrag = projectBredeSubs.reduce((s, x) => {
+    const bedrag = x.modus === 'percentage' && x.percentage != null
+      ? (totaalBrutoProject * x.percentage / 100)
+      : x.bedrag;
+    return s + bedrag;
+  }, 0);
 
   const totaalNetto = perMaatregel.reduce((s, m) => s + m.nettoFinaal, 0) - projectBredeBedrag;
   const totaalBesparing = perMaatregel.reduce((s, m) => s + m.besparing, 0);
@@ -272,6 +278,7 @@ export function Stap3Financien({
 
         <ProjectBredeSubsidies
           subsidies={projectBredeSubs}
+          totaalBrutoProject={totaalBrutoProject}
           onAdd={(sub) => onEigenSubsidiesChange([
             ...eigenSubsidies,
             { ...sub, id: makeId(), maatregelId: 'alle' },
@@ -684,58 +691,113 @@ function MaatregelKaart({ maatregel: m, eigenSubsidies, onAdd, onRemove }: {
   );
 }
 
-function ProjectBredeSubsidies({ subsidies, onAdd, onRemove }: {
+function ProjectBredeSubsidies({ subsidies, totaalBrutoProject, onAdd, onRemove }: {
   subsidies: EigenSubsidie[];
+  totaalBrutoProject: number;
   onAdd: (sub: Omit<EigenSubsidie, 'id' | 'maatregelId'>) => void;
   onRemove: (id: string) => void;
 }) {
   const [toevoegen, setToevoegen] = useState(false);
   const [naam, setNaam] = useState('');
+  const [modus, setModus] = useState<'bedrag' | 'percentage'>('bedrag');
   const [bedrag, setBedrag] = useState<number>(0);
+  const [percentage, setPercentage] = useState<number>(0);
   const [toelichting, setToelichting] = useState('');
+
+  function reset() {
+    setNaam(''); setBedrag(0); setPercentage(0); setModus('bedrag'); setToelichting(''); setToevoegen(false);
+  }
+
+  function bevestig() {
+    const sub: Omit<EigenSubsidie, 'id' | 'maatregelId'> = {
+      naam: naam.trim(),
+      modus,
+      bedrag: modus === 'bedrag' ? bedrag : (totaalBrutoProject * percentage / 100),
+      percentage: modus === 'percentage' ? percentage : undefined,
+      toelichting: toelichting.trim() || undefined,
+    };
+    onAdd(sub);
+    reset();
+  }
 
   return (
     <div className="bg-white border border-dashed border-gray-300 rounded-lg p-4 space-y-2">
       <h4 className="font-semibold text-gray-700 text-sm">🏛️ Project-brede subsidies / kortingen</h4>
-      <p className="text-xs text-gray-500">Generieke regelingen die niet aan één maatregel hangen, bv. "Gemeente verduurzaming 2025".</p>
+      <p className="text-xs text-gray-500">
+        Generieke regelingen die niet aan één maatregel hangen, bv. "Gemeente verduurzaming 2025".
+        Percentages worden toegepast op het totaal-bruto van alle maatregelen samen ({fmtEuro(totaalBrutoProject)}).
+      </p>
 
-      {subsidies.map(s => (
-        <div key={s.id} className="flex justify-between items-start text-sm gap-2 bg-emerald-50/60 rounded p-2">
-          <span className="text-gray-700">
-            • {s.naam}
-            {s.toelichting && <span className="block text-xs text-gray-500">{s.toelichting}</span>}
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="text-emerald-700 font-medium">+ {fmtEuro(s.bedrag)}</span>
-            <button type="button" onClick={() => onRemove(s.id)}
-              className="text-gray-400 hover:text-red-600 text-xs">✕</button>
-          </span>
-        </div>
-      ))}
+      {subsidies.map(s => {
+        const bedragVoor = s.modus === 'percentage' && s.percentage != null
+          ? (totaalBrutoProject * s.percentage / 100)
+          : s.bedrag;
+        return (
+          <div key={s.id} className="flex justify-between items-start text-sm gap-2 bg-emerald-50/60 rounded p-2">
+            <span className="text-gray-700">
+              • {s.naam}
+              {s.modus === 'percentage' && s.percentage != null && ` (${s.percentage.toFixed(1)}% van totaal-bruto)`}
+              {s.toelichting && <span className="block text-xs text-gray-500">{s.toelichting}</span>}
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="text-emerald-700 font-medium">+ {fmtEuro(bedragVoor)}</span>
+              <button type="button" onClick={() => onRemove(s.id)}
+                className="text-gray-400 hover:text-red-600 text-xs">✕</button>
+            </span>
+          </div>
+        );
+      })}
 
       {!toevoegen ? (
         <button type="button" onClick={() => setToevoegen(true)}
           className="text-xs text-primary-700 hover:underline">+ Project-brede subsidie toevoegen</button>
       ) : (
         <div className="bg-primary-50/50 border border-primary-200 rounded p-3 space-y-2">
-          <div className="grid sm:grid-cols-2 gap-2">
-            <input type="text" placeholder='bv. "Stichting Sport-Verduurzaming"' className="input py-1 text-sm"
-              value={naam} onChange={e => setNaam(e.target.value)} />
+          <input type="text" placeholder='bv. "Gemeente 1/3-regeling"' className="input py-1 text-sm"
+            value={naam} onChange={e => setNaam(e.target.value)} />
+
+          {/* Toggle bedrag/percentage */}
+          <div className="flex gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setModus('bedrag')}
+              className={`px-3 py-1 rounded ${modus === 'bedrag' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+            >
+              Bedrag (€)
+            </button>
+            <button
+              type="button"
+              onClick={() => setModus('percentage')}
+              className={`px-3 py-1 rounded ${modus === 'percentage' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+            >
+              Percentage (%)
+            </button>
+          </div>
+
+          {modus === 'bedrag' ? (
             <input type="number" placeholder="Bedrag €" className="input py-1 text-sm"
               value={bedrag || ''} onChange={e => setBedrag(Number(e.target.value) || 0)} />
-          </div>
+          ) : (
+            <div>
+              <input type="number" placeholder="Percentage %" step="0.1" className="input py-1 text-sm"
+                value={percentage || ''} onChange={e => setPercentage(Number(e.target.value) || 0)} />
+              {percentage > 0 && totaalBrutoProject > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  = {fmtEuro(totaalBrutoProject * percentage / 100)} ({percentage.toFixed(1)}% van totaal-bruto {fmtEuro(totaalBrutoProject)})
+                </p>
+              )}
+            </div>
+          )}
+
           <input type="text" placeholder="Toelichting (optioneel)"
             className="input py-1 text-xs"
             value={toelichting} onChange={e => setToelichting(e.target.value)} />
           <div className="flex gap-2">
             <button type="button"
-              disabled={!naam.trim() || bedrag <= 0}
-              onClick={() => {
-                onAdd({ naam: naam.trim(), modus: 'bedrag', bedrag, toelichting: toelichting.trim() || undefined });
-                setNaam(''); setBedrag(0); setToelichting(''); setToevoegen(false);
-              }}
+              disabled={!naam.trim() || (modus === 'bedrag' ? bedrag <= 0 : percentage <= 0)}
+              onClick={bevestig}
               className="text-xs bg-primary-600 text-white px-3 py-1 rounded disabled:bg-gray-300">+ Toevoegen</button>
-            <button type="button" onClick={() => setToevoegen(false)}
+            <button type="button" onClick={reset}
               className="text-xs text-gray-600 hover:text-gray-900">Annuleer</button>
           </div>
         </div>

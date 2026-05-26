@@ -26,6 +26,12 @@ export interface MaatregelScore {
   score: number;
   redenen: string[];
   categorie: 'sterk' | 'middel' | 'laag';
+  /** Maatregel volledig irrelevant — verbergen i.p.v. tonen.
+   *  Bijv. LED-binnen als gebouw al volledig LED heeft, of zonnepanelen
+   *  als gebouw geen dakcapaciteit heeft. */
+  nietRelevant?: boolean;
+  /** Korte reden waarom de maatregel verborgen is (voor logging/debug-doeleinden) */
+  verbergReden?: string;
 }
 
 export function scoreAlleMaatregelen(
@@ -188,19 +194,28 @@ function scoreMaatregel(id: string, ctx: AanbevelingContext): MaatregelScore {
     // ===== STROOM =====
     case 'binnenverlichting': {
       const led = getKeuze(sit, 'led-binnen');
+      if (led === 'volledig') {
+        return { maatregelId: id, score: 0, redenen: ['Binnen al volledig LED'], categorie: 'laag',
+          nietRelevant: true, verbergReden: 'Binnen al volledig LED — maatregel niet relevant' };
+      }
       if (led === 'geen') { score += 35; redenen.push('Nog geen LED binnen — snelle TVT'); }
       else if (led === 'deels') { score += 22; redenen.push('Deels LED — rest vervangen'); }
       else if (led === 'meeste') { score += 8; }
-      else if (led === 'volledig') { score -= 40; redenen.push('Binnen al volledig LED'); }
       if (veelStroom) score += 5;
       break;
     }
     case 'ledveldverlichting': {
       const led = getKeuze(sit, 'led-velden');
-      if (led === 'nvt') { score = 0; redenen.push('Geen veldverlichting'); break; }
+      if (led === 'nvt') {
+        return { maatregelId: id, score: 0, redenen: ['Geen veldverlichting'], categorie: 'laag',
+          nietRelevant: true, verbergReden: 'Geen veldverlichting aanwezig' };
+      }
+      if (led === 'led-volledig') {
+        return { maatregelId: id, score: 0, redenen: ['Velden al volledig LED'], categorie: 'laag',
+          nietRelevant: true, verbergReden: 'Veldverlichting al volledig LED — maatregel niet relevant' };
+      }
       if (led === 'halogeen') { score += 40; redenen.push('Veldverlichting niet-LED'); redenen.push('BOSA-subsidie 40%'); }
       else if (led === 'led-deels') { score += 18; }
-      else if (led === 'led-volledig') { score -= 45; redenen.push('Velden al LED'); }
       break;
     }
     case 'zonnepanelen': {

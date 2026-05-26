@@ -370,9 +370,38 @@ function adviesBatterij(ctx: ContextData, huidigeInput: Record<string, unknown>,
   adviezen.push({
     type: 'suggestie',
     titel: `Aanbevolen vermogen: ≈ ${aanbevolenKw} kW`,
-    body: 'Vuistregel: 0,5C — vermogen is ongeveer half van capaciteit. Hoger vermogen geeft meer flexibiliteit voor Peak Shaving en handel, maar is duurder.',
+    body: 'Vuistregel: 0,5C — vermogen is ongeveer half van capaciteit. Hoger vermogen geeft meer flexibiliteit voor Peak Shaving en handel, maar is duurder (zie prijs-tegel hieronder).',
     suggestie: { pad: 'vermogenKw', waarde: aanbevolenKw, knopLabel: `Vul ${aanbevolenKw} kW in` },
   });
+
+  // === Prijs-impact obv huidig ingevulde C-rate ===
+  //
+  // Live berekening van wat de ingevulde combinatie capaciteit/vermogen kost
+  // per kWh. Gebruiker ziet direct of een hoger vermogen veel duurder uitpakt.
+  const huidigKwh = (huidigeInput.capaciteitKwh as number) ?? 0;
+  const huidigKw = (huidigeInput.vermogenKw as number) ?? 0;
+  const basisPrijs = (huidigeInput.prijsPerKwhInclBtw as number) ?? 450;
+  if (huidigKwh > 0 && huidigKw > 0) {
+    const cRate = huidigKw / huidigKwh;
+    const factor = Math.max(0.9, 1 + (cRate - 0.5) * 0.6);
+    const effPrijs = basisPrijs * factor;
+    const totaalKosten = huidigKwh * effPrijs;
+    const opslag = (factor - 1) * 100;
+    let kleur: 'kader' | 'waarschuwing' | 'suggestie' = 'kader';
+    let titelExtra = '';
+    if (factor > 1.3) { kleur = 'waarschuwing'; titelExtra = ' (zware inverter!)'; }
+    else if (factor < 1) { kleur = 'suggestie'; titelExtra = ' (zelfconsumptie-optimaal)'; }
+
+    adviezen.push({
+      type: kleur,
+      titel: `💰 Geschatte prijs: ${fmt(Math.round(totaalKosten))} (C-rate ${cRate.toFixed(2)})${titelExtra}`,
+      body: `${huidigKwh} kWh × €${Math.round(effPrijs)}/kWh effectieve prijs = ${fmt(Math.round(totaalKosten))} bruto. ` +
+        `Basisprijs €${Math.round(basisPrijs)}/kWh × C-rate-factor ${factor.toFixed(2)} (${opslag >= 0 ? '+' : ''}${opslag.toFixed(0)}% t.o.v. basis 0,5C). ` +
+        (factor > 1.3 ? 'Een lagere C-rate (meer kWh of minder kW) drukt de prijs aanzienlijk.'
+         : factor < 1 ? 'Goede prijs-prestatie verhouding voor zelfconsumptie + PV-opslag.'
+         : 'Gangbare prijs voor sportclub-batterij.'),
+    });
+  }
 
   // Aansluit-check
   if (ctx.aansluitVermogenKw && aanbevolenKw > ctx.aansluitVermogenKw * 0.7) {
