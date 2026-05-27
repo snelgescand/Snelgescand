@@ -16,6 +16,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Stap3Financien, type EigenSubsidie, type Financiering } from '../components/Stap3Financien';
 import { TapwaterVergelijking } from '../components/TapwaterVergelijking';
+import { AfrondenOverzichtModal } from '../components/AfrondenOverzichtModal';
 import { projectsApi, modulesApi, ApiError, bagApi, instellingenApi } from '../api/client';
 import { berekenLokaal, BerekenValidatieFout } from '../util/lokaal-bereken';
 import { AppHeader } from '../components/AppHeader';
@@ -47,7 +48,7 @@ interface Locatie {
   rd_x?: number; rd_y?: number; lat?: number; lon?: number;
 }
 
-interface ProjectState {
+export interface ProjectState {
   context: {
     club?: { naam?: string; type?: string };
     gebouw?: {
@@ -595,6 +596,7 @@ export default function ProjectEditor() {
             pptFout={pptFout}
             kanBerekenen={kanBerekenen}
             onTerugStap1={() => gaNaarFase(1)}
+            onNaarStap3={() => gaNaarFase(3)}
           />
         ) : (
           <Stap3Wrapper
@@ -603,6 +605,9 @@ export default function ProjectEditor() {
             modulesQuery={modulesQuery}
             cached={cached}
             onTerugStap2={() => gaNaarFase(2)}
+            onDownloadPptTemplate={() => exportPptTemplate.mutate()}
+            pptTemplatePending={exportPptTemplate.isPending}
+            pptFout={pptFout}
           />
         )}
       </main>
@@ -1230,9 +1235,10 @@ interface Stap2Props {
   pptFout: string | null;
   kanBerekenen: boolean;
   onTerugStap1: () => void;
+  onNaarStap3: () => void;
 }
 
-function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFout, pptFout, kanBerekenen, onTerugStap1 }: Stap2Props) {
+function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFout, pptFout, kanBerekenen, onTerugStap1, onNaarStap3 }: Stap2Props) {
   const gekozenIds = Object.keys(draft.gekozenMaatregelen);
 
   // Welke maatregel-detail-modal staat open? null = dicht.
@@ -1879,6 +1885,32 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             <EnergiebalansChart data={energiebalansData} />
           </ChartCard>
         )}
+
+        {/* Navigatie-balk onderaan stap 2: terug / verder naar stap 3.
+            Verder-knop is gedisabled tot er minstens 1 maatregel gekozen is — anders
+            heeft stap 3 (financieringsmix) niets om mee te werken. */}
+        <div className="flex items-center justify-between border-t border-gray-200 pt-4 mt-2">
+          <button
+            type="button"
+            onClick={onTerugStap1}
+            className="text-sm text-gray-600 hover:text-primary-700 px-3 py-2 rounded"
+          >
+            ← Terug naar stap 1
+          </button>
+          <div className="flex items-center gap-3">
+            {gekozenIds.length === 0 && (
+              <p className="text-xs text-gray-500">Kies minimaal 1 maatregel om verder te kunnen</p>
+            )}
+            <button
+              type="button"
+              onClick={onNaarStap3}
+              disabled={gekozenIds.length === 0}
+              className="bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded-lg shadow-sm"
+            >
+              Verder naar stap 3 — Financieel →
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1900,9 +1932,15 @@ interface Stap3WrapperProps {
   modulesQuery: { data?: { modules: Array<{ id: string; naam: string; defaultInput: unknown }>; groepen: Record<string, readonly string[]> } };
   cached: any;
   onTerugStap2: () => void;
+  /** Download originele PPT-template met clubnaam ingevuld (uit de tenant-template) */
+  onDownloadPptTemplate: () => void;
+  pptTemplatePending: boolean;
+  pptFout: string | null;
 }
 
-function Stap3Wrapper({ draft, updateDraft, modulesQuery, cached, onTerugStap2 }: Stap3WrapperProps) {
+function Stap3Wrapper({ draft, updateDraft, modulesQuery, cached, onTerugStap2, onDownloadPptTemplate, pptTemplatePending, pptFout }: Stap3WrapperProps) {
+  // Modal voor het afronden-overzicht
+  const [afrondModalOpen, setAfrondModalOpen] = useState(false);
   // Tenant-instellingen voor subsidie-filter (zelfde query als stap 2)
   const instellingenQuery = useQuery({
     queryKey: ['tenant-instellingen'],
@@ -1948,16 +1986,49 @@ function Stap3Wrapper({ draft, updateDraft, modulesQuery, cached, onTerugStap2 }
   };
 
   return (
-    <Stap3Financien
-      berekend={cached}
-      modulesNaam={modulesNaam}
-      eigenSubsidies={eigenSubsidies}
-      financiering={financiering}
-      actieveSubsidies={actieveSubsidies}
-      onEigenSubsidiesChange={(subs) => updateDraft(s => ({ ...s, eigenSubsidies: subs }))}
-      onFinancieringChange={(fin) => updateDraft(s => ({ ...s, financiering: fin }))}
-      onTerugStap2={onTerugStap2}
-    />
+    <>
+      <Stap3Financien
+        berekend={cached}
+        modulesNaam={modulesNaam}
+        eigenSubsidies={eigenSubsidies}
+        financiering={financiering}
+        actieveSubsidies={actieveSubsidies}
+        onEigenSubsidiesChange={(subs) => updateDraft(s => ({ ...s, eigenSubsidies: subs }))}
+        onFinancieringChange={(fin) => updateDraft(s => ({ ...s, financiering: fin }))}
+        onTerugStap2={onTerugStap2}
+      />
+
+      {/* Afronden-knop onderaan stap 3 */}
+      <div className="max-w-6xl mx-auto px-4 mt-6 pt-4 border-t border-gray-200 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={onTerugStap2}
+          className="text-sm text-gray-600 hover:text-primary-700 px-3 py-2 rounded"
+        >
+          ← Terug naar stap 2
+        </button>
+        <button
+          type="button"
+          onClick={() => setAfrondModalOpen(true)}
+          className="bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2.5 rounded-lg shadow-sm flex items-center gap-2"
+        >
+          ✓ Afronden — overzicht & download
+        </button>
+      </div>
+
+      {/* Afronden-overzicht modal */}
+      {afrondModalOpen && (
+        <AfrondenOverzichtModal
+          draft={draft}
+          cached={cached}
+          modulesNaam={modulesNaam}
+          onClose={() => setAfrondModalOpen(false)}
+          onDownloadPptTemplate={onDownloadPptTemplate}
+          pptTemplatePending={pptTemplatePending}
+          pptFout={pptFout}
+        />
+      )}
+    </>
   );
 }
 
