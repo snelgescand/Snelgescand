@@ -1397,12 +1397,69 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
           </div>
         </div>
 
+        {/* === Logische volgorde in stap 2 ===
+            1. EERST tapwater-WP keuze (LMNT of Q-ton) — bepaalt welke andere maatregelen passen
+            2. DAARNA de overige maatregelen kiezen
+            Dit voorkomt dat je eerst maatregelen aanvinkt die door je keuze hieronder weer wegvallen. */}
+        {douchePieken && douchePieken.piekUurLiters > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-baseline gap-3">
+              <span className="bg-primary-600 text-white text-sm font-bold rounded-full w-7 h-7 flex items-center justify-center shrink-0">1</span>
+              <div>
+                <h2 className="text-base font-semibold text-primary-900">Kies eerst een tapwater-warmtepomp</h2>
+                <p className="text-xs text-gray-600">
+                  Bepaalt welke overige WP-maatregelen logisch erbij passen. LMNT kan ook ruimteverwarming
+                  doen → dan geen aparte lucht/water-WP nodig. Q-ton is alleen voor tapwater.
+                </p>
+              </div>
+            </div>
+            <TapwaterVergelijking
+              perDagPerUur={douchePieken.perDagPerUur}
+              keuze={draft.tapwaterKeuze ?? 'geen'}
+              modelVermogenKw={draft.tapwaterModelKw}
+              bufferLiters={draft.tapwaterBufferLiters}
+              lmntIncRuimteverwarming={draft.lmntIncRuimteverwarming}
+              onKeuzeChange={k => updateDraft(s => {
+                const teVerwijderen = new Set<string>();
+                if (k === 'qton') { teVerwijderen.add('lmnt-warmtepomp'); teVerwijderen.add('warmtepompboiler'); teVerwijderen.add('pvt-tapwater'); }
+                else if (k === 'lmnt') { teVerwijderen.add('qton-warmtepomp'); teVerwijderen.add('warmtepompboiler'); teVerwijderen.add('pvt-tapwater'); }
+                else if (k === 'warmtepompboiler') { teVerwijderen.add('qton-warmtepomp'); teVerwijderen.add('lmnt-warmtepomp'); teVerwijderen.add('pvt-tapwater'); }
+                const nieuweGekozen = { ...s.gekozenMaatregelen };
+                for (const id of teVerwijderen) delete nieuweGekozen[id];
+                return { ...s, tapwaterKeuze: k, gekozenMaatregelen: nieuweGekozen };
+              })}
+              onModelChange={kw => updateDraft(s => ({ ...s, tapwaterModelKw: kw }))}
+              onBufferChange={l => updateDraft(s => ({ ...s, tapwaterBufferLiters: l }))}
+              onLmntRuimteverwarmingChange={b => updateDraft(s => {
+                const nieuweGekozen = { ...s.gekozenMaatregelen };
+                if (b) {
+                  delete nieuweGekozen['lucht-water-warmtepomp'];
+                  delete nieuweGekozen['hybride-warmtepomp'];
+                }
+                return { ...s, lmntIncRuimteverwarming: b, gekozenMaatregelen: nieuweGekozen };
+              })}
+            />
+          </div>
+        )}
+
         {/* Aanbevolen maatregelen, gesorteerd */}
         {modulesQuery.data && (
-          <Sectie titel="Aanbevolen maatregelen" tooltipTekst="Gesorteerd op relevantie voor deze locatie en huidige situatie. Vink aan wat je in de businesscase wilt meenemen.">
-            <MaatregelSuggesties
-              beschikbareModules={modulesQuery.data}
-              context={{
+          <div className="space-y-2">
+            {douchePieken && douchePieken.piekUurLiters > 0 && (
+              <div className="flex items-baseline gap-3">
+                <span className="bg-primary-600 text-white text-sm font-bold rounded-full w-7 h-7 flex items-center justify-center shrink-0">2</span>
+                <div>
+                  <h2 className="text-base font-semibold text-primary-900">Kies de overige maatregelen</h2>
+                  <p className="text-xs text-gray-600">
+                    Isolatie, PV, batterij, verlichting — alles wat onafhankelijk is van de tapwater-keuze hierboven.
+                  </p>
+                </div>
+              </div>
+            )}
+            <Sectie titel="Aanbevolen maatregelen" tooltipTekst="Gesorteerd op relevantie voor deze locatie en huidige situatie. Vink aan wat je in de businesscase wilt meenemen.">
+              <MaatregelSuggesties
+                beschikbareModules={modulesQuery.data}
+                context={{
                 bouwjaar: draft.context.gebouw?.bouwjaar,
                 bvoM2: draft.context.gebouw?.bvoTotaalM2,
                 gasverbruikM3: draft.context.energie?.gasverbruikM3,
@@ -1450,6 +1507,7 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
               onOpenDetail={setOpenDetailId}
             />
           </Sectie>
+          </div>
         )}
 
         {/* Modal voor het bewerken van één maatregel — voorkomt scroll/timing issues
@@ -1711,42 +1769,8 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
           </div>
         )}
 
-        {/* Tapwater-WP keuze + buffer-simulatie grafiek (Excel-style) */}
-        {douchePieken && douchePieken.piekUurLiters > 0 && (
-          <TapwaterVergelijking
-            perDagPerUur={douchePieken.perDagPerUur}
-            keuze={draft.tapwaterKeuze ?? 'geen'}
-            modelVermogenKw={draft.tapwaterModelKw}
-            bufferLiters={draft.tapwaterBufferLiters}
-            lmntIncRuimteverwarming={draft.lmntIncRuimteverwarming}
-            onKeuzeChange={k => updateDraft(s => {
-              // Bij wijziging van tapwater-keuze: verwijder ook automatisch
-              // de niet-gekozen alternatieven uit gekozenMaatregelen, zodat
-              // ze niet meer in de berekening blijven hangen als ze in stap 2
-              // verborgen worden.
-              const teVerwijderen = new Set<string>();
-              if (k === 'qton') { teVerwijderen.add('lmnt-warmtepomp'); teVerwijderen.add('warmtepompboiler'); teVerwijderen.add('pvt-tapwater'); }
-              else if (k === 'lmnt') { teVerwijderen.add('qton-warmtepomp'); teVerwijderen.add('warmtepompboiler'); teVerwijderen.add('pvt-tapwater'); }
-              else if (k === 'warmtepompboiler') { teVerwijderen.add('qton-warmtepomp'); teVerwijderen.add('lmnt-warmtepomp'); teVerwijderen.add('pvt-tapwater'); }
-              const nieuweGekozen = { ...s.gekozenMaatregelen };
-              for (const id of teVerwijderen) delete nieuweGekozen[id];
-              return { ...s, tapwaterKeuze: k, gekozenMaatregelen: nieuweGekozen };
-            })}
-            onModelChange={kw => updateDraft(s => ({ ...s, tapwaterModelKw: kw }))}
-            onBufferChange={l => updateDraft(s => ({ ...s, tapwaterBufferLiters: l }))}
-            onLmntRuimteverwarmingChange={b => updateDraft(s => {
-              // Bij LMNT-inclusief-ruimteverwarming AAN: verwijder ook
-              // lucht-water-warmtepomp en hybride-warmtepomp uit selectie,
-              // want LMNT vervangt die functie.
-              const nieuweGekozen = { ...s.gekozenMaatregelen };
-              if (b) {
-                delete nieuweGekozen['lucht-water-warmtepomp'];
-                delete nieuweGekozen['hybride-warmtepomp'];
-              }
-              return { ...s, lmntIncRuimteverwarming: b, gekozenMaatregelen: nieuweGekozen };
-            })}
-          />
-        )}
+        {/* Tapwater-WP keuze + buffer-simulatie grafiek staan nu BOVEN in stap 2
+            (logischer als eerste keuze daar), niet meer in stap 1. */}
 
         {waterPerUurData.length > 0 && (
           <ChartCard

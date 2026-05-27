@@ -214,18 +214,18 @@ function tapwaterSuggestie(ctx: ScanContext): Suggestie {
       `Een Q-ton CO₂-warmtepomp is hier ideaal: hoge temperatuur (tot 90°C), uitstekend voor douche-warmwater, ` +
       `en kan eventueel óók ruimteverwarming bedienen. PVT-collectoren combineren stroom en warm water — ` +
       `interessant als je het dak nog niet vol hebt liggen met gewone PV.`;
-    aanbevolen = ['qton-warmtepomp', 'pvt-tapwater', 'douches-analyse', 'boiler-dimensionering'];
+    aanbevolen = ['qton-warmtepomp', 'pvt-tapwater', 'boiler-dimensionering'];
   } else if (douchesPerWeek > 50) {
     korteSamenvatting = 'Gemiddeld warm-water-gebruik — warmtepompboiler is voldoende';
     uitleg = `Met ${fmt(douchesPerWeek)} douches per week is een warmtepompboiler vaak een goede balans ` +
       `tussen investering en besparing. Q-ton is overkill als de vraag-pieken klein blijven. ` +
       `Alleen interessant bij seizoens-pieken (wedstrijddagen).`;
-    aanbevolen = ['warmtepompboiler', 'douches-analyse', 'boiler-dimensionering'];
+    aanbevolen = ['warmtepompboiler', 'boiler-dimensionering'];
   } else {
     korteSamenvatting = 'Beperkt tapwater-gebruik — eenvoudige e-boiler voldoet';
     uitleg = `Met ${fmt(douchesPerWeek)} douches per week is de warm-water-vraag laag. ` +
       `Een e-boiler aangestuurd door PV is dan simpeler en goedkoper dan een warmtepomp.`;
-    aanbevolen = ['eboiler', 'douches-analyse'];
+    aanbevolen = ['eboiler'];
   }
 
   const vergelijking = [

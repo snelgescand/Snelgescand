@@ -120,6 +120,9 @@ export function MaatregelSuggesties({
     // De gebruiker heeft expliciet aangegeven welke richting het op gaat, dus tonen
     // van de andere opties leidt alleen tot verwarring.
     const tapwaterFilter = (id: string): boolean => {
+      // 'douches-analyse' is GEEN maatregel — het is data-invoer uit stap 1 (trainingsschema).
+      // Wordt nooit als kiesbare maatregel getoond, ook al staat de module in calc-core.
+      if (id === 'douches-analyse') return false;
       if (!tapwaterKeuze || tapwaterKeuze === 'geen') return true;
       // Bij keuze 'qton': verberg LMNT, warmtepompboiler, PVT-tapwater
       if (tapwaterKeuze === 'qton') {
