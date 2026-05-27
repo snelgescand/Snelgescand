@@ -208,6 +208,8 @@ export function FactuurReferentiesPaneel() {
           categorieen={categorieen}
           onSluit={() => setModalOpen(false)}
           onOpslaan={async (data) => {
+            // Throwing wordt afgehandeld in modal zelf — wij hoeven hier
+            // alleen de modal te sluiten BIJ SUCCES.
             if (bewerktItem) {
               await updateMutation.mutateAsync({ id: bewerktItem.id, data });
             } else {
@@ -234,23 +236,42 @@ function ReferentieModal({
   onOpslaan: (data: NieuweFactuurReferentie) => Promise<void>;
   bezig: boolean;
 }) {
+  // Categorie-default: gebruik bewerkte waarde, anders eerste uit lijst,
+  // anders 'overig' als ultieme fallback. Nooit leeg laten (server vereist min(1)).
   const [categorie, setCategorie] = useState(initial?.categorie ?? categorieen[0] ?? 'overig');
   const [leverancier, setLeverancier] = useState(initial?.leverancier ?? '');
   const [jaar, setJaar] = useState<number>(initial?.jaar ?? new Date().getFullYear());
   const [bedrag, setBedrag] = useState<number>(initial?.bedrag ?? 0);
   const [toelichting, setToelichting] = useState(initial?.toelichting ?? '');
+  /** Foutmelding van de API (404, 403, 500, validatie-fout, ...) */
+  const [fout, setFout] = useState<{ status?: number; message: string; details?: unknown } | null>(null);
 
-  const canSave = leverancier.trim() && jaar >= 2000 && bedrag > 0;
+  const canSave = leverancier.trim().length > 0 && jaar >= 2000 && bedrag > 0 && categorie.length > 0;
 
-  function submit() {
-    if (!canSave) return;
-    onOpslaan({
-      categorie,
-      leverancier: leverancier.trim(),
-      jaar,
-      bedrag,
-      toelichting: toelichting.trim() || null,
-    });
+  async function submit() {
+    if (!canSave || bezig) return;
+    setFout(null);
+    try {
+      await onOpslaan({
+        categorie,
+        leverancier: leverancier.trim(),
+        jaar: Math.round(jaar),         // zod verwacht .int() — defensief
+        bedrag: Math.round(bedrag),     // ook hier — geen decimalen
+        toelichting: toelichting.trim() || null,
+      });
+    } catch (err) {
+      // Vang alle fouten en toon ze in de modal i.p.v. ze te laten verdwijnen.
+      // Helpt enorm bij diagnose: server-validatie, DB-tabel ontbreekt, 403, etc.
+      if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
+        setFout({
+          status: (err as { status: number }).status,
+          message: (err as { message: string }).message,
+          details: (err as { details?: unknown }).details,
+        });
+      } else {
+        setFout({ message: err instanceof Error ? err.message : String(err) });
+      }
+    }
   }
 
   return (
@@ -325,6 +346,36 @@ function ReferentieModal({
             </p>
           </div>
         </div>
+
+        {/* === Foutmelding (als de API faalt) === */}
+        {fout && (
+          <div className="border-t border-red-200 bg-red-50 px-5 py-3 text-sm">
+            <p className="font-medium text-red-900">
+              ⚠ Opslaan mislukt{fout.status ? ` (HTTP ${fout.status})` : ''}
+            </p>
+            <p className="text-red-800 mt-1">{fout.message}</p>
+            {fout.status === 403 && (
+              <p className="text-xs text-red-700 mt-2">
+                <strong>Reden</strong>: alleen accounts met rol BEHEERDER kunnen referenties toevoegen.
+                Vraag jouw beheerder om je rol te wijzigen via "Team-leden" beheer.
+              </p>
+            )}
+            {fout.status === 500 && (
+              <p className="text-xs text-red-700 mt-2">
+                <strong>Mogelijke oorzaak</strong>: de database-tabel <code>FactuurReferentie</code> bestaat
+                misschien nog niet. Controleer in Render of de laatste deploy de Prisma migration heeft
+                gedraaid (<code>prisma db push --accept-data-loss</code>).
+              </p>
+            )}
+            {fout.status === 400 && fout.details ? (
+              <details className="mt-2">
+                <summary className="text-xs text-red-700 cursor-pointer">Validatie-details</summary>
+                <pre className="text-xs text-red-800 bg-white border border-red-200 rounded p-2 mt-1 overflow-x-auto">{JSON.stringify(fout.details, null, 2)}</pre>
+              </details>
+            ) : null}
+          </div>
+        )}
+
         <div className="border-t border-gray-200 px-5 py-3 flex justify-end gap-2">
           <button onClick={onSluit} className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1.5">
             Annuleer
