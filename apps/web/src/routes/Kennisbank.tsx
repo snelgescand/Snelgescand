@@ -12,8 +12,10 @@ import { AppHeader } from '../components/AppHeader';
 import { Footer } from '../components/Footer';
 import { KENNIS, CATEGORIE_LABELS, type KennisArtikel } from '../data/kennisbank';
 import { instellingenApi } from '../api/client';
+import { FactuurReferentiesPaneel } from '../components/FactuurReferentiesPaneel';
 
 export default function Kennisbank() {
+  const [tab, setTab] = useState<'artikelen' | 'referenties'>('artikelen');
   const [actiefId, setActiefId] = useState<string>(KENNIS[0]?.id ?? '');
   const [zoek, setZoek] = useState('');
 
@@ -63,10 +65,41 @@ export default function Kennisbank() {
       <main className="max-w-6xl mx-auto px-4 py-8">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-primary-900 mb-2">Kennisbank</h1>
-          <p className="text-gray-600">Achtergrond bij de berekeningen en aannames in de tool.</p>
+          <p className="text-gray-600">Achtergrond bij de berekeningen, aannames en eerdere referentie-bedragen.</p>
         </div>
 
-        <div className="grid lg:grid-cols-[280px_1fr] gap-6">
+        {/* Tab-balk */}
+        <div className="border-b border-gray-200 mb-6">
+          <nav className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => setTab('artikelen')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+                tab === 'artikelen'
+                  ? 'border-primary-600 text-primary-900'
+                  : 'border-transparent text-gray-600 hover:text-primary-700'
+              }`}
+            >
+              📚 Artikelen
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('referenties')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+                tab === 'referenties'
+                  ? 'border-primary-600 text-primary-900'
+                  : 'border-transparent text-gray-600 hover:text-primary-700'
+              }`}
+            >
+              📋 Referentie-bedragen
+            </button>
+          </nav>
+        </div>
+
+        {tab === 'referenties' ? (
+          <FactuurReferentiesPaneel />
+        ) : (
+          <div className="grid lg:grid-cols-[280px_1fr] gap-6">
           {/* Sidebar */}
           <aside className="space-y-4">
             <input
@@ -111,6 +144,7 @@ export default function Kennisbank() {
             {actief ? <Artikel artikel={actief} /> : <p className="text-gray-500">Selecteer een artikel.</p>}
           </article>
         </div>
+        )}
       </main>
       <Footer />
     </div>

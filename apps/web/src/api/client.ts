@@ -258,3 +258,33 @@ export const instellingenApi = {
     api<{ ok: boolean }>('/api/tenant/instellingen', { method: 'PATCH', body: JSON.stringify(data) }),
   reset: () => api<{ ok: boolean }>('/api/tenant/instellingen/reset', { method: 'POST' }),
 };
+
+export interface FactuurReferentie {
+  id: string;
+  categorie: string;
+  leverancier: string;
+  jaar: number;
+  bedrag: number;
+  toelichting?: string | null;
+  invoerderId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NieuweFactuurReferentie {
+  categorie: string;
+  leverancier: string;
+  jaar: number;
+  bedrag: number;
+  toelichting?: string | null;
+}
+
+export const factuurApi = {
+  list: () => api<{ referenties: FactuurReferentie[]; categorieen: readonly string[] }>('/api/factuur-referenties'),
+  create: (data: NieuweFactuurReferentie) =>
+    api<{ referentie: FactuurReferentie }>('/api/factuur-referenties', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: NieuweFactuurReferentie) =>
+    api<{ referentie: FactuurReferentie }>(`/api/factuur-referenties/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: string) =>
+    api<{ ok: boolean }>(`/api/factuur-referenties/${id}`, { method: 'DELETE' }),
+};

@@ -39,6 +39,7 @@ model Tenant {
 
   users       User[]
   projects    Project[]
+  factuurReferenties FactuurReferentie[]
 
   @@index([slug])
 }
@@ -155,4 +156,36 @@ model ExternalCache {
 
   @@unique([provider, key])
   @@index([provider, vervaltOp])
+}
+
+// FactuurReferentie — referentie-bedragen uit eerdere offertes/facturen.
+// Tekst-only (geen PDF-uploads), per tenant afgeschermd. Adviseurs kunnen
+// lezen, alleen BEHEERDERS kunnen aanmaken/bewerken/verwijderen.
+//
+// Bedoeld als interne kennisbank: "wat kostte een Q-ton HMA30A in 2024 ongeveer?"
+// → snel raadplegen zonder een PDF op te zoeken.
+model FactuurReferentie {
+  id           String   @id @default(cuid())
+  tenantId     String
+  /// Categorie: 'qton', 'lmnt', 'pv', 'isolatie-dak', 'veldverlichting', etc.
+  /// Vrije tekst zodat we niet steeds een enum hoeven uit te breiden.
+  categorie    String
+  /// Leverancier-naam, bv. "Mitsubishi via installateur Y"
+  leverancier  String
+  /// Jaar van de offerte/factuur — voor inschatting van prijspeil
+  jaar         Int
+  /// Bedrag in hele euro's, incl. btw (kies één conventie consistent)
+  bedrag       Int
+  /// Korte toelichting: capaciteit/vermogen, locatie-type, enz.
+  /// bv. "30 kW HMA30A incl. 1000L buffer, voetbalclub 250 leden"
+  toelichting  String?
+  /// Wie heeft 'm ingevoerd (BEHEERDER-userId)
+  invoerderId  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, categorie])
+  @@index([tenantId, jaar])
 }
