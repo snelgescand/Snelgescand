@@ -58,6 +58,11 @@ export interface ProjectState {
        *  adviseur een handvat om de isolatie-staat realistischer in te schatten. */
       renovatiejaar?: number;
       bvoTotaalM2?: number;
+      /** Bruto DAKoppervlak (m²) — alleen invullen als het afwijkt van BVO/etages.
+       *  Wordt gebruikt voor de zonnepaneel-berekening; leeg = afgeleid uit BVO. */
+      bvoDakOppervlakM2?: number;
+      /** Aantal bouwlagen/etages — voor het afleiden van het dakoppervlak uit het BVO. */
+      aantalEtages?: number;
       plafondhoogteM?: number;
       bouwhoogteM?: number;
       /** Plat, schuin of gemengd dak — beïnvloedt PV-paneelaantal */
@@ -71,6 +76,8 @@ export interface ProjectState {
       eigendom?: string;        // legacy — vervangen door eigendomGebouw + eigendomGrond
       eigendomGebouw?: string;
       eigendomGrond?: string;
+      /** Extra eigenaren bij gesplitst eigendom — rol + waarvan ze eigenaar zijn. */
+      extraEigenaren?: Array<{ rol?: string; waarvan?: string }>;
     };
     energie?: {
       gasverbruikM3?: number;
@@ -83,8 +90,12 @@ export interface ProjectState {
       aansluitwaardeElektra?: { fase: 1 | 3; ampere: number; vermogenKw: number };
       /** Gecontracteerd vermogen in kW — alleen relevant bij grootverbruik.
        *  Bij sportclub-grootverbruik typisch 60-150 kW. Bepaalt vastrecht
-       *  netbeheerder (~€2-4/kW/maand). */
+       *  netbeheerder (~€2-4/kW/maand). (legacy — zie afname/teruglevering) */
       gecontracteerdVermogenKw?: number;
+      /** Gecontracteerd vermogen AFNAME (kW) — grootverbruik. */
+      gecontracteerdVermogenAfnameKw?: number;
+      /** Gecontracteerd vermogen TERUGLEVERING (kW) — grootverbruik (bv. veel PV). */
+      gecontracteerdVermogenTerugleveringKw?: number;
       /** Gasaansluiting — label (bv "G6", "G25") of "geen" voor gasloos */
       gasAansluitingLabel?: string;
       /** Maximale capaciteit van gasmeter in m³/h */
@@ -795,7 +806,7 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
                   {' '}{bagStatus.bouwhoogte
                     ? <span className="font-medium">{bagStatus.bouwhoogte.waarde} m</span>
                     : <span className="italic">niet beschikbaar</span>}
-                  {bagStatus.bouwhoogte && <span className="text-gray-500"> (uit 3D BAG)</span>}
+                  {bagStatus.bouwhoogte && <span className="text-gray-500"> (buitenhoogte, uit 3D BAG)</span>}
                 </li>
                 <li className={bagStatus.plafondhoogte ? 'text-primary-700' : 'text-gray-400'}>
                   {bagStatus.plafondhoogte ? '✓' : '✗'} Plafondhoogte:
@@ -837,24 +848,42 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
             </Veld>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Veld label="Bruto vloeroppervlak (m²)" tooltip="BVO uit BAG. Controleer of dit het clubhuis is, niet eventuele bijgebouwen.">
+            <Veld label="Bruto vloeroppervlak (m²)" tooltip="BVO uit het Kadaster/BAG: de som van alle verdiepingsvloeren. Controleer of dit het clubhuis is, niet eventuele bijgebouwen.">
               <input type="number" className="input" placeholder="bv. 450"
                 value={draft.context.gebouw?.bvoTotaalM2 ?? ''}
                 onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, bvoTotaalM2: e.target.value ? Number(e.target.value) : undefined } } }))} />
             </Veld>
+            <Veld label="Aantal etages" tooltip="Aantal bouwlagen van het clubhuis. Gebruikt om het dakoppervlak af te leiden uit het BVO (BVO ÷ etages) als je het dakoppervlak niet apart invult. 1 = gelijkvloers.">
+              <input type="number" className="input" placeholder="bv. 1" min={1}
+                value={draft.context.gebouw?.aantalEtages ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, aantalEtages: e.target.value ? Number(e.target.value) : undefined } } }))} />
+            </Veld>
+            <Veld
+              label="Bruto dakoppervlak (m²) — optioneel"
+              tooltip="Alleen invullen als het dakoppervlak afwijkt van de standaardaanname. Normaal gesproken = BVO ÷ aantal etages (bij 1 etage is dak ≈ BVO). Bij meerdere etages of een afwijkende dakvorm kun je het hier overschrijven. Dit oppervlak wordt gebruikt voor de zonnepaneel-berekening; leeg laten = afgeleid uit BVO."
+            >
+              <input type="number" className="input"
+                placeholder={(() => {
+                  const bvo = draft.context.gebouw?.bvoTotaalM2;
+                  const et = Math.max(1, draft.context.gebouw?.aantalEtages ?? 1);
+                  return bvo ? `≈ ${Math.round(bvo / et)} (uit BVO)` : 'bv. 450';
+                })()}
+                value={draft.context.gebouw?.bvoDakOppervlakM2 ?? ''}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, bvoDakOppervlakM2: e.target.value ? Number(e.target.value) : undefined } } }))} />
+            </Veld>
           </div>
           <Veld
-            label="Plafondhoogte (m)"
-            tooltip="Vrije binnenhoogte. Wordt geschat uit 3D BAG na adres-keuze; pas aan voor jouw situatie."
+            label="Plafondhoogte / vrije binnenhoogte (m)"
+            tooltip="De vrije BINNENhoogte van de ruimte — dit telt voor het berekenen van de te verwarmen inhoud (m³). Let op: 3D BAG levert de BUITENhoogte (gevel-/nokhoogte) op, niet de binnenhoogte. De getoonde 3D BAG-waarde is dus alleen een referentie; vul hier de werkelijke binnenhoogte in (clubhuis typisch 2,6–3,0 m)."
           >
             <input type="number" step="0.1" className="input" placeholder="bv. 3,0"
               value={draft.context.gebouw?.plafondhoogteM ?? ''}
               onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, plafondhoogteM: e.target.value ? Number(e.target.value) : undefined } } }))} />
             {bouwhoogte && (
               <p className="text-xs text-gray-500 mt-1">
-                📐 Bouwhoogte uit 3D BAG: <strong>{bouwhoogte.toFixed(1)} m</strong>
+                📐 Buitenhoogte uit 3D BAG: <strong>{bouwhoogte.toFixed(1)} m</strong> <span className="text-gray-400">(gevelhoogte — referentie; voor de inhoud telt de binnenhoogte hierboven)</span>
                 {draft.context.gebouw?.plafondhoogteM && (
-                  <span className="text-gray-400"> · geschat plafondhoogte op {((bouwhoogte - 0.5) / Math.max(1, Math.round(bouwhoogte/3))).toFixed(1)} m bij {Math.max(1, Math.round(bouwhoogte/3))} verdieping(en)</span>
+                  <span className="text-gray-400"> · geschatte binnenhoogte ≈ {((bouwhoogte - 0.5) / Math.max(1, Math.round(bouwhoogte/3))).toFixed(1)} m bij {Math.max(1, Math.round(bouwhoogte/3))} verdieping(en)</span>
                 )}
               </p>
             )}
@@ -911,7 +940,8 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
                 <option value="eigendom-club">Eigendom van de club</option>
                 <option value="eigendom-gemeente">Eigendom van de gemeente</option>
                 <option value="huur-gemeente">Huur van gemeente</option>
-                <option value="huur-stichting">Huur van stichting</option>
+                <option value="huur-stichting">Stichting</option>
+                <option value="beheerstichting">Beheerstichting</option>
                 <option value="huur-overig">Huur overig</option>
               </select>
             </Veld>
@@ -926,9 +956,74 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
                 <option value="eigendom-gemeente">Eigendom van de gemeente (vaakst)</option>
                 <option value="opstalrecht-gemeente">Opstalrecht op gemeentegrond</option>
                 <option value="erfpacht">Erfpacht</option>
+                <option value="stichting">Stichting</option>
+                <option value="beheerstichting">Beheerstichting</option>
                 <option value="anders">Anders</option>
               </select>
             </Veld>
+          </div>
+
+          {/* Gesplitst eigendom — meerdere eigenaren met notitie waarvan ze eigenaar zijn */}
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="text-sm font-medium text-gray-700">
+                Meerdere eigenaren?
+                <span className="font-normal text-gray-500"> — bij gesplitst eigendom van gebouw en/of grond</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, extraEigenaren: [ ...(s.context.gebouw?.extraEigenaren ?? []), { rol: '', waarvan: '' } ] } } }))}
+                className="text-xs text-primary-700 hover:bg-primary-100 px-2 py-1 rounded font-medium shrink-0"
+              >
+                + Eigenaar toevoegen
+              </button>
+            </div>
+            {(draft.context.gebouw?.extraEigenaren ?? []).map((eig, idx) => (
+              <div key={idx} className="flex items-center gap-2 mb-2">
+                <select
+                  className="input py-1 text-sm w-44 shrink-0"
+                  value={eig.rol ?? ''}
+                  onChange={e => updateDraft(s => {
+                    const lijst = [ ...(s.context.gebouw?.extraEigenaren ?? []) ];
+                    lijst[idx] = { ...lijst[idx], rol: e.target.value || undefined };
+                    return { ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, extraEigenaren: lijst } } };
+                  })}
+                >
+                  <option value="">— rol eigenaar —</option>
+                  <option value="club">Club</option>
+                  <option value="gemeente">Gemeente</option>
+                  <option value="stichting">Stichting</option>
+                  <option value="beheerstichting">Beheerstichting</option>
+                  <option value="overig">Overig</option>
+                </select>
+                <input
+                  type="text"
+                  className="input py-1 text-sm flex-1 min-w-0"
+                  placeholder="Waarvan eigenaar? (bv. opstal kantine, kleedkamers, grond veld 2)"
+                  value={eig.waarvan ?? ''}
+                  onChange={e => updateDraft(s => {
+                    const lijst = [ ...(s.context.gebouw?.extraEigenaren ?? []) ];
+                    lijst[idx] = { ...lijst[idx], waarvan: e.target.value || undefined };
+                    return { ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, extraEigenaren: lijst } } };
+                  })}
+                />
+                <button
+                  type="button"
+                  onClick={() => updateDraft(s => {
+                    const lijst = [ ...(s.context.gebouw?.extraEigenaren ?? []) ];
+                    lijst.splice(idx, 1);
+                    return { ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, extraEigenaren: lijst.length ? lijst : undefined } } };
+                  })}
+                  className="text-red-600 hover:text-red-800 px-1.5 shrink-0"
+                  title="Verwijder eigenaar"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            {(draft.context.gebouw?.extraEigenaren ?? []).length === 0 && (
+              <p className="text-xs text-gray-400">Standaard: gebouw- en grond-eigendom hierboven. Voeg alleen extra eigenaren toe bij gesplitst eigendom.</p>
+            )}
           </div>
         </Sectie>
 
@@ -1028,14 +1123,14 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
                   <option value="3x63 A">3×63 A (43,5 kW)</option>
                   <option value="3x80 A">3×80 A (55,2 kW) — grens kleinverbruik</option>
                 </optgroup>
-                <optgroup label="Grootverbruik">
-                  <option value="GV 80 kW">Grootverbruik 80 kW</option>
-                  <option value="GV 100 kW">Grootverbruik 100 kW</option>
-                  <option value="GV 136 kW">Grootverbruik 136 kW</option>
-                  <option value="GV 175 kW">Grootverbruik 175 kW</option>
-                  <option value="GV 250 kW">Grootverbruik 250 kW</option>
-                  <option value="GV 500 kW">Grootverbruik 500 kW</option>
-                  <option value="GV 1000 kW">Grootverbruik 1 MW</option>
+                <optgroup label="Grootverbruik (3-fase)">
+                  <option value="GV 80 kW">Grootverbruik 3×116 A — 80 kW</option>
+                  <option value="GV 100 kW">Grootverbruik 3×144 A — 100 kW</option>
+                  <option value="GV 136 kW">Grootverbruik 3×196 A — 136 kW</option>
+                  <option value="GV 175 kW">Grootverbruik 3×252 A — 175 kW</option>
+                  <option value="GV 250 kW">Grootverbruik 3×360 A — 250 kW</option>
+                  <option value="GV 500 kW">Grootverbruik 3×720 A — 500 kW</option>
+                  <option value="GV 1000 kW">Grootverbruik 3×1440 A — 1 MW</option>
                 </optgroup>
               </select>
             </Veld>
@@ -1043,32 +1138,49 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
             {/* Gecontracteerd vermogen — alleen relevant bij grootverbruik (GVA) */}
             {draft.context.energie?.aansluitwaardeLabel?.startsWith('GV') && (
               <Veld
-                label="Gecontracteerd vermogen"
-                tooltip="Bij grootverbruik (>3×80A) sluit je een contract af met de netbeheerder voor een bepaald piekvermogen (kW). Je betaalt vastrecht over dit gecontracteerd vermogen, ongeacht je werkelijke verbruik. Overschrijding kost extra. Staat op je netbeheerder-jaarafrekening (Liander/Stedin/Enexis) — bij sportclubs typisch 60-150 kW."
+                label="Gecontracteerd vermogen (grootverbruik)"
+                tooltip="Bij grootverbruik (>3×80A) contracteer je bij de netbeheerder een piekvermogen voor AFNAME én — bij veel zon op dak — voor TERUGLEVERING. Je betaalt vastrecht over het gecontracteerde afnamevermogen (~€2-4/kW/maand); overschrijding kost extra. Staat op je netbeheerder-jaarafrekening (Liander/Stedin/Enexis). Bij sportclubs typisch 60-150 kW afname."
               >
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    className="input max-w-[120px]"
-                    placeholder="bv. 100"
-                    min={0}
-                    step={10}
-                    value={draft.context.energie?.gecontracteerdVermogenKw ?? ''}
-                    onChange={e => updateDraft(s => ({
-                      ...s,
-                      context: {
-                        ...s.context,
-                        energie: {
-                          ...s.context.energie,
-                          gecontracteerdVermogenKw: e.target.value ? Number(e.target.value) : undefined,
-                        },
-                      },
-                    }))}
-                  />
-                  <span className="text-sm text-gray-600">kW</span>
+                <div className="grid grid-cols-2 gap-3 max-w-md">
+                  <div>
+                    <span className="block text-[11px] text-gray-500 mb-1">Afname (kW)</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        className="input"
+                        placeholder="bv. 100"
+                        min={0}
+                        step={10}
+                        value={draft.context.energie?.gecontracteerdVermogenAfnameKw ?? draft.context.energie?.gecontracteerdVermogenKw ?? ''}
+                        onChange={e => updateDraft(s => ({
+                          ...s,
+                          context: { ...s.context, energie: { ...s.context.energie, gecontracteerdVermogenAfnameKw: e.target.value ? Number(e.target.value) : undefined } },
+                        }))}
+                      />
+                      <span className="text-sm text-gray-600">kW</span>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="block text-[11px] text-gray-500 mb-1">Teruglevering (kW)</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        className="input"
+                        placeholder="bv. 50"
+                        min={0}
+                        step={10}
+                        value={draft.context.energie?.gecontracteerdVermogenTerugleveringKw ?? ''}
+                        onChange={e => updateDraft(s => ({
+                          ...s,
+                          context: { ...s.context, energie: { ...s.context.energie, gecontracteerdVermogenTerugleveringKw: e.target.value ? Number(e.target.value) : undefined } },
+                        }))}
+                      />
+                      <span className="text-sm text-gray-600">kW</span>
+                    </div>
+                  </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  💡 Vastrecht: ~€2-4/kW/maand. Bij 100 kW = €2.400-€4.800/jaar — vaak een groot deel van de elektriciteitsrekening.
+                  💡 Vastrecht afname: ~€2-4/kW/maand. Bij 100 kW = €2.400-€4.800/jaar. Terugleververmogen is relevant als de club veel zonnepanelen (terug)levert.
                 </p>
               </Veld>
             )}

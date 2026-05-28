@@ -980,6 +980,11 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging, aantal
       </p>
 
       {/* === AI schema-import: bestand/foto/Excel/link → trainingsmomenten === */}
+      <p className="text-xs text-gray-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-2">
+        💡 <strong>Let op bij importeren:</strong> een club heeft vaak een apart <em>trainingsschema</em> en <em>wedstrijdschema</em>.
+        Importeer ze allebei (met "toevoegen", niet "vervangen") zodat zowel de doordeweekse trainingen als de
+        weekendwedstrijden in de douche-/waterberekening meetellen.
+      </p>
       <SchemaImportPaneel
         sportCategorie={config.categorie}
         labelGroep1={config.labelGroep1}
