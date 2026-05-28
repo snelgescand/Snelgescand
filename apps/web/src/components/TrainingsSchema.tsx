@@ -23,6 +23,7 @@
 import { useState } from 'react';
 import { InfoTooltip } from './InfoTooltip';
 import { SchemaImportPaneel } from './SchemaImportPaneel';
+import { haalThuisProgramma, vindDruksteWeekend, weekendNaarUurRijen, type DruksteWeekend } from '../util/sportlink';
 import type { GeimporteerdMoment } from '../api/client';
 
 // Legacy export — gebruikt door PPT-route en wat oudere code. Voor team-sporten
@@ -868,6 +869,53 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging, aantal
   const [vsAantalVelden, setVsAantalVelden] = useState<number>(aantalVelden && aantalVelden > 0 ? aantalVelden : 2);
   const [vsWaarschuwing, setVsWaarschuwing] = useState<string | null>(null);
 
+  // === Sportlink-koppeling (publieke widget-API) ===
+  const [slOpen, setSlOpen] = useState(false);
+  const [slClientId, setSlClientId] = useState('');
+  const [slBezig, setSlBezig] = useState(false);
+  const [slFout, setSlFout] = useState<string | null>(null);
+  const [slWeekend, setSlWeekend] = useState<DruksteWeekend | null>(null);
+
+  async function sportlinkOphalen() {
+    setSlBezig(true);
+    setSlFout(null);
+    setSlWeekend(null);
+    try {
+      const wedstrijden = await haalThuisProgramma(slClientId);
+      if (!wedstrijden.length) {
+        setSlFout('Geen thuiswedstrijden gevonden voor deze client_id.');
+        return;
+      }
+      const weekend = vindDruksteWeekend(wedstrijden);
+      setSlWeekend(weekend);
+      if (!weekend) setSlFout('Kon geen drukste weekend bepalen.');
+    } catch (e) {
+      setSlFout(e instanceof Error ? e.message : 'Onbekende fout bij ophalen.');
+    } finally {
+      setSlBezig(false);
+    }
+  }
+
+  function sportlinkWeekendToevoegen() {
+    if (!slWeekend) return;
+    const config = getSportConfig(typeVereniging);
+    const teamgrootte = Math.max(1, Math.round(config.personenPerEenheid2));
+    const rijen = weekendNaarUurRijen(slWeekend, teamgrootte);
+    const nieuw: TrainingsSchema = rijen.map((r, i) => ({
+      id: `sl-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`,
+      dag: r.dag,
+      startTijd: `${String(r.uur).padStart(2, '0')}:00`,
+      eindTijd: `${String(Math.min(23, r.uur + 1)).padStart(2, '0')}:00`,
+      aantalTeamsOnder13: 0,
+      aantalTeamsVanaf13: 0,
+      aantalPersonen: r.personen,
+      type: 'wedstrijd' as const,
+    }));
+    onChange([...schema, ...nieuw]);
+    setSlOpen(false);
+    setSlWeekend(null);
+  }
+
   function valsspeelToepassen() {
     const tv = typeVereniging || 'voetbal';
     const { schema: nieuwSchema, waarschuwing } = genereerStandaardSchema(tv, vsAantalLeden, vsPctJeugd, vsAantalVelden);
@@ -1003,6 +1051,74 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging, aantal
           onChange(modus === 'vervang' ? nieuw : [...schema, ...nieuw]);
         }}
       />
+
+      {/* === Sportlink-koppeling: drukste wedstrijdweekend automatisch ophalen === */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg overflow-hidden">
+        {!slOpen ? (
+          <button
+            type="button"
+            onClick={() => setSlOpen(true)}
+            className="w-full px-3 py-2 flex items-center justify-between text-sm hover:bg-blue-100/50 text-left"
+          >
+            <span className="text-blue-900">
+              <span className="text-base">📅</span> Wedstrijden ophalen via Sportlink (drukste weekend)
+            </span>
+            <span className="text-xs text-blue-700">openen ›</span>
+          </button>
+        ) : (
+          <div className="p-3 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm text-blue-900 font-medium">
+                📅 Drukste wedstrijdweekend via Sportlink
+              </p>
+              <button type="button" onClick={() => setSlOpen(false)} className="text-xs text-blue-700 hover:text-blue-900 px-1.5">✕</button>
+            </div>
+            <p className="text-xs text-gray-600">
+              Vul de publieke <strong>Sportlink client_id</strong> van de club in. Dit is dezelfde sleutel die de club
+              op de eigen website gebruikt om het programma te tonen (te vinden in de embed-code van de clubsite, of op
+              te vragen bij de club). We halen het hele seizoen aan thuiswedstrijden op en zoeken het drukste weekend.
+            </p>
+            <div className="flex items-end gap-2 flex-wrap">
+              <label className="text-xs flex-1 min-w-[200px]">
+                <span className="block text-gray-700 mb-1">Sportlink client_id</span>
+                <input
+                  type="text"
+                  className="input py-1 text-sm w-full"
+                  placeholder="bv. a1b2c3d4-…"
+                  value={slClientId}
+                  onChange={e => setSlClientId(e.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={sportlinkOphalen}
+                disabled={slBezig || !slClientId.trim()}
+                className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                {slBezig ? 'Ophalen…' : 'Ophalen'}
+              </button>
+            </div>
+            {slFout && <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5">{slFout}</p>}
+            {slWeekend && (
+              <div className="bg-white border border-blue-200 rounded-lg p-3 space-y-2">
+                <p className="text-sm text-gray-800">
+                  Drukste weekend: <strong>{slWeekend.label}</strong> — {slWeekend.aantal} thuiswedstrijd{slWeekend.aantal === 1 ? '' : 'en'}.
+                </p>
+                <p className="text-xs text-gray-500">
+                  Wordt toegevoegd als wedstrijd-uur-rijen (≈ {Math.max(1, Math.round(getSportConfig(typeVereniging).personenPerEenheid2))} spelers per thuiswedstrijd, douche ~2u na aanvang). Je kunt elk uur daarna nog bijstellen.
+                </p>
+                <button
+                  type="button"
+                  onClick={sportlinkWeekendToevoegen}
+                  className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  + Voeg dit weekend toe aan het schema
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* === Valsspeel-knop: standaard schema op basis van clubgrootte === */}
       <div className="bg-amber-50 border border-amber-200 rounded-lg overflow-hidden">
