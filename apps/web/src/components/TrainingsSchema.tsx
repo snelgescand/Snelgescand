@@ -589,17 +589,31 @@ export function genereerStandaardSchema(
   const eenhedenGroep1 = Math.max(0, Math.round(ledenJeugd / config.ledenPerActieveEenheid1));
   const eenhedenGroep2 = Math.max(0, Math.round(ledenSenioren / config.ledenPerActieveEenheid2));
 
+  let blokSchema: TrainingsSchema;
+  let waarschuwing: string | undefined;
   switch (config.categorie) {
     case 'teamsport':
-      return { schema: weekTeamsport(mkId, eenhedenGroep1, eenhedenGroep2) };
+      blokSchema = weekTeamsport(mkId, eenhedenGroep1, eenhedenGroep2);
+      break;
     case 'racketsport':
       // Racket gebruikt eigen leden-gebaseerde logica i.p.v. eenheden
-      return { schema: weekRacketsport(mkId, ledenJeugd, ledenSenioren, typeVereniging) };
+      blokSchema = weekRacketsport(mkId, ledenJeugd, ledenSenioren, typeVereniging);
+      break;
     case 'individueel':
-      return { schema: weekIndividueel(mkId, eenhedenGroep1, eenhedenGroep2) };
+      blokSchema = weekIndividueel(mkId, eenhedenGroep1, eenhedenGroep2);
+      break;
     case 'baansport':
-      return { schema: weekBaansport(mkId, eenhedenGroep1, eenhedenGroep2) };
+      blokSchema = weekBaansport(mkId, eenhedenGroep1, eenhedenGroep2);
+      break;
+    default:
+      blokSchema = [];
   }
+
+  // Lever het standaard-schema voortaan als bewerkbare UUR-RIJEN op (mode A).
+  // De blok-generatoren hierboven blijven de kalibratie doen; we maken alleen
+  // de spreiding per uur expliciet — totalen en curve blijven identiek.
+  const uurSchema = schemaNaarUurRijen(blokSchema, typeVereniging);
+  return { schema: uurSchema, waarschuwing };
 }
 
 /**
@@ -1400,6 +1414,108 @@ function spreidLitersOverVenster(uren: number[], liters: number, start: number, 
 }
 
 /**
+ * Bepaal het tijdvenster waarin de douches van een BLOK-moment vallen.
+ * Gedeeld door de piek-grafiek én de "blok → uur-rij"-omzetting, zodat beide
+ * exact dezelfde spreiding gebruiken.
+ */
+function blokDoucheVenster(
+  startUur: number,
+  eindUur: number,
+  config: ReturnType<typeof getSportConfig>,
+): { start: number; eind: number } {
+  const duur = Math.max(0.5, eindUur - startUur);
+  const isRacket = config.categorie === 'racketsport';
+  const isIndividueel = config.categorie === 'individueel';
+  if (isRacket || isIndividueel) {
+    // Racket/individueel: continue in- en uitstroom → gespreid over speelduur + naloop.
+    return { start: startUur + duur * 0.4, eind: eindUur + 0.5 };
+  }
+  if (duur <= 2.0) {
+    // Korte teamsport-sessie (≤ 2u): iedereen eindigt ongeveer tegelijk.
+    return { start: eindUur - 0.5, eind: eindUur + 1.0 };
+  }
+  // Lange teamsport-dag (> 2u): gefaseerde uitstroom → brede klok-curve.
+  return { start: startUur + duur * 0.25, eind: eindUur + 0.75 };
+}
+
+/**
+ * Verdeel een totaal over de hele uren binnen een venster, met exact dezelfde
+ * driehoeks-weging als spreidLitersOverVenster. Geeft per (heel) uur het aandeel.
+ */
+function verdeelOverUren(totaal: number, start: number, eind: number): Array<{ uur: number; waarde: number }> {
+  const s = Math.max(0, start);
+  const e = Math.min(24, Math.max(s + 0.25, eind));
+  const midden = (s + e) / 2;
+  const halveBreedte = (e - s) / 2 || 0.5;
+  const gewichten: { uur: number; gewicht: number }[] = [];
+  const eersteUur = Math.floor(s);
+  const laatsteUur = Math.min(23, Math.ceil(e) - 1);
+  for (let u = eersteUur; u <= laatsteUur; u++) {
+    const overlapStart = Math.max(u, s);
+    const overlapEind = Math.min(u + 1, e);
+    const overlap = Math.max(0, overlapEind - overlapStart);
+    if (overlap <= 0) continue;
+    const slotMidden = (overlapStart + overlapEind) / 2;
+    const driehoek = Math.max(0.15, 1 - Math.abs(slotMidden - midden) / halveBreedte);
+    gewichten.push({ uur: u, gewicht: overlap * driehoek });
+  }
+  const totaalGewicht = gewichten.reduce((a, g) => a + g.gewicht, 0);
+  if (totaalGewicht <= 0) {
+    return [{ uur: Math.max(0, Math.min(23, Math.floor(midden))), waarde: totaal }];
+  }
+  return gewichten.map(g => ({ uur: g.uur, waarde: totaal * (g.gewicht / totaalGewicht) }));
+}
+
+/**
+ * Zet één gegenereerd BLOK-moment om naar UUR-RIJEN (mode A).
+ *
+ * Behoudt exact hetzelfde aantal douche-beurten als het blok, maar maakt de
+ * spreiding expliciet: per heel uur in het douche-venster een uur-rij met het
+ * aantal aanwezige spelers, terug-gerekend zodat
+ *   personen × gemiddelde bereidheid × cultuur = beurten van dat uur.
+ * Zo komen de standaard-schema's voortaan als bewerkbare uur-rijen binnen,
+ * zonder dat de totalen of de curve veranderen.
+ */
+function blokNaarUurRijen(m: TrainingMoment, typeVereniging: string | undefined): TrainingMoment[] {
+  if (isUurRij(m) || m.type === 'sociaal') return [m];
+  const beurtenTotaal = doucheBeurtenVanMoment(m, typeVereniging);
+  if (beurtenTotaal <= 0) return [m];
+
+  const config = getSportConfig(typeVereniging);
+  const startUur = parseTime(m.startTijd);
+  const eindUur = parseTime(m.eindTijd);
+  const { start, eind } = blokDoucheVenster(startUur, eindUur, config);
+
+  const bereidheidCultuur = gemiddeldeBereidheid(m.type, m.dag, typeVereniging) * CULTUUR_FACTOR;
+  if (bereidheidCultuur <= 0) return [m];
+
+  const verdeling = verdeelOverUren(beurtenTotaal, start, eind);
+  const rijen: TrainingMoment[] = [];
+  verdeling.forEach((deel, i) => {
+    const personen = Math.round(deel.waarde / bereidheidCultuur);
+    if (personen <= 0) return;
+    const hh = String(deel.uur).padStart(2, '0');
+    const hhEind = String(Math.min(23, deel.uur + 1)).padStart(2, '0');
+    rijen.push({
+      id: `${m.id}-u${deel.uur}-${i}`,
+      dag: m.dag,
+      startTijd: `${hh}:00`,
+      eindTijd: `${hhEind}:00`,
+      aantalTeamsOnder13: 0,
+      aantalTeamsVanaf13: 0,
+      aantalPersonen: personen,
+      type: m.type,
+    });
+  });
+  return rijen.length ? rijen : [m];
+}
+
+/** Zet een heel (blok-)schema om naar uur-rijen. */
+export function schemaNaarUurRijen(schema: TrainingsSchema, typeVereniging?: string): TrainingsSchema {
+  return schema.flatMap(m => blokNaarUurRijen(m, typeVereniging));
+}
+
+/**
  * Berekent de PIEK-statistieken voor warm water uit het trainingsschema.
  *
  * In tegenstelling tot analyseSchema (die week-totalen geeft) levert deze
@@ -1454,28 +1570,7 @@ export function berekenDouchePieken(
     }
 
     // === Klassiek blok-model: realistische spreiding over een TIJDVENSTER ===
-    const duur = Math.max(0.5, eindUur - startUur);
-    const isRacket = config.categorie === 'racketsport';
-    const isIndividueel = config.categorie === 'individueel';
-    let vensterStart: number;
-    let vensterEind: number;
-    if (isRacket || isIndividueel) {
-      // Racket/individueel: continue in- en uitstroom (banen rouleren, sporters
-      // komen door de hele sessie heen klaar) → douches gespreid over speelduur + naloop.
-      vensterStart = startUur + duur * 0.4;   // vanaf ~40% van de sessie
-      vensterEind = eindUur + 0.5;            // tot half uur na sluiting
-    } else if (duur <= 2.0) {
-      // Korte teamsport-training/wedstrijd (≤ 2u): iedereen eindigt ongeveer
-      // tegelijk → douches geconcentreerd in het laatste half uur + ~1 uur erna.
-      vensterStart = eindUur - 0.5;
-      vensterEind = eindUur + 1.0;
-    } else {
-      // LANGE teamsport-dag (> 2u): meerdere wedstrijden/sessies eindigen
-      // gefaseerd door de dag heen → douches gespreid over vrijwel het hele blok
-      // met een opbouw-piek-afbouw-curve (de "klokgrafiek").
-      vensterStart = startUur + duur * 0.25;
-      vensterEind = eindUur + 0.75;
-    }
+    const { start: vensterStart, eind: vensterEind } = blokDoucheVenster(startUur, eindUur, config);
     spreidLitersOverVenster(uren, totaal, vensterStart, vensterEind);
   }
 
