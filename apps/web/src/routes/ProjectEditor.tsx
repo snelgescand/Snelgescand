@@ -1772,6 +1772,23 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
               Q-ton CO₂-warmtepomp voor douches (hoge T 60°C+), aparte lucht/water-WP voor verwarming (lage T 35-45°C met vloer- of LT-radiatoren).
               Veel efficiënter dan één alleskunner.
             </div>
+
+            {/* Reality-check + bronvermelding — maakt transparant waar de cijfers op rusten */}
+            <div className="text-xs text-gray-500 bg-white/40 rounded-md p-2.5 border-t border-accent-orange/20">
+              <p className="mb-1">
+                <strong>≈ {Math.round(douchePieken.totaalDouchesPerWeek)} douches/week</strong>
+                {' '}({Math.round(douchePieken.totaalDouchesPerWeek * 40)} per jaar bij ~40 actieve weken).
+                {' '}Dat is ~{Math.round(douchePieken.totaalLitersPerWeek * 40 / 1000)} m³ warm water/jaar.
+              </p>
+              <p className="leading-relaxed">
+                <strong>Bron:</strong> percentages uit het Sportief Opgewekt-rekenmodel, gecorrigeerd
+                voor de praktijk (gem. trainingsopkomst ~70%, wedstrijdopkomst ~95%, en een
+                'gemengde' douche-cultuur ×0,75 — niet elke sporter doucht op de club). Vergelijkbaar
+                met benchmark-cijfers van het Mulier Instituut (2023) en de praktijk bij vv ONT.
+                Wijkt jouw werkelijke verbruik sterk af? Pas dan het trainingsschema of de teamaantallen
+                in stap 1 aan.
+              </p>
+            </div>
           </div>
         )}
 

@@ -124,9 +124,11 @@ const SPORT_CONFIGS: Record<string, SportConfig> = {
     ledenPerActieveEenheid2: 15,   // 1 seniorteam per 15 senioren
     uitleg: 'Voetbal: jeugd half veld ~10 sp/team, senioren heel veld ~15 sp/team (incl. wissels).',
     douchePct: {
-      // Jeugd doucht relatief weinig (vaak thuis); senioren meer
+      // Bereidheids-% conform Sportief Opgewekt-rekenmodel (Excel "Douchen teamsporten"):
+      // jeugd 25% doordeweeks / 50% zaterdag / 100% zondag; senioren 95%/100%/100%.
+      // De werkelijke telling wordt verlaagd via realismeFactor() (aanwezigheid × cultuur).
       groep1: { training: 0.25, wedstrijd: 0.50 },
-      groep2: { training: 0.85, wedstrijd: 1.00 },
+      groep2: { training: 0.95, wedstrijd: 1.00 },
     },
   },
   hockey: {
@@ -137,10 +139,14 @@ const SPORT_CONFIGS: Record<string, SportConfig> = {
     personenPerEenheid2: 15,
     ledenPerActieveEenheid1: 10,
     ledenPerActieveEenheid2: 15,
-    uitleg: 'Hockey: jeugd-team ~10 sp, senior-team ~15 sp (incl. wissels + keeper). Gras/kunstgras → vuil → veel douchen.',
+    uitleg: 'Hockey: jeugd-team ~10 sp, senior-team ~15 sp (incl. wissels + keeper). Kunstgras → relatief schoon → jeugd doucht vaker thuis dan bij voetbal.',
     douchePct: {
-      groep1: { training: 0.30, wedstrijd: 0.65 },
-      groep2: { training: 0.90, wedstrijd: 1.00 },
+      // Hockey lager dan voetbal: kunstgras geeft minder modder/vuil, dus minder
+      // douche-drang (bevestigd in ouders.nl-discussies). Senior iets onder voetbal.
+      // Bron: KNHB energiescan-gas (8.826 m³) is hoog, maar dat zit vooral in
+      // kunstgrasveld-verlichting + kantine, niet douches.
+      groep1: { training: 0.20, wedstrijd: 0.45 },
+      groep2: { training: 0.80, wedstrijd: 0.95 },
     },
   },
   korfbal: {
@@ -165,9 +171,11 @@ const SPORT_CONFIGS: Record<string, SportConfig> = {
     personenPerEenheid2: 14,
     ledenPerActieveEenheid1: 12,
     ledenPerActieveEenheid2: 14,
-    uitleg: 'Handbal: 7 in het veld + wissels. Indoor & intensief — veel douchen na training.',
+    uitleg: 'Handbal: 7 in het veld + wissels. Indoor & intensief — veel douchen na training (vergelijkbaar met voetbal-senioren).',
     douchePct: {
-      groep1: { training: 0.35, wedstrijd: 0.75 },
+      // Indoor + intensief contactspel → hoge douche-bereidheid, conform Excel-teamsport.
+      // Bron: EenVandaag 2026 (handbalclubs hanteren vaak verplicht douchebeleid).
+      groep1: { training: 0.30, wedstrijd: 0.65 },
       groep2: { training: 0.90, wedstrijd: 1.00 },
     },
   },
@@ -363,12 +371,55 @@ export type TrainingsSchema = TrainingMoment[];
 
 const DAGEN: TrainingMoment['dag'][] = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'];
 
-/**
- * Douche-percentage o.b.v. groep, type activiteit en dag.
+/* ============================================================
+ * REALISME-CORRECTIE op douche-tellingen
+ * ============================================================
  *
- * v29: nu sport-bewust — gebruikt SPORT_CONFIGS per club-type. Voor backwards
- * compatibility blijft de oude signatuur (zonder typeVereniging) werken,
- * dan wordt voetbal-default gebruikt.
+ * Het Sportief Opgewekt-rekenmodel (Excel) geeft "percentage douchers" dat
+ * uitgaat van een STRIKTE club waar vrijwel iedereen die aanwezig is doucht
+ * (bv. 95% van de senioren bij een doordeweekse training).
+ *
+ * In de Nederlandse praktijk ligt het werkelijke aantal douches LAGER, om
+ * twee onafhankelijke redenen:
+ *
+ *   1. AANWEZIGHEID — niet elk teamlid komt elke training/wedstrijd.
+ *      Een seniorselectie van 15 (incl. wissels) traint vaak met 10-12 man.
+ *      Bij wedstrijden is de opkomst hoger (selectie is er bijna voltallig).
+ *      Bron: KNVB/bonden rekenen met ~65-75% trainingsopkomst.
+ *
+ *   2. DOUCHE-CULTUUR — de Excel-percentages gelden voor een club met
+ *      verplicht/streng douchebeleid. Het Nederlandse gemiddelde is
+ *      'gemengd': douchen wordt gewaardeerd maar niet afgedwongen, en
+ *      vooral jeugd doucht steeds vaker thuis (kunstgras-clubs nog meer).
+ *      Bron: ONT-praktijkcijfers (600 leden ≈ 6.000-10.000 douches/jaar,
+ *      niet de ~22.500 die de bruto-Excel zou opleveren), cultuur-onderzoek
+ *      (ouders.nl, EenVandaag 2026 over afnemend verplicht douchen).
+ *
+ * Keuze (met Bart afgestemd): Excel-percentages blijven LEIDEND en zichtbaar
+ * als "bereidheid". Deze realisme-factoren corrigeren de WERKELIJKE telling
+ * omlaag, zonder dat de getoonde bereidheids-% verandert.
+ */
+
+/** Gem. opkomst bij een TRAINING (% van teamleden dat aanwezig is). */
+export const AANWEZIGHEID_TRAINING = 0.70;
+/** Gem. opkomst bij een WEDSTRIJD — selectie is bijna voltallig. */
+export const AANWEZIGHEID_WEDSTRIJD = 0.95;
+/** Cultuurfactor 'gemengd' (default): douchen gewaardeerd, niet verplicht. */
+export const CULTUUR_FACTOR = 0.75;
+
+/**
+ * Effectieve douche-correctie: combineert aanwezigheid (afhankelijk van type)
+ * met de cultuurfactor. Wordt vermenigvuldigd met (spelers × bereidheids-%).
+ */
+export function realismeFactor(type: TrainingMoment['type']): number {
+  const aanwezigheid = type === 'wedstrijd' ? AANWEZIGHEID_WEDSTRIJD : AANWEZIGHEID_TRAINING;
+  return aanwezigheid * CULTUUR_FACTOR;
+}
+
+/**
+ * Douche-percentage (BEREIDHEID) o.b.v. groep, type activiteit en dag.
+ * Dit is het bruto Excel-percentage — NIET gecorrigeerd voor aanwezigheid/cultuur.
+ * Voor werkelijke douche-tellingen vermenigvuldig je dit met realismeFactor(type).
  *
  * NB: bestaande Excel-uitzondering (jeugd op zondag = 100% bij teamsport) blijft behouden.
  */
@@ -1013,8 +1064,12 @@ export function analyseSchema(schema: TrainingsSchema, typeVereniging?: string):
     const spelersGroep2 = (m.aantalTeamsVanaf13 ?? 0) * config.personenPerEenheid2;
     personen += spelersGroep1 + spelersGroep2;
 
-    douchesJeugd += spelersGroep1 * douchePercentage('onder13', m.type, m.dag, typeVereniging);
-    douchesSenioren += spelersGroep2 * douchePercentage('vanaf13', m.type, m.dag, typeVereniging);
+    // Werkelijke douches = spelers × bereidheids-% × realisme-factor (aanwezigheid × cultuur).
+    // De bereidheid komt uit het Excel-model; de realisme-factor brengt het naar de
+    // Nederlandse praktijk (niet iedereen is aanwezig, niet iedereen doucht op de club).
+    const rf = realismeFactor(m.type);
+    douchesJeugd += spelersGroep1 * douchePercentage('onder13', m.type, m.dag, typeVereniging) * rf;
+    douchesSenioren += spelersGroep2 * douchePercentage('vanaf13', m.type, m.dag, typeVereniging) * rf;
   }
   const totaalDouches = douchesJeugd + douchesSenioren;
   return {
@@ -1065,10 +1120,13 @@ export function berekenDouchePieken(
 
   for (const m of schema) {
     if (m.type === 'sociaal') continue;
+    // Zelfde realisme-correctie als analyseSchema — anders lopen grafiek (pieken)
+    // en week-totaal uiteen. Bereidheid × aanwezigheid × cultuur.
+    const rf = realismeFactor(m.type);
     const douchesG1 = (m.aantalTeamsOnder13 ?? 0) * config.personenPerEenheid1
-      * douchePercentage('onder13', m.type, m.dag, typeVereniging);
+      * douchePercentage('onder13', m.type, m.dag, typeVereniging) * rf;
     const douchesG2 = (m.aantalTeamsVanaf13 ?? 0) * config.personenPerEenheid2
-      * douchePercentage('vanaf13', m.type, m.dag, typeVereniging);
+      * douchePercentage('vanaf13', m.type, m.dag, typeVereniging) * rf;
     const totaal = (douchesG1 + douchesG2) * LITERS_PER_DOUCHE;
     if (totaal === 0) continue;
 
