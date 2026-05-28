@@ -17,7 +17,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Stap3Financien, type EigenSubsidie, type Financiering } from '../components/Stap3Financien';
 import { TapwaterVergelijking } from '../components/TapwaterVergelijking';
 import { AfrondenOverzichtModal } from '../components/AfrondenOverzichtModal';
-import { projectsApi, modulesApi, ApiError, bagApi, instellingenApi } from '../api/client';
+import { projectsApi, modulesApi, bagApi, instellingenApi } from '../api/client';
 import { berekenLokaal, BerekenValidatieFout } from '../util/lokaal-bereken';
 import { AppHeader } from '../components/AppHeader';
 import { Footer } from '../components/Footer';
@@ -173,7 +173,6 @@ export default function ProjectEditor() {
   const [draft, setDraft] = useState<ProjectState | null>(null);
   const [fase, setFase] = useState<1 | 2 | 3>(1);
   const [berekenFout, setBerekenFout] = useState<string | null>(null);
-  const [pptFout, setPptFout] = useState<string | null>(null);
   const [bevestigVerwijder, setBevestigVerwijder] = useState(false);
   const autoSaveTimer = useRef<number | null>(null);
   const pendingDraft = useRef<ProjectState | null>(null);
@@ -248,20 +247,6 @@ export default function ProjectEditor() {
       } else {
         setBerekenFout('Berekening mislukt — onbekende fout');
       }
-    },
-  });
-
-  // PowerPoint-export uit de header is verwijderd. De template-export blijft nog
-  // beschikbaar vanuit de "Afronden"-modal totdat die ook wordt gestript.
-  const exportPptTemplate = useMutation({
-    mutationFn: () => projectsApi.exporteerPptTemplate(
-      id!,
-      `Verduurzamingsplan_${(draft?.context.club?.naam ?? 'project').replace(/[^a-zA-Z0-9]/g, '_')}_SO.pptx`,
-    ),
-    onSuccess: () => setPptFout(null),
-    onError: (err: unknown) => {
-      if (err instanceof ApiError) setPptFout(err.message);
-      else setPptFout('PPT-template-export mislukt');
     },
   });
 
@@ -591,9 +576,6 @@ export default function ProjectEditor() {
             modulesQuery={modulesQuery}
             cached={cached}
             onTerugStap2={() => gaNaarFase(2)}
-            onDownloadPptTemplate={() => exportPptTemplate.mutate()}
-            pptTemplatePending={exportPptTemplate.isPending}
-            pptFout={pptFout}
           />
         )}
       </main>
@@ -2040,13 +2022,9 @@ interface Stap3WrapperProps {
   modulesQuery: { data?: { modules: Array<{ id: string; naam: string; defaultInput: unknown }>; groepen: Record<string, readonly string[]> } };
   cached: any;
   onTerugStap2: () => void;
-  /** Download originele PPT-template met clubnaam ingevuld (uit de tenant-template) */
-  onDownloadPptTemplate: () => void;
-  pptTemplatePending: boolean;
-  pptFout: string | null;
 }
 
-function Stap3Wrapper({ draft, updateDraft, modulesQuery, cached, onTerugStap2, onDownloadPptTemplate, pptTemplatePending, pptFout }: Stap3WrapperProps) {
+function Stap3Wrapper({ draft, updateDraft, modulesQuery, cached, onTerugStap2 }: Stap3WrapperProps) {
   // Modal voor het afronden-overzicht
   const [afrondModalOpen, setAfrondModalOpen] = useState(false);
   // Tenant-instellingen voor subsidie-filter (zelfde query als stap 2)
@@ -2131,9 +2109,6 @@ function Stap3Wrapper({ draft, updateDraft, modulesQuery, cached, onTerugStap2, 
           cached={cached}
           modulesNaam={modulesNaam}
           onClose={() => setAfrondModalOpen(false)}
-          onDownloadPptTemplate={onDownloadPptTemplate}
-          pptTemplatePending={pptTemplatePending}
-          pptFout={pptFout}
         />
       )}
     </>

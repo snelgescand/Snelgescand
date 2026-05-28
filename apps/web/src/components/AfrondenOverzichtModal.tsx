@@ -1,11 +1,10 @@
 /**
  * AfrondenOverzichtModal — toont op één overzichtelijke pagina alle data van
  * het project: club-info, gebouw, energieverbruik, gekozen maatregelen,
- * financiering, en TCO. Plus de download-knop voor de originele PPT-template
- * waarin de clubnaam al ingevuld is, zodat de adviseur 'm verder kan bewerken.
+ * financiering, en TCO.
  *
  * Bedoeld als laatste stap voordat het advies naar de club gaat — een sanity
- * check: klopt alles? Zo ja, download de PPT en mail 'm door.
+ * check: klopt alles?
  */
 
 import { useMemo } from 'react';
@@ -16,9 +15,6 @@ interface Props {
   cached: any;
   modulesNaam: Record<string, string>;
   onClose: () => void;
-  onDownloadPptTemplate: () => void;
-  pptTemplatePending: boolean;
-  pptFout: string | null;
 }
 
 const fmt = (n: number | undefined | null): string => {
@@ -33,7 +29,6 @@ const fmtGetal = (n: number | undefined | null, eenheid = ''): string => {
 
 export function AfrondenOverzichtModal({
   draft, cached, modulesNaam, onClose,
-  onDownloadPptTemplate, pptTemplatePending, pptFout,
 }: Props) {
   const clubnaam = draft.context.club?.naam ?? '(nog geen naam)';
   const clubType = draft.context.club?.type ?? '—';
@@ -217,26 +212,6 @@ export function AfrondenOverzichtModal({
               <li>{rollup ? '✓' : '⚠'} Berekening gedraaid in stap 2</li>
               <li>{draft.energielabel?.verwachtNa ? '✓' : 'ℹ'} Verwacht eindlabel berekend (nodig voor DUMAVA-controle)</li>
             </ul>
-          </section>
-
-          {/* === Download-sectie === */}
-          <section className="bg-primary-50 border border-primary-200 rounded-lg p-4">
-            <h3 className="text-base font-semibold text-primary-900 mb-2">📥 Download PowerPoint-rapport</h3>
-            <p className="text-sm text-gray-700 mb-3">
-              De originele Sportief Opgewekt-template (86 slides) met <strong>{clubnaam}</strong> automatisch ingevuld.
-              Je kunt 'm daarna verder bewerken in PowerPoint — vul foto's, club-specifieke teksten, en gemeente-info aan.
-            </p>
-            <button
-              type="button"
-              onClick={onDownloadPptTemplate}
-              disabled={pptTemplatePending}
-              className="bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 text-white font-semibold px-5 py-2.5 rounded-lg shadow-sm flex items-center gap-2"
-            >
-              {pptTemplatePending ? '⌛ Genereren…' : '↓ Download PPT-template'}
-            </button>
-            {pptFout && (
-              <p className="text-sm text-red-600 mt-2">Fout: {pptFout}</p>
-            )}
           </section>
         </div>
 
