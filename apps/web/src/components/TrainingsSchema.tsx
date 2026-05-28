@@ -20,7 +20,7 @@
  * automatisch overgenomen uit dit schema.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { InfoTooltip } from './InfoTooltip';
 import { SchemaImportPaneel } from './SchemaImportPaneel';
 import { haalThuisProgramma, vindDruksteWeekend, weekendNaarUurRijen, type DruksteWeekend } from '../util/sportlink';
@@ -867,7 +867,16 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging, aantal
   const [vsAantalLeden, setVsAantalLeden] = useState<number>(150);
   const [vsPctJeugd, setVsPctJeugd] = useState<number>(40);
   const [vsAantalVelden, setVsAantalVelden] = useState<number>(aantalVelden && aantalVelden > 0 ? aantalVelden : 2);
+  const [vsVeldenHandmatig, setVsVeldenHandmatig] = useState(false);
   const [vsWaarschuwing, setVsWaarschuwing] = useState<string | null>(null);
+
+  // Volg het aantal velden/banen uit stap 1 zolang de gebruiker het hier niet
+  // zelf heeft aangepast. Zo is het overal automatisch ingevuld vanuit stap 1.
+  useEffect(() => {
+    if (!vsVeldenHandmatig && aantalVelden && aantalVelden > 0) {
+      setVsAantalVelden(aantalVelden);
+    }
+  }, [aantalVelden, vsVeldenHandmatig]);
 
   // === Sportlink-koppeling (publieke widget-API) ===
   const [slOpen, setSlOpen] = useState(false);
@@ -1183,16 +1192,23 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging, aantal
                 </span>
               </label>
               <label className="text-xs">
-                <span className="block text-gray-700 mb-1">Aantal velden / banen</span>
+                <span className="block text-gray-700 mb-1">
+                  Aantal velden / banen
+                  {aantalVelden && aantalVelden > 0 && !vsVeldenHandmatig && (
+                    <span className="text-primary-600"> (uit stap 1)</span>
+                  )}
+                </span>
                 <input
                   type="number"
                   min={1}
                   value={vsAantalVelden}
-                  onChange={e => setVsAantalVelden(Math.max(1, Number(e.target.value) || 0))}
+                  onChange={e => { setVsVeldenHandmatig(true); setVsAantalVelden(Math.max(1, Number(e.target.value) || 0)); }}
                   className="input py-1 text-sm w-full"
                 />
                 <span className="block text-[10px] text-gray-500 mt-0.5">
-                  Begrenst het aantal spelers tegelijk per uur — niet meer dan op de velden past
+                  {aantalVelden && aantalVelden > 0
+                    ? 'Automatisch uit stap 1 — pas aan om te overschrijven'
+                    : 'Begrenst het aantal spelers tegelijk per uur — niet meer dan op de velden past'}
                 </span>
               </label>
             </div>

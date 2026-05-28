@@ -211,8 +211,9 @@ function tapwaterSuggestie(ctx: ScanContext): Suggestie {
   if (veelDouches || veelGasDouche) {
     korteSamenvatting = 'Veel warm tapwater nodig — focus op tapwater-warmtepomp';
     uitleg = `Met ${fmt(douchesPerWeek)} douches per week is dit een grote energie-post. ` +
-      `Een Q-ton CO₂-warmtepomp is hier ideaal: hoge temperatuur (tot 90°C), uitstekend voor douche-warmwater, ` +
-      `en kan eventueel óók ruimteverwarming bedienen. PVT-collectoren combineren stroom en warm water — ` +
+      `Een Q-ton CO₂-warmtepomp is hier ideaal: hoge temperatuur (tot 90°C), uitstekend voor douche-warmwater. ` +
+      `Let op: een Q-ton levert alléén tapwater — voor ruimteverwarming is een aparte (lucht/water-)warmtepomp nodig. ` +
+      `PVT-collectoren combineren stroom en warm water — ` +
       `interessant als je het dak nog niet vol hebt liggen met gewone PV.`;
     aanbevolen = ['qton-warmtepomp', 'pvt-tapwater', 'boiler-dimensionering'];
   } else if (douchesPerWeek > 50) {
