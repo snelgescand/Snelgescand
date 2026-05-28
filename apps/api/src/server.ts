@@ -27,6 +27,7 @@ import bagRoutes from './routes/bag.routes.js';
 import pptTemplateRoutes from './routes/ppt-template.routes.js';
 import tenantInstellingenRoutes from './routes/tenant-instellingen.routes.js';
 import factuurReferentiesRoutes from './routes/factuur-referenties.routes.js';
+import schemaImportRoutes from './routes/schema-import.routes.js';
 import downloadsRoutes from './routes/downloads.routes.js';
 import pptRoutes from './routes/ppt.routes.js';
 import { prisma } from './db.js';
@@ -149,6 +150,7 @@ async function buildServer() {
   await app.register(pptTemplateRoutes, { prefix: '/api' });
   await app.register(tenantInstellingenRoutes, { prefix: '/api' });
   await app.register(factuurReferentiesRoutes, { prefix: '/api' });
+  await app.register(schemaImportRoutes, { prefix: '/api' });
   await app.register(downloadsRoutes, { prefix: '/api' });
 
   // Health & version

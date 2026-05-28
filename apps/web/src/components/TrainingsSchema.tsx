@@ -555,33 +555,52 @@ export function genereerStandaardSchema(
  */
 function weekTeamsport(mkId: (i: number) => string, teamsJeugd: number, teamsSenioren: number): TrainingsSchema {
   const schema: TrainingsSchema = [];
+  let idn = 0;
+  const nextId = () => mkId(++idn);
 
+  // === Jeugd-trainingen ===
+  // Kleine club: 1-2 blokken op woensdag. Grotere club: spreid over meer
+  // doordeweekse middagen/avonden (ma t/m vr), want één woensdag kan niet
+  // 20+ teams herbergen. We mikken op ~max 4 teams per blok.
   if (teamsJeugd > 0) {
-    // Jeugd-training: verdeeld over wo middag + avond
-    const jeugdHelft = Math.ceil(teamsJeugd / 2);
-    schema.push({ id: mkId(1), dag: 'woensdag', startTijd: '16:00', eindTijd: '17:30',
-      aantalTeamsOnder13: jeugdHelft, aantalTeamsVanaf13: 0, type: 'training' });
-    if (teamsJeugd > 1) {
-      schema.push({ id: mkId(2), dag: 'woensdag', startTijd: '17:30', eindTijd: '19:00',
-        aantalTeamsOnder13: teamsJeugd - jeugdHelft, aantalTeamsVanaf13: 0, type: 'training' });
+    const jeugdTrainingsdagen: TrainingMoment['dag'][] = ['woensdag', 'maandag', 'dinsdag', 'donderdag', 'vrijdag'];
+    const blokkenNodig = Math.max(1, Math.ceil(teamsJeugd / 4)); // ~4 teams per blok
+    const teamsPerBlok = Math.ceil(teamsJeugd / blokkenNodig);
+    let restJeugd = teamsJeugd;
+    for (let b = 0; b < blokkenNodig; b++) {
+      const dag = jeugdTrainingsdagen[b % jeugdTrainingsdagen.length];
+      const teamsDitBlok = Math.min(teamsPerBlok, restJeugd);
+      restJeugd -= teamsDitBlok;
+      // Jeugd traint vooral vroeg op de avond / woensdagmiddag
+      const start = dag === 'woensdag' ? '16:00' : '17:30';
+      const eind = dag === 'woensdag' ? '17:30' : '19:00';
+      schema.push({ id: nextId(), dag, startTijd: start, eindTijd: eind,
+        aantalTeamsOnder13: teamsDitBlok, aantalTeamsVanaf13: 0, type: 'training' });
+      if (restJeugd <= 0) break;
     }
-    // Jeugd-wedstrijd: alle teams zaterdag-ochtend, gespreid over 09:00-12:30
-    schema.push({ id: mkId(3), dag: 'zaterdag', startTijd: '09:00', eindTijd: '12:30',
+    // Jeugd-wedstrijden: zaterdagochtend (alle teams gespreid)
+    schema.push({ id: nextId(), dag: 'zaterdag', startTijd: '09:00', eindTijd: '12:30',
       aantalTeamsOnder13: teamsJeugd, aantalTeamsVanaf13: 0, type: 'wedstrijd' });
   }
 
+  // === Senioren-trainingen ===
+  // Kleine club: di + do. Grotere club: spreid over ma/di/wo/do/vr zodat het
+  // veld-gebruik realistisch is (max ~4 teams per avond).
   if (teamsSenioren > 0) {
-    // Senioren-training: 2 avonden, helft van teams per avond
-    const helftSenior = Math.ceil(teamsSenioren / 2);
-    schema.push({ id: mkId(4), dag: 'dinsdag', startTijd: '19:30', eindTijd: '21:00',
-      aantalTeamsOnder13: 0, aantalTeamsVanaf13: helftSenior, type: 'training' });
-    if (teamsSenioren > 1) {
-      schema.push({ id: mkId(5), dag: 'donderdag', startTijd: '19:30', eindTijd: '21:00',
-        aantalTeamsOnder13: 0, aantalTeamsVanaf13: teamsSenioren - helftSenior, type: 'training' });
+    const seniorTrainingsdagen: TrainingMoment['dag'][] = ['dinsdag', 'donderdag', 'maandag', 'woensdag', 'vrijdag'];
+    const blokkenNodig = Math.max(2, Math.ceil(teamsSenioren / 4)); // min. 2 avonden
+    const teamsPerBlok = Math.ceil(teamsSenioren / blokkenNodig);
+    let restSenior = teamsSenioren;
+    for (let b = 0; b < blokkenNodig && restSenior > 0; b++) {
+      const dag = seniorTrainingsdagen[b % seniorTrainingsdagen.length];
+      const teamsDitBlok = Math.min(teamsPerBlok, restSenior);
+      restSenior -= teamsDitBlok;
+      schema.push({ id: nextId(), dag, startTijd: '19:30', eindTijd: '21:00',
+        aantalTeamsOnder13: 0, aantalTeamsVanaf13: teamsDitBlok, type: 'training' });
     }
-    // Senioren-wedstrijd: typisch ~50% thuiswedstrijden (rest uit) op zondag
+    // Senioren-wedstrijd: ~50% thuis op zondag
     const thuisWedstrijden = Math.max(1, Math.ceil(teamsSenioren / 2));
-    schema.push({ id: mkId(6), dag: 'zondag', startTijd: '11:00', eindTijd: '16:00',
+    schema.push({ id: nextId(), dag: 'zondag', startTijd: '11:00', eindTijd: '16:00',
       aantalTeamsOnder13: 0, aantalTeamsVanaf13: thuisWedstrijden, type: 'wedstrijd' });
   }
 
