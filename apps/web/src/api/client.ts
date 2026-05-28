@@ -288,3 +288,30 @@ export const factuurApi = {
   delete: (id: string) =>
     api<{ ok: boolean }>(`/api/factuur-referenties/${id}`, { method: 'DELETE' }),
 };
+
+// ===== Schema-import (AI parst trainingsschema) =====
+export interface GeimporteerdMoment {
+  dag: 'maandag' | 'dinsdag' | 'woensdag' | 'donderdag' | 'vrijdag' | 'zaterdag' | 'zondag';
+  startTijd: string;
+  eindTijd: string;
+  aantalTeamsOnder13: number;
+  aantalTeamsVanaf13: number;
+  type: 'training' | 'wedstrijd' | 'sociaal';
+}
+
+export interface SchemaImportPayload {
+  bron: 'bestand' | 'url';
+  bestand?: { data: string; mediaType: string; naam?: string };
+  url?: string;
+  sportCategorie?: 'teamsport' | 'racketsport' | 'individueel' | 'baansport';
+  personenPerEenheid1?: number;
+  personenPerEenheid2?: number;
+}
+
+export const schemaImportApi = {
+  importeer: (payload: SchemaImportPayload) =>
+    api<{ momenten: GeimporteerdMoment[]; toelichting: string }>('/api/schema-import', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+};

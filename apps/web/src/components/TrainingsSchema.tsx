@@ -22,6 +22,8 @@
 
 import { useState } from 'react';
 import { InfoTooltip } from './InfoTooltip';
+import { SchemaImportPaneel } from './SchemaImportPaneel';
+import type { GeimporteerdMoment } from '../api/client';
 
 // Legacy export — gebruikt door PPT-route en wat oudere code. Voor team-sporten
 // blijft dit een redelijke default. Nieuw: gebruik SPORT_CONFIG voor sport-specifiek.
@@ -843,6 +845,26 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging }: Prop
           </div>
         </InfoTooltip>
       </p>
+
+      {/* === AI schema-import: bestand/foto/Excel/link → trainingsmomenten === */}
+      <SchemaImportPaneel
+        sportCategorie={config.categorie}
+        labelGroep1={config.labelGroep1}
+        labelGroep2={config.labelGroep2}
+        onToepassen={(momenten: GeimporteerdMoment[], modus) => {
+          // Zet geimporteerde momenten om naar TrainingMoment (met id's)
+          const nieuw: TrainingsSchema = momenten.map((m, i) => ({
+            id: `m-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`,
+            dag: m.dag,
+            startTijd: m.startTijd,
+            eindTijd: m.eindTijd,
+            aantalTeamsOnder13: m.aantalTeamsOnder13,
+            aantalTeamsVanaf13: m.aantalTeamsVanaf13,
+            type: m.type,
+          }));
+          onChange(modus === 'vervang' ? nieuw : [...schema, ...nieuw]);
+        }}
+      />
 
       {/* === Valsspeel-knop: standaard schema op basis van clubgrootte === */}
       <div className="bg-amber-50 border border-amber-200 rounded-lg overflow-hidden">
