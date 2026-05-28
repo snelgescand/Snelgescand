@@ -34,7 +34,7 @@ import { HuidigeSituatie } from '../components/HuidigeSituatie';
 import { MaatregelSuggesties } from '../components/MaatregelSuggesties';
 import { ChartCard, WaterverbruikChart, KasstroomChart, EnergiebalansChart, WaterverbruikPerUurChart } from '../components/Charts';
 import { KopieerKnop } from '../util/kopieer';
-import { TrainingsSchemaInvoer, analyseSchema, getSportConfig, douchePercentage, LITERS_PER_DOUCHE, berekenDouchePieken, aanbevolenTapwaterOplossing, realismeFactor, type TrainingsSchema } from '../components/TrainingsSchema';
+import { TrainingsSchemaInvoer, analyseSchema, getSportConfig, LITERS_PER_DOUCHE, berekenDouchePieken, aanbevolenTapwaterOplossing, doucheBeurtenVanMoment, type TrainingsSchema } from '../components/TrainingsSchema';
 import { EnergielabelKaart } from '../components/EnergielabelKaart';
 import { HistorischVerbruik } from '../components/HistorischVerbruik';
 import { berekenEnergielabel, berekenLabelNaMaatregelen, bepaalLabelSprong } from '../util/energielabel';
@@ -725,7 +725,7 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
               <select
                 className="input"
                 value={(draft.context.club as { type?: string } | undefined)?.type ?? ''}
-                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, club: { ...s.context.club, type: e.target.value || undefined } as typeof s.context.club } }))}
+                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, club: { ...s.context.club, type: e.target.value || undefined } as typeof s.context.club, gebouw: { ...s.context.gebouw, typeSport: e.target.value || undefined } } }))}
               >
                 <option value="">— kies —</option>
                 <option value="voetbal">Voetbal</option>
@@ -861,25 +861,12 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
           </Veld>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3 pt-3 border-t border-gray-100">
-            <Veld label="Type sportvereniging" tooltip="Heeft invloed op aanbevelingen (bv. teamsporten = douche-intensief; tennis = minder).">
-              <select
-                className="input"
-                value={(draft.context.gebouw?.typeSport as string) ?? ''}
-                onChange={e => updateDraft(s => ({ ...s, context: { ...s.context, gebouw: { ...s.context.gebouw, typeSport: e.target.value || undefined } } }))}
-              >
-                <option value="">— kies —</option>
-                <option value="voetbal">Voetbal</option>
-                <option value="hockey">Hockey</option>
-                <option value="korfbal">Korfbal</option>
-                <option value="rugby">Rugby</option>
-                <option value="tennis">Tennis</option>
-                <option value="padel">Padel</option>
-                <option value="badminton">Badminton</option>
-                <option value="squash">Squash</option>
-                <option value="atletiek">Atletiek</option>
-                <option value="multisport">Multisport</option>
-                <option value="overig">Overig</option>
-              </select>
+            <Veld label="Type sportvereniging" tooltip="Wordt automatisch overgenomen uit 'Type vereniging' bij de clubgegevens (stap 1). Pas het daar aan.">
+              <div className="input bg-gray-50 text-gray-700 flex items-center min-h-[2.5rem]">
+                {draft.context.club?.type
+                  ? draft.context.club.type.charAt(0).toUpperCase() + draft.context.club.type.slice(1)
+                  : <span className="text-gray-400 text-sm">— invullen in stap 1 —</span>}
+              </div>
             </Veld>
             <Veld label="Aantal velden/banen" tooltip="Voor sportaccommodaties met buitenverlichting. Beïnvloedt aanbeveling LED-veldverlichting.">
               <input type="number" className="input" placeholder="bv. 4"
@@ -2068,18 +2055,13 @@ function bouwWaterverbruikData(draft: ProjectState) {
   const schema = draft.trainingsSchema;
   if (!schema || schema.length === 0) return [];
   const typeVereniging = draft.context.club?.type;
-  const config = getSportConfig(typeVereniging);
 
   const perDag: Record<string, { trainingL: number; wedstrijdL: number }> = {};
   for (const m of schema) {
     if (m.type === 'sociaal') continue;
     if (!perDag[m.dag]) perDag[m.dag] = { trainingL: 0, wedstrijdL: 0 };
-    const rf = realismeFactor(m.type);
-    const douchesG1 = (m.aantalTeamsOnder13 ?? 0) * config.personenPerEenheid1
-      * douchePercentage('onder13', m.type, m.dag, typeVereniging) * rf;
-    const douchesG2 = (m.aantalTeamsVanaf13 ?? 0) * config.personenPerEenheid2
-      * douchePercentage('vanaf13', m.type, m.dag, typeVereniging) * rf;
-    const litersMoment = (douchesG1 + douchesG2) * LITERS_PER_DOUCHE;
+    // Centrale, mode-bewuste telling (werkt voor blok én uur-rij).
+    const litersMoment = doucheBeurtenVanMoment(m, typeVereniging) * LITERS_PER_DOUCHE;
     if (m.type === 'wedstrijd') {
       perDag[m.dag].wedstrijdL += litersMoment;
     } else {

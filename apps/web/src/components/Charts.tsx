@@ -7,10 +7,12 @@
  *  - EnergiebalansChart: huidige situatie — verdeling gasverbruik
  */
 
+import { useRef, useState, type RefObject } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell,
 } from 'recharts';
+import { downloadGrafiekPng, type ExportThema } from '../util/kopieer';
 
 const ONN_TEAL = '#006579';
 const ONN_TEAL_LIGHT = '#5DA4AE';
@@ -29,7 +31,51 @@ interface ChartContainerProps {
   actie?: React.ReactNode;
 }
 
+/** Klein menu om de grafiek als PNG te downloaden in een gekozen kleurstijl. */
+function GrafiekPngKnop({ targetRef, naam }: { targetRef: RefObject<HTMLDivElement | null>; naam: string }) {
+  const [open, setOpen] = useState(false);
+  const [bezig, setBezig] = useState(false);
+
+  async function exporteer(thema: ExportThema) {
+    if (!targetRef.current) return;
+    setBezig(true);
+    try {
+      await downloadGrafiekPng(targetRef.current, naam, thema);
+    } catch (e) {
+      console.error('Grafiek-export mislukt:', e);
+    } finally {
+      setBezig(false);
+      setOpen(false);
+    }
+  }
+
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="text-xs px-2.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+        title="Download de grafiek als afbeelding (PNG)"
+      >
+        {bezig ? '…' : '🖼️ Grafiek'} <span className="text-[9px]">▾</span>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-20 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg p-1.5 text-xs">
+            <p className="px-1.5 pt-0.5 pb-1 text-[10px] uppercase tracking-wide text-gray-400">Grafiek als PNG</p>
+            <button type="button" className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-100" onClick={() => exporteer('onn')}>🟢 Op Naar Nul-kleuren</button>
+            <button type="button" className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-100" onClick={() => exporteer('spo')}>🔵 Sportief Opgewekt-kleuren</button>
+            <p className="px-1.5 pt-1 text-[10px] text-gray-400 leading-snug">Tip: de bijhorende datatabel kun je via de andere knop als HTML/PNG opslaan (incl. legenda).</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function ChartCard({ titel, ondertitel, children, hoogte = 280, toelichting, actie }: ChartContainerProps) {
+  const grafiekRef = useRef<HTMLDivElement>(null);
   return (
     <div className="card p-4">
       <div className="mb-3 flex items-start justify-between gap-2">
@@ -37,9 +83,12 @@ export function ChartCard({ titel, ondertitel, children, hoogte = 280, toelichti
           <h3 className="text-sm font-semibold text-primary-900">{titel}</h3>
           {ondertitel && <p className="text-xs text-gray-500">{ondertitel}</p>}
         </div>
-        {actie && <div className="shrink-0">{actie}</div>}
+        <div className="shrink-0 flex items-center gap-1">
+          {actie}
+          <GrafiekPngKnop targetRef={grafiekRef} naam={titel} />
+        </div>
       </div>
-      <div style={{ width: '100%', height: hoogte }}>
+      <div ref={grafiekRef} style={{ width: '100%', height: hoogte }}>
         {children}
       </div>
       {toelichting && (

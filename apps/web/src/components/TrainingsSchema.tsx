@@ -403,6 +403,14 @@ export interface TrainingMoment {
   aantalTeamsOnder13: number;
   /** Aantal eenheden in groep 2 — interpretatie hangt af van sport. */
   aantalTeamsVanaf13: number;
+  /**
+   * MODE A — directe uur-invoer. Als dit gezet is, is dit moment een UUR-RIJ:
+   * één uur lang, met een direct ingevoerd aantal aanwezige spelers. De douches
+   * worden dan berekend uit dit getal (× gemiddelde douche-bereidheid × cultuur)
+   * en exact in dít uur in de grafiek geplaatst — de gebruiker bepaalt zelf de
+   * spreiding. Is dit veld undefined, dan geldt het klassieke teams/banen-model.
+   */
+  aantalPersonen?: number;
   type: 'training' | 'wedstrijd' | 'sociaal';
 }
 
@@ -490,6 +498,50 @@ export function douchePercentage(
     return 1.00;
   }
   return type === 'wedstrijd' ? groep.wedstrijd : groep.training;
+}
+
+/** Of dit moment een directe UUR-RIJ is (mode A) i.p.v. een teams/banen-blok. */
+export function isUurRij(m: TrainingMoment): boolean {
+  return m.aantalPersonen != null;
+}
+
+/**
+ * Gemiddelde douche-bereidheid (jeugd + senior / 2) voor een type/dag.
+ * Gebruikt bij uur-invoer (mode A), waar geen leeftijdssplitsing wordt ingevoerd.
+ */
+export function gemiddeldeBereidheid(
+  type: TrainingMoment['type'],
+  dag: TrainingMoment['dag'],
+  typeVereniging?: string,
+): number {
+  return (
+    douchePercentage('onder13', type, dag, typeVereniging) +
+    douchePercentage('vanaf13', type, dag, typeVereniging)
+  ) / 2;
+}
+
+/**
+ * Aantal werkelijke douche-beurten voor ÉÉN moment — sport- én mode-bewust.
+ * Dé centrale bron zodat grafiek, week-totalen en piek-berekening identiek rekenen.
+ *
+ *  • Uur-rij (mode A): aantalPersonen × gemiddelde bereidheid × cultuurfactor.
+ *    Géén aanwezigheids-correctie: de ingevoerde personen ZIJN de aanwezigen.
+ *  • Klassiek blok: teams/banen × personen-per-eenheid × bereidheid × realisme
+ *    (aanwezigheid × cultuur).
+ */
+export function doucheBeurtenVanMoment(m: TrainingMoment, typeVereniging?: string): number {
+  if (m.type === 'sociaal') return 0;
+  if (isUurRij(m)) {
+    const bereidheid = gemiddeldeBereidheid(m.type, m.dag, typeVereniging);
+    return (m.aantalPersonen ?? 0) * bereidheid * CULTUUR_FACTOR;
+  }
+  const config = getSportConfig(typeVereniging);
+  const rf = realismeFactor(m.type);
+  const g1 = (m.aantalTeamsOnder13 ?? 0) * config.personenPerEenheid1
+    * douchePercentage('onder13', m.type, m.dag, typeVereniging) * rf;
+  const g2 = (m.aantalTeamsVanaf13 ?? 0) * config.personenPerEenheid2
+    * douchePercentage('vanaf13', m.type, m.dag, typeVereniging) * rf;
+  return g1 + g2;
 }
 
 interface Props {
@@ -821,6 +873,35 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging }: Prop
     onChange([...schema, nieuw]);
   }
 
+  /** Voeg een UUR-RIJ toe (mode A): 1 uur, direct aantal spelers. Pakt het uur
+   *  na de laatste bestaande uur-rij op die dag, anders 17:00. */
+  function addUurRijOpDag(dag: TrainingMoment['dag']) {
+    const uurRijen = schema
+      .filter(m => m.dag === dag && isUurRij(m))
+      .map(m => Math.floor(parseTime(m.startTijd)));
+    let uur = uurRijen.length ? Math.min(22, Math.max(...uurRijen) + 1) : 17;
+    const hh = String(uur).padStart(2, '0');
+    const hhEind = String(Math.min(23, uur + 1)).padStart(2, '0');
+    const nieuw: TrainingMoment = {
+      id: 'm-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      dag,
+      startTijd: `${hh}:00`,
+      eindTijd: `${hhEind}:00`,
+      aantalTeamsOnder13: 0,
+      aantalTeamsVanaf13: 0,
+      aantalPersonen: 0,
+      type: 'training',
+    };
+    onChange([...schema, nieuw]);
+  }
+
+  /** Wijzig het uur van een uur-rij; eindtijd schuift automatisch mee (+1 uur). */
+  function updateUurRijUur(id: string, startTijd: string) {
+    const u = Math.floor(parseTime(startTijd));
+    const eind = String(Math.min(23, u + 1)).padStart(2, '0') + ':00';
+    onChange(schema.map(m => m.id === id ? { ...m, startTijd, eindTijd: eind } : m));
+  }
+
   function updateMoment(id: string, patch: Partial<TrainingMoment>) {
     onChange(schema.map(m => m.id === id ? { ...m, ...patch } : m));
   }
@@ -1008,14 +1089,24 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging }: Prop
                     </span>
                   )}
                 </h4>
-                <button
-                  type="button"
-                  onClick={() => addMomentOpDag(dag)}
-                  className="text-xs text-primary-700 hover:bg-primary-100 px-2 py-1 rounded font-medium"
-                  title={`Voeg een activiteit toe op ${DAG_LABELS[dag]}`}
-                >
-                  + Toevoegen
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => addUurRijOpDag(dag)}
+                    className="text-xs text-accent-orange hover:bg-accent-orange/10 px-2 py-1 rounded font-medium"
+                    title={`Voeg een uur-rij toe op ${DAG_LABELS[dag]} (aantal spelers per uur)`}
+                  >
+                    ⏱️ Per uur
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => addMomentOpDag(dag)}
+                    className="text-xs text-primary-700 hover:bg-primary-100 px-2 py-1 rounded font-medium"
+                    title={`Voeg een blok-activiteit toe op ${DAG_LABELS[dag]}`}
+                  >
+                    + Blok
+                  </button>
+                </div>
               </div>
 
               {/* Momenten op deze dag */}
@@ -1025,6 +1116,72 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging }: Prop
                     const pctO13 = Math.round(douchePercentage('onder13', m.type, m.dag, typeVereniging) * 100);
                     const pctV13 = Math.round(douchePercentage('vanaf13', m.type, m.dag, typeVereniging) * 100);
                     const typeInfo = TYPE_INFO[m.type];
+
+                    // === MODE A: compacte uur-rij ===
+                    if (isUurRij(m)) {
+                      const pctBlend = Math.round(gemiddeldeBereidheid(m.type, m.dag, typeVereniging) * CULTUUR_FACTOR * 100);
+                      const douches = Math.round(doucheBeurtenVanMoment(m, typeVereniging));
+                      const uurNum = Math.floor(parseTime(m.startTijd));
+                      return (
+                        <div key={m.id} className="px-3 py-2 flex items-center gap-2 flex-wrap hover:bg-accent-orange/5 bg-accent-orange/[0.02]">
+                          <span className="text-[10px] uppercase tracking-wide text-accent-orange font-bold bg-accent-orange/10 px-1.5 py-0.5 rounded shrink-0">⏱️ uur</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full border ${typeInfo.kleur} font-medium inline-flex items-center gap-1`}>
+                            <span>{typeInfo.icoon}</span>
+                            <select
+                              className="bg-transparent border-0 outline-none p-0 text-xs font-medium cursor-pointer"
+                              value={m.type}
+                              onChange={e => updateMoment(m.id, { type: e.target.value as TrainingMoment['type'] })}
+                            >
+                              <option value="training">Training</option>
+                              <option value="wedstrijd">Wedstrijd</option>
+                              <option value="sociaal">Sociaal</option>
+                            </select>
+                          </span>
+                          <select
+                            className="input py-1 text-xs w-24"
+                            value={m.startTijd}
+                            onChange={e => updateUurRijUur(m.id, e.target.value)}
+                            title="Uur van de dag"
+                          >
+                            {Array.from({ length: 24 }, (_, h) => {
+                              const hh = String(h).padStart(2, '0');
+                              return <option key={h} value={`${hh}:00`}>{hh}:00–{String((h + 1) % 24).padStart(2, '0')}:00</option>;
+                            })}
+                          </select>
+                          {m.type !== 'sociaal' ? (
+                            <label className="flex items-center gap-1.5 text-xs text-gray-700">
+                              <input
+                                type="number"
+                                min={0}
+                                className="input py-1 text-sm w-20"
+                                value={m.aantalPersonen ?? 0}
+                                onChange={e => updateMoment(m.id, { aantalPersonen: Number(e.target.value) || 0 })}
+                                placeholder="0"
+                              />
+                              <span className="whitespace-nowrap">spelers</span>
+                            </label>
+                          ) : (
+                            <span className="text-xs text-gray-500 italic">geen douche-vraag</span>
+                          )}
+                          {m.type !== 'sociaal' && (
+                            <span className="text-[11px] text-gray-400 whitespace-nowrap">
+                              ≈ {pctBlend}% doucht → {douches} douche{douches === 1 ? '' : 's'} om {uurNum}:00
+                            </span>
+                          )}
+                          <div className="flex-1" />
+                          <button
+                            type="button"
+                            onClick={() => removeMoment(m.id)}
+                            className="text-xs text-red-600 hover:text-red-800 px-1.5 py-0.5"
+                            title="Verwijder uur-rij"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    // === Klassiek blok ===
                     return (
                       <div key={m.id} className="px-3 py-2.5 space-y-2 hover:bg-gray-50/50">
                         {/* Bovenste rij: type-badge, tijd, prullenbak */}
@@ -1127,7 +1284,8 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging }: Prop
       {/* Snel-acties als helemaal leeg */}
       {schema.length === 0 && (
         <div className="bg-gray-50 border border-dashed border-gray-300 rounded-md p-3 text-xs text-gray-600">
-          <strong>Snel beginnen?</strong> Klik op <em>+ Toevoegen</em> bij een dag waarop er training is.
+          <strong>Snel beginnen?</strong> Klik bij een dag op <em>+ Blok</em> (een trainings-/wedstrijdblok met teams)
+          of op <em>⏱️ Per uur</em> (vul direct het aantal spelers per uur in — handig voor een precieze douche-spreiding).
           De meeste sportclubs hebben training op dinsdag, woensdag en donderdag, en wedstrijden op zaterdag.
         </div>
       )}
@@ -1153,12 +1311,20 @@ export function analyseSchema(schema: TrainingsSchema, typeVereniging?: string):
   let uren = 0;
   let douchesJeugd = 0;
   let douchesSenioren = 0;
+  let douchesGemengd = 0;   // uur-rijen (mode A) — geen leeftijdssplitsing
   let personen = 0;
   for (const m of schema) {
     const start = parseTime(m.startTijd);
     const eind = parseTime(m.eindTijd);
     const duur = Math.max(0, eind - start);
     uren += duur;
+
+    // MODE A — directe uur-invoer
+    if (isUurRij(m)) {
+      personen += m.aantalPersonen ?? 0;
+      douchesGemengd += doucheBeurtenVanMoment(m, typeVereniging);
+      continue;
+    }
 
     const spelersGroep1 = (m.aantalTeamsOnder13 ?? 0) * config.personenPerEenheid1;
     const spelersGroep2 = (m.aantalTeamsVanaf13 ?? 0) * config.personenPerEenheid2;
@@ -1171,7 +1337,7 @@ export function analyseSchema(schema: TrainingsSchema, typeVereniging?: string):
     douchesJeugd += spelersGroep1 * douchePercentage('onder13', m.type, m.dag, typeVereniging) * rf;
     douchesSenioren += spelersGroep2 * douchePercentage('vanaf13', m.type, m.dag, typeVereniging) * rf;
   }
-  const totaalDouches = douchesJeugd + douchesSenioren;
+  const totaalDouches = douchesJeugd + douchesSenioren + douchesGemengd;
   return {
     urenPerWeek: Math.round(uren * 10) / 10,
     doucheBeurtenJeugdPerWeek: Math.round(douchesJeugd),
@@ -1268,39 +1434,29 @@ export function berekenDouchePieken(
 
   for (const m of schema) {
     if (m.type === 'sociaal') continue;
-    // Zelfde realisme-correctie als analyseSchema — anders lopen grafiek (pieken)
-    // en week-totaal uiteen. Bereidheid × aanwezigheid × cultuur.
-    const rf = realismeFactor(m.type);
-    const douchesG1 = (m.aantalTeamsOnder13 ?? 0) * config.personenPerEenheid1
-      * douchePercentage('onder13', m.type, m.dag, typeVereniging) * rf;
-    const douchesG2 = (m.aantalTeamsVanaf13 ?? 0) * config.personenPerEenheid2
-      * douchePercentage('vanaf13', m.type, m.dag, typeVereniging) * rf;
-    const totaal = (douchesG1 + douchesG2) * LITERS_PER_DOUCHE;
+    // Centrale, mode-bewuste douche-telling (uur-rij óf teams/banen-blok).
+    const totaal = doucheBeurtenVanMoment(m, typeVereniging) * LITERS_PER_DOUCHE;
     if (totaal === 0) continue;
 
     const startUur = parseTime(m.startTijd);
     const eindUur = parseTime(m.eindTijd);
-    const duur = Math.max(0.5, eindUur - startUur);
-    const isRacket = config.categorie === 'racketsport';
-    const isIndividueel = config.categorie === 'individueel';
 
     if (!perDagPerUur[m.dag]) perDagPerUur[m.dag] = new Array(24).fill(0);
     const uren = perDagPerUur[m.dag]!;
 
-    // === Realistische douche-spreiding over een TIJDVENSTER ===
-    // In plaats van één piek-uur spreiden we de douches over het venster waarin
-    // sporters daadwerkelijk klaar zijn en gaan douchen. Dat venster verschilt
-    // per sport-type:
-    //
-    //   • Teamsport: iedereen eindigt ongeveer tegelijk → douches geconcentreerd
-    //     in het laatste kwartier + ~1 uur erna (kleedkamers stromen vol, douches
-    //     hebben beperkte capaciteit → natuurlijke uitsmering).
-    //   • Racket/individueel: continue in- en uitstroom → sporters komen door de
-    //     hele sessie heen klaar en douchen gespreid over speelduur + naloop.
-    //
-    // We verdelen de liters met een lichte "opbouw-piek-afbouw"-curve over de
-    // uur-slots in het venster, zodat de grafiek een natuurlijk profiel toont
-    // i.p.v. één spike.
+    // === MODE A: uur-rij — gebruiker bepaalt zelf de spreiding ===
+    // Plaats de douches exact in het ingevoerde uur. Door per dag meerdere
+    // uur-rijen in te vullen bouwt de gebruiker zelf de gewenste (klok)curve.
+    if (isUurRij(m)) {
+      const slot = Math.max(0, Math.min(23, Math.floor(startUur)));
+      uren[slot] += totaal;
+      continue;
+    }
+
+    // === Klassiek blok-model: realistische spreiding over een TIJDVENSTER ===
+    const duur = Math.max(0.5, eindUur - startUur);
+    const isRacket = config.categorie === 'racketsport';
+    const isIndividueel = config.categorie === 'individueel';
     let vensterStart: number;
     let vensterEind: number;
     if (isRacket || isIndividueel) {
@@ -1310,18 +1466,13 @@ export function berekenDouchePieken(
       vensterEind = eindUur + 0.5;            // tot half uur na sluiting
     } else if (duur <= 2.0) {
       // Korte teamsport-training/wedstrijd (≤ 2u): iedereen eindigt ongeveer
-      // tegelijk → douches geconcentreerd in het laatste half uur + ~1 uur erna
-      // (kleedkamers stromen vol, beperkte douche-capaciteit smeert het uit).
+      // tegelijk → douches geconcentreerd in het laatste half uur + ~1 uur erna.
       vensterStart = eindUur - 0.5;
       vensterEind = eindUur + 1.0;
     } else {
-      // LANGE teamsport-dag (> 2u): denk aan een jeugd-wedstrijdochtend 09:00-12:30
-      // of een senioren-wedstrijddag 11:00-16:00. In werkelijkheid eindigen
-      // meerdere wedstrijden/sessies GEFASEERD door de dag heen — niet iedereen
-      // doucht om hetzelfde tijdstip. We spreiden de douches daarom over vrijwel
-      // het hele blok met een opbouw-piek-afbouw-curve (de "klokgrafiek"):
-      //   • start ~25% in het blok (eerste wedstrijden lopen af)
-      //   • door tot 45 min na sluiting (laatste douches uit de kleedkamer)
+      // LANGE teamsport-dag (> 2u): meerdere wedstrijden/sessies eindigen
+      // gefaseerd door de dag heen → douches gespreid over vrijwel het hele blok
+      // met een opbouw-piek-afbouw-curve (de "klokgrafiek").
       vensterStart = startUur + duur * 0.25;
       vensterEind = eindUur + 0.75;
     }
