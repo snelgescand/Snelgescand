@@ -251,18 +251,8 @@ export default function ProjectEditor() {
     },
   });
 
-  const exportPpt = useMutation({
-    mutationFn: () => projectsApi.exporteerPpt(
-      id!,
-      `Verduurzamingsplan_${(draft?.context.club?.naam ?? 'project').replace(/[^a-zA-Z0-9]/g, '_')}.pptx`,
-    ),
-    onSuccess: () => setPptFout(null),
-    onError: (err: unknown) => {
-      if (err instanceof ApiError) setPptFout(err.message);
-      else setPptFout('PowerPoint-export mislukt');
-    },
-  });
-
+  // PowerPoint-export uit de header is verwijderd. De template-export blijft nog
+  // beschikbaar vanuit de "Afronden"-modal totdat die ook wordt gestript.
   const exportPptTemplate = useMutation({
     mutationFn: () => projectsApi.exporteerPptTemplate(
       id!,
@@ -529,22 +519,6 @@ export default function ProjectEditor() {
               {bereken.isPending ? 'Berekenen…' : 'Bereken'}
             </button>
             <button
-              onClick={() => { setPptFout(null); exportPpt.mutate(); }}
-              className="btn-secondary"
-              disabled={exportPpt.isPending || !cached}
-              title={!cached ? 'Eerst berekenen' : 'Download PowerPoint (Snelgescand stijl)'}
-            >
-              {exportPpt.isPending ? 'Exporteren…' : '↓ PowerPoint'}
-            </button>
-            <button
-              onClick={() => { setPptFout(null); exportPptTemplate.mutate(); }}
-              className="btn-secondary"
-              disabled={exportPptTemplate.isPending}
-              title="Download op basis van originele Sportief Opgewekt template (86 slides, club-naam ingevuld)"
-            >
-              {exportPptTemplate.isPending ? 'Genereren…' : '↓ PPT (origineel)'}
-            </button>
-            <button
               onClick={() => setBevestigVerwijder(true)}
               className="text-sm text-gray-500 hover:text-red-600 px-2"
               title="Project verwijderen"
@@ -606,7 +580,6 @@ export default function ProjectEditor() {
             modulesQuery={modulesQuery}
             cached={cached}
             berekenFout={berekenFout}
-            pptFout={pptFout}
             kanBerekenen={kanBerekenen}
             onTerugStap1={() => gaNaarFase(1)}
             onNaarStap3={() => gaNaarFase(3)}
@@ -1334,13 +1307,12 @@ interface Stap2Props {
   modulesQuery: { data?: { modules: Array<{ id: string; naam: string; defaultInput: unknown }>; groepen: Record<string, readonly string[]> } };
   cached: any;
   berekenFout: string | null;
-  pptFout: string | null;
   kanBerekenen: boolean;
   onTerugStap1: () => void;
   onNaarStap3: () => void;
 }
 
-function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFout, pptFout, kanBerekenen, onTerugStap1, onNaarStap3 }: Stap2Props) {
+function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFout, kanBerekenen, onTerugStap1, onNaarStap3 }: Stap2Props) {
   const gekozenIds = Object.keys(draft.gekozenMaatregelen);
 
   // Welke maatregel-detail-modal staat open? null = dicht.
@@ -1652,6 +1624,7 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
                 maatregelNaam={modulesQuery.data.modules.find(m => m.id === openDetailId)?.naam ?? openDetailId}
                 input={(draft.gekozenMaatregelen[openDetailId] as Record<string, unknown>) ?? {}}
                 bouwjaar={draft.context.gebouw?.bouwjaar}
+                aantalVelden={draft.context.gebouw?.aantalVeldenBanen}
                 context={adviesContext}
                 onChange={(input) => updateDraft(s => ({ ...s, gekozenMaatregelen: { ...s.gekozenMaatregelen, [openDetailId]: input } }))}
                 onRemove={() => {
@@ -1690,12 +1663,6 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
               <p className="font-medium text-red-900 mb-1">Berekening mislukt</p>
               <p className="text-red-800 text-xs">{berekenFout}</p>
-            </div>
-          )}
-          {pptFout && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
-              <p className="font-medium text-red-900 mb-1">PowerPoint mislukt</p>
-              <p className="text-red-800 text-xs">{pptFout}</p>
             </div>
           )}
           {cached?.rollup && (

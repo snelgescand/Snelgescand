@@ -20,6 +20,8 @@ interface MaatregelDetailProps {
   onRemove: () => void;
   /** Bouwjaar uit project — gebruikt om Rc-waardes te suggereren */
   bouwjaar?: number;
+  /** Aantal velden/banen uit stap 1 — auto-vult de veldverlichting-maatregel */
+  aantalVelden?: number;
   /** Volledige context-data uit scan — gebruikt voor maatwerk-adviezen */
   context?: ContextData;
   /** Initiële open-state — alleen gelezen bij mount */
@@ -33,7 +35,7 @@ const RC_DEEL: Record<string, 'dak' | 'gevel' | 'vloer'> = {
   'vloerisolatie': 'vloer',
 };
 
-export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove, bouwjaar, context, startOpen = false }: MaatregelDetailProps) {
+export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, onRemove, bouwjaar, aantalVelden, context, startOpen = false }: MaatregelDetailProps) {
   // Initiële state — open of dicht — wordt vastgezet bij mount.
   // Bij klik op "✏️ Aanpassen" wordt de key in de parent gewijzigd, waardoor
   // dit component RE-MOUNT en deze initialState opnieuw evalueert.
@@ -89,6 +91,35 @@ export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, o
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maatregelId, context?.lmntIncRuimteverwarming, context?.gasM3PerJaar]);
+
+  /**
+   * Auto-fill veldverlichting: vul 'aantalVelden' uit stap 1 (gebouw.aantalVeldenBanen)
+   * zolang het veld nog leeg is. Handmatige overrides blijven staan.
+   */
+  useEffect(() => {
+    if (maatregelId !== 'ledveldverlichting') return;
+    if (!aantalVelden || aantalVelden <= 0) return;
+    const huidige = Number(input.aantalVelden) || 0;
+    if (huidige > 0) return;
+    onChange({ ...input, aantalVelden });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maatregelId, aantalVelden]);
+
+  /**
+   * Batterij: bereken de ideale capaciteit (kWh) uit gewenst vermogen (kW) × gewenste
+   * autonomie (uur) ÷ bruikbare ontlaaddiepte (0,9). Alleen invullen als de capaciteit
+   * nog leeg is — daarna blijft de waarde aanpasbaar.
+   */
+  useEffect(() => {
+    if (maatregelId !== 'batterij-eenvoudig' && maatregelId !== 'batterij-uitgebreid') return;
+    const verm = Number(input.vermogenKw) || 0;
+    const uren = Number(input.urenAutonomieAvond) || 0;
+    const cap = Number(input.capaciteitKwh) || 0;
+    if (verm > 0 && uren > 0 && cap <= 0) {
+      onChange({ ...input, capaciteitKwh: Math.round((verm * uren) / 0.9) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maatregelId, input.vermogenKw, input.urenAutonomieAvond]);
 
   function updateVeld(pad: string, waarde: unknown) {
     onChange({ ...input, [pad]: waarde });
@@ -160,6 +191,11 @@ export function MaatregelDetail({ maatregelId, maatregelNaam, input, onChange, o
             </div>
           ) : maatregelId === 'douches-analyse' && (
             <DouchesSegmenten input={input} onChange={onChange} />
+          )}
+
+          {/* Batterij: ideale capaciteit uit vermogen × autonomie */}
+          {(maatregelId === 'batterij-eenvoudig' || maatregelId === 'batterij-uitgebreid') && (
+            <BatterijCapaciteitHint input={input} onChange={onChange} />
           )}
 
           {/* Standaard velden */}
@@ -468,6 +504,50 @@ function DouchesSegmenten({ input, onChange }: { input: Record<string, unknown>;
             </table>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Batterij-hulpje: bereken de ideale capaciteit uit gewenst vermogen (kW) ×
+ * gewenste autonomie 's avonds (uur), gedeeld door de bruikbare ontlaaddiepte
+ * (~0,9). De capaciteit blijft daarna gewoon aanpasbaar in het veld eronder.
+ */
+function BatterijCapaciteitHint({ input, onChange }: {
+  input: Record<string, unknown>;
+  onChange: (input: Record<string, unknown>) => void;
+}) {
+  const verm = Number(input.vermogenKw) || 0;
+  const uren = Number(input.urenAutonomieAvond) || 0;
+  const cap = Number(input.capaciteitKwh) || 0;
+  const ideaal = verm > 0 && uren > 0 ? Math.round((verm * uren) / 0.9) : 0;
+
+  return (
+    <div className="bg-primary-50/60 border border-primary-200 rounded-md p-3 text-sm space-y-1.5">
+      <p className="font-medium text-primary-900">🔋 Capaciteit bepalen</p>
+      {ideaal > 0 ? (
+        <>
+          <p className="text-gray-700 text-xs">
+            Bij <strong>{verm} kW</strong> vermogen en <strong>{uren} uur</strong> gewenste autonomie is de ideale
+            bruikbare capaciteit ≈ <strong>{ideaal} kWh</strong> <span className="text-gray-500">(vermogen × uren ÷ 0,9 ontlaaddiepte)</span>.
+          </p>
+          {cap !== ideaal && (
+            <button
+              type="button"
+              onClick={() => onChange({ ...input, capaciteitKwh: ideaal })}
+              className="text-xs bg-primary-600 text-white px-2.5 py-1 rounded hover:bg-primary-700"
+            >
+              Capaciteit op {ideaal} kWh zetten
+            </button>
+          )}
+          {cap === ideaal && <p className="text-xs text-green-700">✓ Capaciteit staat op de berekende waarde — hieronder vrij aan te passen.</p>}
+        </>
+      ) : (
+        <p className="text-gray-600 text-xs">
+          Vul hieronder eerst het <strong>vermogen (kW)</strong> en de <strong>gewenste autonomie 's avonds (uur)</strong> in;
+          dan wordt de ideale capaciteit automatisch berekend (en blijft aanpasbaar).
+        </p>
       )}
     </div>
   );
