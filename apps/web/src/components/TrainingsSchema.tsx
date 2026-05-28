@@ -354,6 +354,43 @@ export function getSportConfig(typeVereniging?: string): SportConfig {
   return SPORT_CONFIGS[typeVereniging.toLowerCase()] ?? SPORT_CONFIG_DEFAULT;
 }
 
+/** Is dit een geldig, herkend sporttype? (niet leeg, niet 'anders', staat in configs) */
+export function isGeldigSporttype(typeVereniging?: string): boolean {
+  if (!typeVereniging) return false;
+  return typeVereniging.toLowerCase() in SPORT_CONFIGS;
+}
+
+/**
+ * Sport-eenheid terminologie, afgeleid van de categorie. Bepaalt:
+ *  - hoe we de telbare eenheid noemen (team / baan / sporter)
+ *  - of er een leeftijds-/bezettingsonderscheid is tussen groep 1 en 2
+ *
+ * Dit maakt de hele UI sport-variabel zonder elke config los aan te passen.
+ */
+export interface EenheidTermen {
+  /** Enkelvoud, bv. 'team', 'baan', 'sporter' */
+  enkelvoud: string;
+  /** Meervoud, bv. 'teams', 'banen', 'sporters' */
+  meervoud: string;
+  /** Korte instructie bovenaan, bv. 'het aantal teams' */
+  invulInstructie: string;
+  /** Afkorting bij personen-per-eenheid, bv. 'sp/team', 'sp/baan', '' */
+  perEenheidAfkorting: string;
+}
+
+export function eenheidTermen(categorie: SportCategorie): EenheidTermen {
+  switch (categorie) {
+    case 'teamsport':
+      return { enkelvoud: 'team', meervoud: 'teams', invulInstructie: 'het aantal teams', perEenheidAfkorting: 'sp/team' };
+    case 'racketsport':
+      return { enkelvoud: 'baan', meervoud: 'bezette banen', invulInstructie: 'het aantal bezette banen', perEenheidAfkorting: 'sp/baan' };
+    case 'individueel':
+      return { enkelvoud: 'sporter', meervoud: 'aanwezige sporters', invulInstructie: 'het aantal aanwezige sporters', perEenheidAfkorting: '' };
+    case 'baansport':
+      return { enkelvoud: 'baan', meervoud: 'bezette banen', invulInstructie: 'het aantal bezette banen', perEenheidAfkorting: 'p/baan' };
+  }
+}
+
 export interface TrainingMoment {
   id: string;
   dag: 'maandag' | 'dinsdag' | 'woensdag' | 'donderdag' | 'vrijdag' | 'zaterdag' | 'zondag';
@@ -779,19 +816,27 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging }: Prop
 
   const totaal = analyseSchema(schema, typeVereniging);
   const config = getSportConfig(typeVereniging);
+  const termen = eenheidTermen(config.categorie);
+  const geldigType = isGeldigSporttype(typeVereniging);
 
   return (
     <div className="space-y-3">
+      {/* Waarschuwing als geen geldig sporttype gekozen — anders valt alles stil terug
+          op voetbal-default (15 sp/team), wat fout is voor bv. tennis. */}
+      {!geldigType && (
+        <div className="bg-amber-100 border border-amber-300 rounded-lg p-3 text-sm text-amber-900">
+          <strong>⚠️ Kies eerst een sporttype</strong> bij "Type vereniging" hierboven.
+          Zonder sporttype rekent het model met voetbal-aannames (teams van 15 spelers),
+          wat niet klopt voor bijvoorbeeld tennis (banen) of atletiek (individuele sporters).
+        </div>
+      )}
       <p className="text-sm text-gray-600">
-        {config.categorie === 'teamsport' && <>Vul per dag het aantal <strong>teams</strong> in. </>}
-        {config.categorie === 'racketsport' && <>Vul per dag het aantal <strong>bezette banen</strong> in. </>}
-        {config.categorie === 'individueel' && <>Vul per dag het aantal <strong>aanwezige personen</strong> in. </>}
-        {config.categorie === 'baansport' && <>Vul per dag het aantal <strong>bezette banen</strong> in. </>}
+        Vul per dag <strong>{termen.invulInstructie}</strong> in.
         Het systeem rekent zelf met douche-percentage en water-verbruik per sport.
         <InfoTooltip>
           <div className="space-y-1 text-xs">
-            <p><strong>{config.labelGroep1}</strong>: {config.personenPerEenheid1} {config.categorie === 'individueel' ? 'persoon' : 'personen'} per eenheid. Doucht {Math.round(config.douchePct.groep1.training * 100)}% bij training, {Math.round(config.douchePct.groep1.wedstrijd * 100)}% bij wedstrijd.</p>
-            <p><strong>{config.labelGroep2}</strong>: {config.personenPerEenheid2} personen per eenheid. Doucht {Math.round(config.douchePct.groep2.training * 100)}% bij training, {Math.round(config.douchePct.groep2.wedstrijd * 100)}% bij wedstrijd.</p>
+            <p><strong>{config.labelGroep1}</strong>: {config.personenPerEenheid1} {config.categorie === 'individueel' ? 'persoon' : 'personen'} per {termen.enkelvoud}. Doucht {Math.round(config.douchePct.groep1.training * 100)}% bij training, {Math.round(config.douchePct.groep1.wedstrijd * 100)}% bij wedstrijd.</p>
+            <p><strong>{config.labelGroep2}</strong>: {config.personenPerEenheid2} personen per {termen.enkelvoud}. Doucht {Math.round(config.douchePct.groep2.training * 100)}% bij training, {Math.round(config.douchePct.groep2.wedstrijd * 100)}% bij wedstrijd.</p>
             <p><strong>Sociale momenten</strong>: niemand doucht (alleen kantine).</p>
             <p>Per douche-beurt: 35 liter warm water (37°C).</p>
             <p className="italic mt-1 text-gray-600">{config.uitleg}</p>
@@ -978,7 +1023,7 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging }: Prop
                             <label className="flex items-center gap-2 text-xs text-gray-700">
                               <span className="min-w-0 flex-1">
                                 {config.labelGroep1}
-                                <span className="block text-gray-400">{pctO13}% doucht · {config.personenPerEenheid1} {config.categorie === 'individueel' ? 'p' : 'sp'}/eh</span>
+                                <span className="block text-gray-400">{pctO13}% doucht{termen.perEenheidAfkorting ? ` · ${config.personenPerEenheid1} ${termen.perEenheidAfkorting}` : ` · ${config.personenPerEenheid1} p`}</span>
                               </span>
                               <input
                                 type="number"
@@ -991,7 +1036,7 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging }: Prop
                             <label className="flex items-center gap-2 text-xs text-gray-700">
                               <span className="min-w-0 flex-1">
                                 {config.labelGroep2}
-                                <span className="block text-gray-400">{pctV13}% doucht · {config.personenPerEenheid2} {config.categorie === 'individueel' ? 'p' : 'sp'}/eh</span>
+                                <span className="block text-gray-400">{pctV13}% doucht{termen.perEenheidAfkorting ? ` · ${config.personenPerEenheid2} ${termen.perEenheidAfkorting}` : ` · ${config.personenPerEenheid2} p`}</span>
                               </span>
                               <input
                                 type="number"
@@ -1088,6 +1133,52 @@ function parseTime(t: string): number {
 }
 
 /**
+ * Verdeel een hoeveelheid liters over de uur-slots (0-23) binnen een tijdvenster,
+ * met een natuurlijke "opbouw → piek → afbouw"-curve (driehoeksverdeling rond het
+ * midden van het venster). Dit voorkomt één onrealistische spike en geeft een
+ * vloeiend douche-profiel over de avond.
+ *
+ * @param uren      array van 24 uur-slots (wordt in-place opgehoogd)
+ * @param liters    totaal te verdelen liters
+ * @param start     vensterbegin in uren (float, bv. 20.5 = 20:30)
+ * @param eind      venstereinde in uren (float)
+ */
+function spreidLitersOverVenster(uren: number[], liters: number, start: number, eind: number): void {
+  const s = Math.max(0, start);
+  const e = Math.min(24, Math.max(s + 0.25, eind));
+  const midden = (s + e) / 2;
+  const halveBreedte = (e - s) / 2 || 0.5;
+
+  // Bereken een gewicht per overlappend uur-slot op basis van driehoeks-curve:
+  // gewicht is maximaal in het midden van het venster, lineair aflopend naar de randen.
+  const gewichten: { uur: number; gewicht: number }[] = [];
+  const eersteUur = Math.floor(s);
+  const laatsteUur = Math.min(23, Math.ceil(e) - 1);
+  for (let u = eersteUur; u <= laatsteUur; u++) {
+    // Overlap van uur-slot [u, u+1] met venster [s, e]
+    const overlapStart = Math.max(u, s);
+    const overlapEind = Math.min(u + 1, e);
+    const overlap = Math.max(0, overlapEind - overlapStart);
+    if (overlap <= 0) continue;
+    // Afstand van slot-midden tot venster-midden → driehoeksgewicht (1 in midden, 0 aan rand)
+    const slotMidden = (overlapStart + overlapEind) / 2;
+    const driehoek = Math.max(0.15, 1 - Math.abs(slotMidden - midden) / halveBreedte);
+    gewichten.push({ uur: u, gewicht: overlap * driehoek });
+  }
+
+  const totaalGewicht = gewichten.reduce((a, g) => a + g.gewicht, 0);
+  if (totaalGewicht <= 0) {
+    // Fallback: alles in het uur van het venster-midden
+    const u = Math.max(0, Math.min(23, Math.floor(midden)));
+    uren[u] += liters;
+    return;
+  }
+  for (const g of gewichten) {
+    uren[g.uur] += liters * (g.gewicht / totaalGewicht);
+  }
+}
+
+/**
  * Berekent de PIEK-statistieken voor warm water uit het trainingsschema.
  *
  * In tegenstelling tot analyseSchema (die week-totalen geeft) levert deze
@@ -1133,30 +1224,36 @@ export function berekenDouchePieken(
     const startUur = parseTime(m.startTijd);
     const eindUur = parseTime(m.eindTijd);
     const duur = Math.max(0.5, eindUur - startUur);
-    const isLang = duur >= 2.5;
     const isRacket = config.categorie === 'racketsport';
-    const isWedstrijd = m.type === 'wedstrijd';
+    const isIndividueel = config.categorie === 'individueel';
 
-    let waves: number[];
-    if (!isLang) waves = [eindUur];
-    else if (isWedstrijd || isRacket) {
-      const aantal = Math.max(2, Math.ceil(duur));
-      const interval = duur / aantal;
-      waves = Array.from({ length: aantal }, (_, i) => Math.min(eindUur, startUur + interval * (i + 1)));
-    } else if (duur >= 3) waves = [startUur + duur / 2, eindUur];
-    else waves = [eindUur];
-
-    const litersPerWave = totaal / waves.length;
     if (!perDagPerUur[m.dag]) perDagPerUur[m.dag] = new Array(24).fill(0);
     const uren = perDagPerUur[m.dag]!;
-    for (const w of waves) {
-      const piekUur = Math.floor(Math.max(0, Math.min(23.99, w)));
-      uren[piekUur] += litersPerWave * 0.6;
-      if (piekUur - 1 >= 0) uren[piekUur - 1] += litersPerWave * 0.1;
-      else uren[piekUur] += litersPerWave * 0.1;
-      if (piekUur + 1 < 24) uren[piekUur + 1] += litersPerWave * 0.3;
-      else uren[23] += litersPerWave * 0.3;
+
+    // === Realistische douche-spreiding over een TIJDVENSTER ===
+    // In plaats van één piek-uur spreiden we de douches over het venster waarin
+    // sporters daadwerkelijk klaar zijn en gaan douchen. Dat venster verschilt
+    // per sport-type:
+    //
+    //   • Teamsport: iedereen eindigt ongeveer tegelijk → douches geconcentreerd
+    //     in het laatste kwartier + ~1 uur erna (kleedkamers stromen vol, douches
+    //     hebben beperkte capaciteit → natuurlijke uitsmering).
+    //   • Racket/individueel: continue in- en uitstroom → sporters komen door de
+    //     hele sessie heen klaar en douchen gespreid over speelduur + naloop.
+    //
+    // We verdelen de liters met een lichte "opbouw-piek-afbouw"-curve over de
+    // uur-slots in het venster, zodat de grafiek een natuurlijk profiel toont
+    // i.p.v. één spike.
+    let vensterStart: number;
+    let vensterEind: number;
+    if (isRacket || isIndividueel) {
+      vensterStart = startUur + duur * 0.4;   // vanaf ~40% van de sessie
+      vensterEind = eindUur + 0.5;            // tot half uur na sluiting
+    } else {
+      vensterStart = eindUur - 0.5;           // laatste half uur van de sessie
+      vensterEind = eindUur + 1.0;            // tot 1 uur na einde (douche-rijen)
     }
+    spreidLitersOverVenster(uren, totaal, vensterStart, vensterEind);
   }
 
   let piekUurLiters = 0;
