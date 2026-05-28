@@ -1152,6 +1152,7 @@ function Stap1Invoer({ draft, updateDraft, adresGekozen, bagStatus, onNaarStap2,
             schema={draft.trainingsSchema ?? []}
             onChange={(s) => updateDraft(d => ({ ...d, trainingsSchema: s }))}
             typeVereniging={draft.context?.club?.type}
+            aantalVelden={draft.context?.gebouw?.aantalVeldenBanen}
           />
         </Sectie>
 

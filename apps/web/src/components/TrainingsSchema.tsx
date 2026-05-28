@@ -549,6 +549,9 @@ interface Props {
   onChange: (s: TrainingsSchema) => void;
   /** Optioneel — wordt gebruikt door de "vul standaard schema in"-knop. */
   typeVereniging?: string;
+  /** Aantal velden/banen van de club (uit stap 3). Begrenst hoeveel spelers
+   *  het standaard-schema tegelijk (per uur) op de accommodatie kan zetten. */
+  aantalVelden?: number;
 }
 
 const DAG_LABELS: Record<TrainingMoment['dag'], string> = {
@@ -576,6 +579,7 @@ export function genereerStandaardSchema(
   typeVereniging: string,
   aantalLeden: number,
   pctJeugd: number, // 0-100
+  aantalVelden?: number,
 ): { schema: TrainingsSchema; waarschuwing?: string } {
   const config = getSportConfig(typeVereniging);
   const ledenJeugd = Math.round((aantalLeden * pctJeugd) / 100);
@@ -612,7 +616,7 @@ export function genereerStandaardSchema(
   // Lever het standaard-schema voortaan als bewerkbare UUR-RIJEN op (mode A).
   // De blok-generatoren hierboven blijven de kalibratie doen; we maken alleen
   // de spreiding per uur expliciet — totalen en curve blijven identiek.
-  const uurSchema = schemaNaarUurRijen(blokSchema, typeVereniging);
+  const uurSchema = schemaNaarUurRijen(blokSchema, typeVereniging, aantalVelden);
   return { schema: uurSchema, waarschuwing };
 }
 
@@ -857,15 +861,16 @@ function weekBaansport(mkId: (i: number) => string, banenJeugd: number, banenSen
   return schema;
 }
 
-export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging }: Props) {
+export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging, aantalVelden }: Props) {
   const [valsspeelOpen, setValsspeelOpen] = useState(false);
   const [vsAantalLeden, setVsAantalLeden] = useState<number>(150);
   const [vsPctJeugd, setVsPctJeugd] = useState<number>(40);
+  const [vsAantalVelden, setVsAantalVelden] = useState<number>(aantalVelden && aantalVelden > 0 ? aantalVelden : 2);
   const [vsWaarschuwing, setVsWaarschuwing] = useState<string | null>(null);
 
   function valsspeelToepassen() {
     const tv = typeVereniging || 'voetbal';
-    const { schema: nieuwSchema, waarschuwing } = genereerStandaardSchema(tv, vsAantalLeden, vsPctJeugd);
+    const { schema: nieuwSchema, waarschuwing } = genereerStandaardSchema(tv, vsAantalLeden, vsPctJeugd, vsAantalVelden);
     if (schema.length > 0) {
       if (!confirm('Het huidige schema wordt overschreven met een standaard schema. Doorgaan?')) return;
     }
@@ -1029,7 +1034,7 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging }: Prop
                 ✕
               </button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="text-xs">
                 <span className="block text-gray-700 mb-1">Aantal spelende leden</span>
                 <input
@@ -1054,6 +1059,19 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging }: Prop
                 />
                 <span className="block text-[10px] text-gray-500 mt-0.5">
                   NL-gemiddelde voetbal/hockey ≈ 40-50% jeugd
+                </span>
+              </label>
+              <label className="text-xs">
+                <span className="block text-gray-700 mb-1">Aantal velden / banen</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={vsAantalVelden}
+                  onChange={e => setVsAantalVelden(Math.max(1, Number(e.target.value) || 0))}
+                  className="input py-1 text-sm w-full"
+                />
+                <span className="block text-[10px] text-gray-500 mt-0.5">
+                  Begrenst het aantal spelers tegelijk per uur — niet meer dan op de velden past
                 </span>
               </label>
             </div>
@@ -1467,16 +1485,61 @@ function verdeelOverUren(totaal: number, start: number, eind: number): Array<{ u
 }
 
 /**
+ * Realistisch maximaal aantal spelers TEGELIJK op één veld/baan, per sport-categorie.
+ * Gebruikt om het standaard-schema te begrenzen op de fysieke accommodatie.
+ */
+function spelersPerVeld(config: ReturnType<typeof getSportConfig>): number {
+  switch (config.categorie) {
+    case 'teamsport':   return Math.max(10, Math.round(2 * config.personenPerEenheid2)); // ~2 teams per veld
+    case 'baansport':   return Math.max(12, Math.round(6 * config.personenPerEenheid2)); // banen ruimer bezet
+    case 'racketsport': return Math.max(8, Math.round(4 * config.personenPerEenheid2));
+    case 'individueel': return 80;  // atletiekbaan e.d.: ruim, nauwelijks begrenzend
+    default:            return 60;
+  }
+}
+
+/**
+ * Begrens het aantal spelers per uur op de veldcapaciteit. Overschot schuift naar
+ * een eerder uur (sessies starten dan eerder / draaien in shifts) — het totaal
+ * aantal douches blijft gelijk, want elk uur gebruikt dezelfde bereidheid×cultuur.
+ */
+function capMetOverloop(personenPerUur: Map<number, number>, capaciteit: number): Map<number, number> {
+  if (capaciteit <= 0) return personenPerUur; // geen veld-info → niet begrenzen
+  const map = new Map(personenPerUur);
+  const uren = [...map.keys()];
+  let lo = Math.min(...uren);
+  let hi = Math.max(...uren);
+  for (let pass = 0; pass < 100; pass++) {
+    let overschot = false;
+    for (let u = hi; u >= lo; u--) {
+      const p = map.get(u) ?? 0;
+      if (p > capaciteit + 1e-6) {
+        overschot = true;
+        map.set(u, capaciteit);
+        let doel = u - 1;
+        if (doel < 0) doel = u + 1; // niet vóór middernacht → schuif later
+        map.set(doel, (map.get(doel) ?? 0) + (p - capaciteit));
+        if (doel < lo) lo = doel;
+        if (doel > hi) hi = doel;
+      }
+    }
+    if (!overschot) break;
+  }
+  return map;
+}
+
+/**
  * Zet één gegenereerd BLOK-moment om naar UUR-RIJEN (mode A).
  *
  * Behoudt exact hetzelfde aantal douche-beurten als het blok, maar maakt de
  * spreiding expliciet: per heel uur in het douche-venster een uur-rij met het
  * aantal aanwezige spelers, terug-gerekend zodat
  *   personen × gemiddelde bereidheid × cultuur = beurten van dat uur.
- * Zo komen de standaard-schema's voortaan als bewerkbare uur-rijen binnen,
- * zonder dat de totalen of de curve veranderen.
+ * Het aantal spelers per uur wordt daarnaast begrensd op wat er fysiek op de
+ * velden/banen past (aantalVelden × spelersPerVeld); overschot schuift naar een
+ * eerder uur. Totalen en (waar mogelijk) de curve blijven behouden.
  */
-function blokNaarUurRijen(m: TrainingMoment, typeVereniging: string | undefined): TrainingMoment[] {
+function blokNaarUurRijen(m: TrainingMoment, typeVereniging: string | undefined, aantalVelden?: number): TrainingMoment[] {
   if (isUurRij(m) || m.type === 'sociaal') return [m];
   const beurtenTotaal = doucheBeurtenVanMoment(m, typeVereniging);
   if (beurtenTotaal <= 0) return [m];
@@ -1489,15 +1552,25 @@ function blokNaarUurRijen(m: TrainingMoment, typeVereniging: string | undefined)
   const bereidheidCultuur = gemiddeldeBereidheid(m.type, m.dag, typeVereniging) * CULTUUR_FACTOR;
   if (bereidheidCultuur <= 0) return [m];
 
+  // Spreid de beurten over de uren en reken terug naar (fractionele) personen.
   const verdeling = verdeelOverUren(beurtenTotaal, start, eind);
+  const personenMap = new Map<number, number>();
+  for (const deel of verdeling) {
+    personenMap.set(deel.uur, (personenMap.get(deel.uur) ?? 0) + deel.waarde / bereidheidCultuur);
+  }
+
+  // Begrens op veldcapaciteit (spelers tegelijk).
+  const capaciteit = (aantalVelden && aantalVelden > 0) ? aantalVelden * spelersPerVeld(config) : 0;
+  const begrensd = capMetOverloop(personenMap, capaciteit);
+
   const rijen: TrainingMoment[] = [];
-  verdeling.forEach((deel, i) => {
-    const personen = Math.round(deel.waarde / bereidheidCultuur);
+  [...begrensd.entries()].sort((a, b) => a[0] - b[0]).forEach(([uur, p], i) => {
+    const personen = Math.round(p);
     if (personen <= 0) return;
-    const hh = String(deel.uur).padStart(2, '0');
-    const hhEind = String(Math.min(23, deel.uur + 1)).padStart(2, '0');
+    const hh = String(uur).padStart(2, '0');
+    const hhEind = String(Math.min(23, uur + 1)).padStart(2, '0');
     rijen.push({
-      id: `${m.id}-u${deel.uur}-${i}`,
+      id: `${m.id}-u${uur}-${i}`,
       dag: m.dag,
       startTijd: `${hh}:00`,
       eindTijd: `${hhEind}:00`,
@@ -1510,9 +1583,9 @@ function blokNaarUurRijen(m: TrainingMoment, typeVereniging: string | undefined)
   return rijen.length ? rijen : [m];
 }
 
-/** Zet een heel (blok-)schema om naar uur-rijen. */
-export function schemaNaarUurRijen(schema: TrainingsSchema, typeVereniging?: string): TrainingsSchema {
-  return schema.flatMap(m => blokNaarUurRijen(m, typeVereniging));
+/** Zet een heel (blok-)schema om naar uur-rijen, begrensd op de veldcapaciteit. */
+export function schemaNaarUurRijen(schema: TrainingsSchema, typeVereniging?: string, aantalVelden?: number): TrainingsSchema {
+  return schema.flatMap(m => blokNaarUurRijen(m, typeVereniging, aantalVelden));
 }
 
 /**
