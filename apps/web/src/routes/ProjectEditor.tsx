@@ -40,6 +40,7 @@ import { HistorischVerbruik } from '../components/HistorischVerbruik';
 import { berekenEnergielabel, berekenLabelNaMaatregelen, bepaalLabelSprong } from '../util/energielabel';
 import type { PdokAdres } from '../api/pdok';
 import type { HuidigeSituatieData } from '../data/huidige-situatie';
+import { CATEGORIEEN, MAATREGEL_CATEGORIE, type Categorie } from '../data/maatregel-categorieen';
 
 const API_BASE_FOR_BEACON = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
 
@@ -1718,6 +1719,20 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
                   })}
                 />
               </div>
+
+              {/* Uitgesplitste kostenlijst per product/categorie + totaal */}
+              {cached.perMaatregel && gekozenIds.length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-sm font-semibold text-primary-900 mb-2">Kosten per product</h3>
+                  <PenningmeesterUitsplitsing
+                    perMaatregel={cached.perMaatregel}
+                    gekozenIds={gekozenIds}
+                    naamVan={(mid) => modulesQuery.data?.modules.find(m => m.id === mid)?.naam ?? mid}
+                  />
+                </div>
+              )}
+
+              <h3 className="text-sm font-semibold text-primary-900 mb-2">Samenvatting</h3>
               <dl className="space-y-1.5 text-sm">
                 <Stat label="Bruto investering" value={formatEur(cached.rollup.totaleInvestering)} />
                 <Stat label="Subsidies" value={formatEur(cached.rollup.totaleSubsidie)} />
@@ -2363,4 +2378,123 @@ function Stat({ label, value, bold, highlight }: { label: string; value: string;
 function formatEur(n: number): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '€ —';
   return '€ ' + n.toLocaleString('nl-NL', { maximumFractionDigits: 0 });
+}
+
+/* ============================================================
+ * Penningmeester — uitgesplitste kostenlijst per product/categorie
+ * ============================================================ */
+interface PmRegel {
+  id: string;
+  naam: string;
+  bruto: number;
+  subsidie: number;
+  netto: number;
+  besparing: number;
+}
+
+function PenningmeesterUitsplitsing({ perMaatregel, gekozenIds, naamVan }: {
+  perMaatregel: Record<string, { brutoInvestering?: number; totaleSubsidie?: number; nettoInvestering?: number; besparingPerJaar?: number } | null | undefined>;
+  gekozenIds: string[];
+  naamVan: (id: string) => string;
+}) {
+  // Groepeer de gekozen maatregelen per categorie (volgorde uit CATEGORIEEN).
+  const perCategorie = new Map<Categorie, PmRegel[]>();
+  for (const id of gekozenIds) {
+    const r = perMaatregel[id];
+    if (!r) continue;
+    const cat = (MAATREGEL_CATEGORIE[id] ?? 'overig') as Categorie;
+    const regel: PmRegel = {
+      id,
+      naam: naamVan(id),
+      bruto: r.brutoInvestering ?? 0,
+      subsidie: r.totaleSubsidie ?? 0,
+      netto: r.nettoInvestering ?? ((r.brutoInvestering ?? 0) - (r.totaleSubsidie ?? 0)),
+      besparing: r.besparingPerJaar ?? 0,
+    };
+    const arr = perCategorie.get(cat) ?? [];
+    arr.push(regel);
+    perCategorie.set(cat, arr);
+  }
+
+  const gesorteerdeCategorieen = [...CATEGORIEEN]
+    .sort((a, b) => a.volgorde - b.volgorde)
+    .filter(c => (perCategorie.get(c.id as Categorie)?.length ?? 0) > 0);
+
+  const totaal = { bruto: 0, subsidie: 0, netto: 0, besparing: 0 };
+  for (const regels of perCategorie.values()) {
+    for (const r of regels) {
+      totaal.bruto += r.bruto; totaal.subsidie += r.subsidie; totaal.netto += r.netto; totaal.besparing += r.besparing;
+    }
+  }
+
+  if (gesorteerdeCategorieen.length === 0) return null;
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm border border-primary-100 rounded-md overflow-hidden">
+        <thead className="bg-primary-50 text-primary-900">
+          <tr>
+            <th className="text-left px-3 py-2 font-medium">Product / maatregel</th>
+            <th className="text-right px-3 py-2 font-medium whitespace-nowrap">Bruto</th>
+            <th className="text-right px-3 py-2 font-medium whitespace-nowrap">Subsidie</th>
+            <th className="text-right px-3 py-2 font-medium whitespace-nowrap">Netto</th>
+            <th className="text-right px-3 py-2 font-medium whitespace-nowrap">Besparing/jr</th>
+          </tr>
+        </thead>
+        <tbody>
+          {gesorteerdeCategorieen.map(cat => {
+            const regels = perCategorie.get(cat.id as Categorie)!;
+            const sub = regels.reduce((acc, r) => ({
+              bruto: acc.bruto + r.bruto, subsidie: acc.subsidie + r.subsidie,
+              netto: acc.netto + r.netto, besparing: acc.besparing + r.besparing,
+            }), { bruto: 0, subsidie: 0, netto: 0, besparing: 0 });
+            return (
+              <FragmentCategorie key={cat.id} titel={`${cat.icoon ?? ''} ${cat.titel}`.trim()} regels={regels} sub={sub} meerdan1={regels.length > 1} />
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="bg-primary-100/70 text-primary-900 font-bold border-t-2 border-primary-300">
+            <td className="px-3 py-2">Totaal</td>
+            <td className="px-3 py-2 text-right">{formatEur(totaal.bruto)}</td>
+            <td className="px-3 py-2 text-right text-green-700">{totaal.subsidie > 0 ? '− ' + formatEur(totaal.subsidie) : formatEur(0)}</td>
+            <td className="px-3 py-2 text-right">{formatEur(totaal.netto)}</td>
+            <td className="px-3 py-2 text-right text-accent-orange">{formatEur(totaal.besparing)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <p className="text-xs text-gray-500 mt-1.5">Bedragen zijn ramingen; definitieve prijzen volgen uit offertes.</p>
+    </div>
+  );
+}
+
+function FragmentCategorie({ titel, regels, sub, meerdan1 }: {
+  titel: string; regels: PmRegel[]; meerdan1: boolean;
+  sub: { bruto: number; subsidie: number; netto: number; besparing: number };
+}) {
+  return (
+    <>
+      <tr className="bg-gray-50 border-t border-primary-100">
+        <td colSpan={5} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-primary-700">{titel}</td>
+      </tr>
+      {regels.map(r => (
+        <tr key={r.id} className="border-t border-gray-100">
+          <td className="px-3 py-2 text-gray-800 pl-5">{r.naam}</td>
+          <td className="px-3 py-2 text-right text-gray-700">{formatEur(r.bruto)}</td>
+          <td className="px-3 py-2 text-right text-green-700">{r.subsidie > 0 ? '− ' + formatEur(r.subsidie) : '—'}</td>
+          <td className="px-3 py-2 text-right text-gray-900 font-medium">{formatEur(r.netto)}</td>
+          <td className="px-3 py-2 text-right text-gray-700">{formatEur(r.besparing)}</td>
+        </tr>
+      ))}
+      {meerdan1 && (
+        <tr className="border-t border-gray-100 bg-gray-50/40 text-gray-600 italic">
+          <td className="px-3 py-1.5 pl-5 text-xs">Subtotaal {titel.replace(/^[^\w]+/, '')}</td>
+          <td className="px-3 py-1.5 text-right text-xs">{formatEur(sub.bruto)}</td>
+          <td className="px-3 py-1.5 text-right text-xs">{sub.subsidie > 0 ? '− ' + formatEur(sub.subsidie) : '—'}</td>
+          <td className="px-3 py-1.5 text-right text-xs">{formatEur(sub.netto)}</td>
+          <td className="px-3 py-1.5 text-right text-xs">{formatEur(sub.besparing)}</td>
+        </tr>
+      )}
+    </>
+  );
 }

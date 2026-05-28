@@ -53,16 +53,33 @@ function suggestieVoorBouwjaar(itemId: string, bouwjaar?: number): string | null
 export function HuidigeSituatie({ data, onChange, bouwjaar }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({ gebouwschil: true });
 
-  function updateItem(itemId: string, patch: Partial<{ keuze: string; notitie: string }>) {
+  function updateItem(itemId: string, patch: Partial<{ keuze: string; keuzes: string[]; notitie: string; extraToegestaan: boolean }>) {
     onChange({
       ...data,
       [itemId]: { ...data[itemId], ...patch },
     });
   }
 
+  /** Multi-select: zet/haal een waarde, en leid keuze (hoogst scorend) af voor compat. */
+  function toggleMulti(item: { id: string; opties: { waarde: string; score: number }[] }, waarde: string) {
+    const huidig = data[item.id]?.keuzes ?? [];
+    const nieuw = huidig.includes(waarde)
+      ? huidig.filter(w => w !== waarde)
+      : [...huidig, waarde];
+    // representatieve enkelvoudige keuze = hoogst scorende selectie (voor PPT/engine)
+    const beste = item.opties
+      .filter(o => nieuw.includes(o.waarde))
+      .sort((a, b) => b.score - a.score)[0];
+    updateItem(item.id, { keuzes: nieuw, keuze: beste?.waarde });
+  }
+
   function countIngevuld(catId: string): { ingevuld: number; totaal: number } {
     const cat = HUIDIGE_SITUATIE.find(c => c.id === catId)!;
-    const ingevuld = cat.items.filter(it => data[it.id]?.keuze && data[it.id]?.keuze !== 'onbekend').length;
+    const ingevuld = cat.items.filter(it => {
+      const a = data[it.id];
+      if (it.multiSelect) return (a?.keuzes?.length ?? 0) > 0;
+      return a?.keuze && a.keuze !== 'onbekend';
+    }).length;
     return { ingevuld, totaal: cat.items.length };
   }
 
@@ -103,16 +120,53 @@ export function HuidigeSituatie({ data, onChange, bouwjaar }: Props) {
                         <InfoTooltip>{item.uitleg}</InfoTooltip>
                       </label>
 
-                      <select
-                        className="input py-1.5 text-sm mb-2"
-                        value={keuze}
-                        onChange={e => updateItem(item.id, { keuze: e.target.value })}
-                      >
-                        <option value="">— Kies —</option>
-                        {item.opties.map(o => (
-                          <option key={o.waarde} value={o.waarde}>{o.label}</option>
-                        ))}
-                      </select>
+                      {item.multiSelect ? (
+                        <div className="mb-2 grid sm:grid-cols-2 gap-1.5">
+                          {item.opties.map(o => {
+                            const aan = (antwoord.keuzes ?? []).includes(o.waarde);
+                            return (
+                              <label
+                                key={o.waarde}
+                                className={`flex items-start gap-2 text-sm rounded px-2 py-1.5 border cursor-pointer transition-colors ${
+                                  aan ? 'bg-primary-50 border-primary-300' : 'bg-white border-gray-200 hover:border-gray-300'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5"
+                                  checked={aan}
+                                  onChange={() => toggleMulti(item, o.waarde)}
+                                />
+                                <span className="text-gray-800">{o.label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <select
+                          className="input py-1.5 text-sm mb-2"
+                          value={keuze}
+                          onChange={e => updateItem(item.id, { keuze: e.target.value })}
+                        >
+                          <option value="">— Kies —</option>
+                          {item.opties.map(o => (
+                            <option key={o.waarde} value={o.waarde}>{o.label}</option>
+                          ))}
+                        </select>
+                      )}
+
+                      {/* Extra-unit-vinkje (bv. bij bestaande WTW: tóch nieuwe unit in advies houden) */}
+                      {item.extraToegestaanBij && item.extraToegestaanBij.includes(antwoord.keuze ?? '') && (
+                        <label className="mb-2 flex items-start gap-2 text-xs bg-primary-50/60 border border-primary-100 rounded px-2 py-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={antwoord.extraToegestaan ?? false}
+                            onChange={e => updateItem(item.id, { extraToegestaan: e.target.checked })}
+                          />
+                          <span className="text-gray-700">{item.extraToegestaanLabel ?? 'Er mag tóch een extra/nieuwe unit bij'}</span>
+                        </label>
+                      )}
 
                       {/* Suggestie op basis van bouwjaar */}
                       {(() => {
@@ -139,7 +193,8 @@ export function HuidigeSituatie({ data, onChange, bouwjaar }: Props) {
 
                       {(() => {
                         const isVrijeTekst = item.id.includes('vrije-notitie')
-                          || ['overig', 'meerdere', 'zie-notitie'].includes(antwoord.keuze ?? '');
+                          || ['overig', 'meerdere', 'zie-notitie'].includes(antwoord.keuze ?? '')
+                          || (antwoord.keuzes ?? []).some(w => ['overig', 'meerdere', 'zie-notitie'].includes(w));
                         const placeholder = isVrijeTekst
                           ? 'Licht hier toe — bv. "dak in 2018 volledig vernieuwd incl. 12 cm PIR-isolatie, leverancier X" of "ALV-bevoegdheid tot €50k zonder ledenbesluit"…'
                           : 'Notitie (optioneel) — bv. \'enkel glas alleen in kantine\'';

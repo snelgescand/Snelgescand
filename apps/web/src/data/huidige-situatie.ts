@@ -20,6 +20,13 @@ export interface ItemDef {
   label: string;
   uitleg: string;
   opties: OptieDef[];
+  /** Indien true: meerdere opties tegelijk te kiezen (checkboxes i.p.v. dropdown). */
+  multiSelect?: boolean;
+  /** Toon een extra "mag er nog een nieuwe/extra unit bij?"-vinkje wanneer de
+   *  gekozen waarde in deze lijst staat. Gebruikt o.a. om de WTW-maatregel toch
+   *  in het advies te houden terwijl er al WTW aanwezig is. */
+  extraToegestaanBij?: string[];
+  extraToegestaanLabel?: string;
 }
 
 export interface CategorieDef {
@@ -29,8 +36,11 @@ export interface CategorieDef {
 }
 
 export interface HuidigSituatieAntwoord {
-  keuze?: string;        // de waarde uit `opties`
+  keuze?: string;        // de waarde uit `opties` (bij multiSelect: hoogst scorende selectie, voor compat)
+  keuzes?: string[];     // bij multiSelect: alle geselecteerde waarden
   notitie?: string;
+  /** Bij items met extraToegestaanBij: of er tóch een nieuwe/extra unit bij mag. */
+  extraToegestaan?: boolean;
 }
 
 export type HuidigeSituatieData = Record<string, HuidigSituatieAntwoord>;
@@ -209,6 +219,8 @@ export const HUIDIGE_SITUATIE: CategorieDef[] = [
         id: 'ventilatie-systeem',
         label: 'Ventilatiesysteem',
         uitleg: 'Hoe wordt geventileerd? Belangrijk voor energieverlies en luchtkwaliteit.',
+        extraToegestaanBij: ['wtw', 'co2-sturing'],
+        extraToegestaanLabel: 'Er mag tóch nog een extra/nieuwe WTW-unit bij (bv. voor een ander gebouwdeel)',
         opties: [
           { waarde: 'natuurlijk', label: 'Natuurlijke ventilatie (roosters/ramen)', score: 20 },
           { waarde: 'mech-afzuiging', label: 'Mechanische afzuiging (toilet/kleedkamer)', score: 40 },
@@ -248,6 +260,19 @@ export const HUIDIGE_SITUATIE: CategorieDef[] = [
           { waarde: 'halogeen', label: 'Halogeen/metaaldamp', score: 0 },
           { waarde: 'led-deels', label: 'Deels LED', score: 50 },
           { waarde: 'led-volledig', label: 'Volledig LED', score: 100 },
+          { waarde: 'onbekend', label: 'Onbekend', score: 50 },
+        ],
+      },
+      {
+        id: 'veldverlichting-eigendom',
+        label: 'Eigendom veldverlichting',
+        uitleg: 'Wie is eigenaar van de veldverlichting (masten + armaturen)? Bepaalt wie kan investeren, wie subsidie aanvraagt en bij wie de besparing terechtkomt. Bij gemeente-eigendom is afstemming nodig.',
+        opties: [
+          { waarde: 'nvt', label: 'Niet van toepassing (geen veldverlichting)', score: 100 },
+          { waarde: 'club', label: 'Club zelf', score: 80 },
+          { waarde: 'gemeente', label: 'Gemeente', score: 50 },
+          { waarde: 'stichting', label: 'Stichting / beheerstichting', score: 60 },
+          { waarde: 'mix', label: 'Gemengd / gedeeld eigendom', score: 55 },
           { waarde: 'onbekend', label: 'Onbekend', score: 50 },
         ],
       },
@@ -310,11 +335,11 @@ export const HUIDIGE_SITUATIE: CategorieDef[] = [
   },
 
   // ============================================================
-  // OVERIG
+  // OVERIG & VRIJE NOTITIES (samengevoegd)
   // ============================================================
   {
     id: 'overig',
-    titel: 'Overig',
+    titel: 'Overig & vrije notities',
     items: [
       {
         id: 'energielabel',
@@ -339,12 +364,6 @@ export const HUIDIGE_SITUATIE: CategorieDef[] = [
           { waarde: 'onbekend', label: 'Onbekend', score: 50 },
         ],
       },
-    ],
-  },
-  {
-    id: 'overig-en-notities',
-    titel: 'Overig & vrije notities',
-    items: [
       {
         id: 'recente-werkzaamheden',
         label: 'Recente werkzaamheden aan het gebouw',
@@ -378,7 +397,8 @@ export const HUIDIGE_SITUATIE: CategorieDef[] = [
       {
         id: 'plannen-club',
         label: 'Plannen die de club al heeft',
-        uitleg: 'Heeft het bestuur al ideeën / plannen / begroting voor verduurzaming? Belangrijk om aan te haken.',
+        multiSelect: true,
+        uitleg: 'Heeft het bestuur al ideeën / plannen / begroting voor verduurzaming? Meerdere mogelijk. Belangrijk om aan te haken.',
         opties: [
           { waarde: 'geen', label: 'Geen concrete plannen', score: 50 },
           { waarde: 'verkenning', label: 'Verkenning / oriëntatie', score: 60 },

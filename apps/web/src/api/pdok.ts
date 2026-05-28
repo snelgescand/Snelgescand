@@ -51,8 +51,17 @@ export async function pdokSuggest(query: string): Promise<PdokSuggestie[]> {
   if (!query || query.length < 3) return [];
 
   const url = `${PDOK_BASE}/suggest?q=${encodeURIComponent(query)}&rows=8&fq=type:adres`;
-  const res = await fetch(url);
-  if (!res.ok) return [];
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch (e) {
+    console.warn('[PDOK] Suggest netwerk-/CORS-fout:', e, url);
+    return [];
+  }
+  if (!res.ok) {
+    console.warn('[PDOK] Suggest mislukt:', res.status, res.statusText, url);
+    return [];
+  }
 
   const data = await res.json();
   const docs = data?.response?.docs ?? [];
@@ -82,9 +91,24 @@ export async function pdokLookup(id: string): Promise<PdokAdres | null> {
 
   const url = `${PDOK_BASE}/lookup?id=${encodeURIComponent(id)}&fl=${fields}`;
   console.log('[PDOK] Lookup URL:', url);
-  const res = await fetch(url);
-  if (!res.ok) {
-    console.warn('[PDOK] Lookup mislukt:', res.status, res.statusText);
+  // De nieuwe (3G) Locatieserver is strenger op parameters. Mocht de fl-variant
+  // falen, dan proberen we het direct opnieuw ZONDER fl (default velden) zodat
+  // het adres in elk geval geselecteerd kan worden. Bouwjaar/oppervlakte komen
+  // anders alsnog via de backend BAG-proxy.
+  let res: Response | null = await fetch(url).catch((e) => {
+    console.warn('[PDOK] Lookup netwerkfout (met fl):', e);
+    return null;
+  });
+  if (!res || !res.ok) {
+    if (res) console.warn('[PDOK] Lookup met fl mislukt:', res.status, res.statusText, '— opnieuw zonder fl');
+    const fallbackUrl = `${PDOK_BASE}/lookup?id=${encodeURIComponent(id)}`;
+    res = await fetch(fallbackUrl).catch((e) => {
+      console.warn('[PDOK] Lookup netwerkfout (zonder fl):', e);
+      return null;
+    });
+  }
+  if (!res || !res.ok) {
+    console.warn('[PDOK] Lookup definitief mislukt:', res?.status, res?.statusText);
     return null;
   }
 

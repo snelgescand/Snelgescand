@@ -116,6 +116,25 @@ export function MaatregelSuggesties({
   const scores = useMemo(() => {
     const ctx: AanbevelingContext = { ...context, huidigeSituatie };
     const alleIds = beschikbareModules.modules.map(m => m.id);
+
+    // WTW-advies verbergen als de club al WTW-ventilatie heeft — TENZIJ er expliciet
+    // is aangevinkt dat er nog een extra/nieuwe unit bij mag.
+    const ventilatie = huidigeSituatie['ventilatie-systeem'];
+    const heeftWtw = ventilatie?.keuze === 'wtw' || ventilatie?.keuze === 'co2-sturing';
+    const extraWtwToegestaan = ventilatie?.extraToegestaan === true;
+    const wtwIds = new Set(
+      beschikbareModules.modules
+        .filter(m =>
+          /wtw|warmteterugwinning|balansventilat/i.test(m.id) ||
+          /wtw|warmteterugwinning|balansventilat/i.test(m.naam),
+        )
+        .map(m => m.id),
+    );
+    const ventilatieFilter = (id: string): boolean => {
+      if (heeftWtw && !extraWtwToegestaan && wtwIds.has(id)) return false;
+      return true;
+    };
+
     // Exclusieve tapwater-WP keuze uit stap 1: verberg de niet-gekozen alternatieven.
     // De gebruiker heeft expliciet aangegeven welke richting het op gaat, dus tonen
     // van de andere opties leidt alleen tot verwarring.
@@ -143,7 +162,7 @@ export function MaatregelSuggesties({
       }
       return true;
     };
-    return scoreAlleMaatregelen(alleIds.filter(tapwaterFilter), ctx)
+    return scoreAlleMaatregelen(alleIds.filter(tapwaterFilter).filter(ventilatieFilter), ctx)
       .filter(s => !s.nietRelevant)
       .sort((a, b) => b.score - a.score);
   }, [beschikbareModules, context, huidigeSituatie, tapwaterKeuze, lmntIncRuimteverwarming]);
