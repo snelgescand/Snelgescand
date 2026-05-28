@@ -447,6 +447,20 @@ export const AANWEZIGHEID_WEDSTRIJD = 0.95;
 export const CULTUUR_FACTOR = 0.75;
 
 /**
+ * Veiligheidsmarge voor het DIMENSIONEREN van de warm-water-installatie.
+ *
+ * Het douche-model rekent met realistische gemiddelden (opkomst, douche-cultuur,
+ * spreiding). Voor de zekerheid dimensioneren we de warmtepomp-capaciteit en de
+ * buffer met 7,5% extra headroom — het midden van de gebruikelijke 5-10%-vuistregel.
+ * Dit dekt drukkere dan gemiddelde dagen, extra gelijktijdigheid en lichte groei.
+ *
+ * Let op: alleen de SIZING-cijfers (kW + buffer + WP-keuze) krijgen deze marge.
+ * De grafiek en de week/jaar-totalen tonen de werkelijke (on-gemarginaliseerde) vraag,
+ * zodat de cijfers eerlijk blijven en niet stiekem opgeblazen worden.
+ */
+export const VEILIGHEIDSMARGE = 1.075;
+
+/**
  * Effectieve douche-correctie: combineert aanwezigheid (afhankelijk van type)
  * met de cultuurfactor. Wordt vermenigvuldigd met (spelers × bereidheids-%).
  */
@@ -1237,6 +1251,8 @@ export function berekenDouchePieken(
   typeVereniging?: string,
 ): {
   piekUurLiters: number;
+  /** Piek-uur MET veiligheidsmarge — basis voor WP-vermogen, buffer en WP-keuze. */
+  piekUurLitersSizing: number;
   piekUurMoment: { dag: TrainingMoment['dag']; uur: number } | null;
   piekDagLiters: number;
   piekDagNaam: TrainingMoment['dag'] | null;
@@ -1288,11 +1304,26 @@ export function berekenDouchePieken(
     let vensterStart: number;
     let vensterEind: number;
     if (isRacket || isIndividueel) {
+      // Racket/individueel: continue in- en uitstroom (banen rouleren, sporters
+      // komen door de hele sessie heen klaar) → douches gespreid over speelduur + naloop.
       vensterStart = startUur + duur * 0.4;   // vanaf ~40% van de sessie
       vensterEind = eindUur + 0.5;            // tot half uur na sluiting
+    } else if (duur <= 2.0) {
+      // Korte teamsport-training/wedstrijd (≤ 2u): iedereen eindigt ongeveer
+      // tegelijk → douches geconcentreerd in het laatste half uur + ~1 uur erna
+      // (kleedkamers stromen vol, beperkte douche-capaciteit smeert het uit).
+      vensterStart = eindUur - 0.5;
+      vensterEind = eindUur + 1.0;
     } else {
-      vensterStart = eindUur - 0.5;           // laatste half uur van de sessie
-      vensterEind = eindUur + 1.0;            // tot 1 uur na einde (douche-rijen)
+      // LANGE teamsport-dag (> 2u): denk aan een jeugd-wedstrijdochtend 09:00-12:30
+      // of een senioren-wedstrijddag 11:00-16:00. In werkelijkheid eindigen
+      // meerdere wedstrijden/sessies GEFASEERD door de dag heen — niet iedereen
+      // doucht om hetzelfde tijdstip. We spreiden de douches daarom over vrijwel
+      // het hele blok met een opbouw-piek-afbouw-curve (de "klokgrafiek"):
+      //   • start ~25% in het blok (eerste wedstrijden lopen af)
+      //   • door tot 45 min na sluiting (laatste douches uit de kleedkamer)
+      vensterStart = startUur + duur * 0.25;
+      vensterEind = eindUur + 0.75;
     }
     spreidLitersOverVenster(uren, totaal, vensterStart, vensterEind);
   }
@@ -1318,13 +1349,20 @@ export function berekenDouchePieken(
     }
   }
 
+  // === Veiligheidsmarge op de DIMENSIONERING ===
+  // De grafiek-piek (piekUurLiters) blijft de realistische, gemeten piek.
+  // Voor het kiezen van WP-vermogen en buffer rekenen we met wat extra headroom,
+  // zodat de installatie ook drukkere-dan-gemiddelde dagen aankan.
+  const piekUurLitersSizing = piekUurLiters * VEILIGHEIDSMARGE;
+
   // Thermisch vermogen voor piek-uur (10°C → 60°C boiler-T):
   //   Q [kW] = L/u × 4.19 × ΔT / 3600
-  const benodigdVermogenPiekKw = (piekUurLiters * 4.19 * 50) / 3600;
-  const minBufferLiters = piekUurLiters / 0.85;
+  const benodigdVermogenPiekKw = (piekUurLitersSizing * 4.19 * 50) / 3600;
+  const minBufferLiters = piekUurLitersSizing / 0.85;
 
   return {
     piekUurLiters: Math.round(piekUurLiters),
+    piekUurLitersSizing: Math.round(piekUurLitersSizing),
     piekUurMoment,
     piekDagLiters: Math.round(piekDagLiters),
     piekDagNaam,

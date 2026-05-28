@@ -503,6 +503,7 @@ export default function ProjectEditor() {
               <option value="rapport-opgesteld">📄 Rapport opgesteld</option>
               <option value="offertes-aangevraagd">💰 Offertes aangevraagd</option>
               <option value="in-uitvoering">🔨 In uitvoering</option>
+              <option value="on-hold">⏸️ On hold / blijven liggen</option>
               <option value="opgeleverd">🎉 Opgeleverd</option>
               <option value="archief">📦 Archief</option>
             </select>
@@ -1312,7 +1313,7 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
   );
   const tapwaterAdvies = useMemo(
     () => douchePieken && douchePieken.piekUurLiters > 0
-      ? aanbevolenTapwaterOplossing(douchePieken.piekUurLiters)
+      ? aanbevolenTapwaterOplossing(douchePieken.piekUurLitersSizing)
       : null,
     [douchePieken],
   );
@@ -1730,6 +1731,11 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
             <p className="text-xs text-gray-600 -mt-1">
               Voor een passende warmtepomp tellen <strong>piek-uur</strong> en <strong>piek-dag</strong>, niet het jaartotaal. Hier de cijfers uit jouw schema:
             </p>
+            <p className="text-xs text-gray-500 -mt-2">
+              De getoonde liters zijn de werkelijke (gemeten) vraag. Het benodigde <strong>vermogen</strong> en de
+              <strong> buffer</strong> hieronder zijn berekend met +7,5% veiligheidsmarge, zodat de installatie ook
+              drukkere-dan-gemiddelde dagen aankan.
+            </p>
 
             <div className="grid sm:grid-cols-3 gap-3 mt-2">
               <div className="bg-white/80 rounded-md p-3">
@@ -1797,24 +1803,27 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
 
         {waterPerUurData.length > 0 && (
           <ChartCard
-            titel="Waterverbruik per uur (gemiddelde week)"
-            ondertitel="Douches gespreid over het sessie-einde + naloop (geen kunstmatige piek). Pas per dag het aantal teams/banen aan in stap 1 om drukke vs. rustige dagen te modelleren."
+            titel={`Waterverbruik per uur — drukste dag${douchePieken?.piekDagNaam ? ` (${douchePieken.piekDagNaam})` : ''}`}
+            ondertitel="Spreiding van de douches over de dag: sporters douchen gefaseerd ná hun sessie, niet allemaal op hetzelfde moment. Lange (wedstrijd)dagen geven daardoor een klokvorm. De drukste dag bepaalt de warmtepomp-capaciteit."
             hoogte={220}
             actie={
               <KopieerKnop
                 label="Kopieer data"
                 geefData={() => ({
-                  titel: 'Waterverbruik per uur (gemiddelde week)',
+                  titel: `Waterverbruik per uur — drukste dag${douchePieken?.piekDagNaam ? ` (${douchePieken.piekDagNaam})` : ''}`,
                   kolommen: ['Uur van de dag', 'Liter warm water'],
                   rijen: waterPerUurData.map(d => [d.uur, Math.round(d.liters)]),
-                  voet: '35 L warm water per persoon-met-douche · wave-spreiding 60/30/10 rond piek',
+                  voet: '35 L warm water per persoon-met-douche · gefaseerde spreiding over het sessie-einde (klokvorm)',
                 })}
               />
             }
             toelichting={
               <>
                 <strong>Hoe is dit berekend?</strong> Voor elk trainings-/wedstrijdmoment uit het schema rekenen we met
-                35 liter warm water per persoon-met-douche, gespreid in waves over de duur van het moment.
+                35 liter warm water per persoon-met-douche. Die douches worden niet op één tijdstip gezet, maar
+                gespreid over een tijdvenster: korte trainingen vlak na het einde, lange wedstrijddagen gefaseerd
+                over vrijwel de hele dag (meerdere wedstrijden eindigen op verschillende momenten). Getoond wordt
+                het profiel van de drukste dag — de maatgevende dag voor de installatie.
               </>
             }
           >
@@ -2118,16 +2127,36 @@ function bouwWaterverbruikData(draft: ProjectState) {
 function bouwWaterPerUurData(schema?: TrainingsSchema, typeVereniging?: string) {
   if (!schema || schema.length === 0) return [];
   // Hergebruik de CENTRALE berekening uit TrainingsSchema (incl. realisme-factor
-  // én de nieuwe tijdvenster-spreiding) zodat grafiek en warm-water-kaart exact
-  // consistent zijn. perDagPerUur bevat per dag een 24-slots array; we sommeren
-  // over alle dagen voor het week-profiel per uur.
+  // én de tijdvenster-spreiding) zodat grafiek en warm-water-kaart exact
+  // consistent zijn.
+  //
+  // We tonen het uur-profiel van de DRUKSTE dag — niet de som van alle dagen.
+  // Optellen over alle dagen klutst bijv. een dinsdagavond-training (piek ~21u)
+  // en een zondagmiddag-wedstrijd (piek ~14u) door elkaar tot een onleesbaar
+  // dubbel-profiel. De drukste dag toont één heldere klokvorm én is precies de
+  // dag waarop de warm-water-installatie gedimensioneerd moet worden.
   const pieken = berekenDouchePieken(schema, typeVereniging);
-  const perUur: number[] = new Array(24).fill(0);
-  for (const dagUren of Object.values(pieken.perDagPerUur)) {
-    if (!dagUren) continue;
-    for (let u = 0; u < 24; u++) perUur[u] += dagUren[u] ?? 0;
+  const piekDag = pieken.piekDagNaam;
+  const uren = piekDag ? pieken.perDagPerUur[piekDag] : null;
+  if (!uren) return [];
+
+  // Bepaal het actieve venster (eerste t/m laatste uur met noemenswaardig verbruik)
+  // en toon dat met 1 uur marge ervoor/erna, zodat de grafiek inzoomt op de
+  // spreiding i.p.v. 24 grotendeels lege uren te tonen.
+  let eerste = -1;
+  let laatste = -1;
+  for (let u = 0; u < 24; u++) {
+    if (uren[u] > 0.5) {
+      if (eerste < 0) eerste = u;
+      laatste = u;
+    }
   }
-  return perUur.map((l, u) => ({ uur: `${u}:00`, liters: Math.round(l) }));
+  if (eerste < 0) return [];
+  const van = Math.max(0, eerste - 1);
+  const tot = Math.min(23, laatste + 1);
+  const rij: { uur: string; liters: number }[] = [];
+  for (let u = van; u <= tot; u++) rij.push({ uur: `${u}:00`, liters: Math.round(uren[u]) });
+  return rij;
 }
 
 function bouwKasstroomData(cached: any) {
