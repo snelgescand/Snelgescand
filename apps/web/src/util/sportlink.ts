@@ -144,52 +144,58 @@ async function sportlinkRequest<T>(endpoint: string): Promise<T> {
 export async function haalClubsOp(): Promise<SportlinkClub[]> {
   const raw = await sportlinkRequest<unknown>(CLUBS_ENDPOINT);
 
-  // Log de ruwe structuur zodat we eventuele veldnamen kunnen zien
-  console.log('[Sportlink] clubs raw:', JSON.stringify(raw).slice(0, 800));
+  // Gooi de ruwe response als foutmelding als er geen clubs uitkomen,
+  // zodat de gebruiker (en ontwikkelaar) de structuur kunnen zien.
+  const rawStr = JSON.stringify(raw);
+  console.log('[Sportlink] clubs raw (eerste 1000 tekens):', rawStr.slice(0, 1000));
 
-  // Probeer de array te vinden — Sportlink geeft soms een platte array,
-  // soms { items: [...] }, { clubs: [...] }, { content: [...] }, etc.
+  // Haal de array op — ondersteunt platte array én geneste objecten
   let lijst: Array<Record<string, unknown>> = [];
-
   if (Array.isArray(raw)) {
     lijst = raw as Array<Record<string, unknown>>;
   } else if (raw && typeof raw === 'object') {
     const obj = raw as Record<string, unknown>;
-    // Probeer bekende sleutels eerst, dan alle waarden
-    for (const key of ['items', 'clubs', 'content', 'data', 'result', 'results', 'lijst']) {
+    // Probeer bekende sleutels, dan alle waarden
+    for (const key of ['items', 'clubs', 'content', 'data', 'result', 'results', 'lijst', 'clublijst', 'clubList']) {
       if (Array.isArray(obj[key])) {
         lijst = obj[key] as Array<Record<string, unknown>>;
-        console.log('[Sportlink] gevonden onder sleutel:', key);
+        console.log('[Sportlink] array gevonden onder sleutel:', key);
         break;
       }
     }
-    // Fallback: eerste array-waarde die we vinden
     if (lijst.length === 0) {
-      for (const val of Object.values(obj)) {
+      for (const [k, val] of Object.entries(obj)) {
         if (Array.isArray(val) && val.length > 0) {
           lijst = val as Array<Record<string, unknown>>;
+          console.log('[Sportlink] array gevonden onder fallback sleutel:', k);
           break;
         }
       }
     }
   }
 
-  console.log('[Sportlink] rijen:', lijst.length);
-  if (lijst.length > 0) {
-    console.log('[Sportlink] eerste item keys:', Object.keys(lijst[0]));
-    console.log('[Sportlink] eerste item:', JSON.stringify(lijst[0]));
+  if (lijst.length === 0) {
+    // Gooi de ruwe response als foutmelding zodat het in de popup zichtbaar is
+    throw new Error(
+      `Sportlink gaf geen clubs terug. Ruwe response (eerste 300 tekens): ${rawStr.slice(0, 300)}`
+    );
   }
+
+  console.log('[Sportlink] eerste item keys:', Object.keys(lijst[0]));
+  console.log('[Sportlink] eerste item:', JSON.stringify(lijst[0]));
 
   // Normaliseer naar { id, naam } — probeer alle gangbare veldnamen
   const clubs = lijst
     .map(c => {
       const id = String(
         c.ClientId ?? c.clientId ?? c.client_id ??
-        c.Id ?? c.id ?? c.ID ?? ''
+        c.Id ?? c.id ?? c.ID ??
+        c.Relatienummer ?? c.relatienummer ?? ''
       );
       const naam = String(
         c.Naam ?? c.naam ?? c.Name ?? c.name ??
         c.ClubNaam ?? c.clubnaam ?? c.clubName ?? c.ClubName ??
+        c.Omschrijving ?? c.omschrijving ??
         c.title ?? c.Title ?? id
       );
       return { id, naam };
