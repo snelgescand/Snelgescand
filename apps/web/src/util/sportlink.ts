@@ -130,11 +130,34 @@ async function sportlinkRequest<T>(endpoint: string): Promise<T> {
 
 export async function haalClubsOp(): Promise<SportlinkClub[]> {
   const raw = await sportlinkRequest<unknown>(CLUBS_ENDPOINT);
-  const lijst = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+
+  // Debug: log de ruwe response zodat we de structuur kunnen zien
+  console.log('[Sportlink] clubs raw response:', JSON.stringify(raw).slice(0, 500));
+
+  // De API kan een platte array zijn, of een object met een geneste array.
+  let lijst: Array<Record<string, unknown>> = [];
+  if (Array.isArray(raw)) {
+    lijst = raw as Array<Record<string, unknown>>;
+  } else if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    for (const val of Object.values(obj)) {
+      if (Array.isArray(val)) {
+        lijst = val as Array<Record<string, unknown>>;
+        break;
+      }
+    }
+  }
+
+  console.log('[Sportlink] aantal clubs gevonden:', lijst.length);
+  if (lijst.length > 0) {
+    console.log('[Sportlink] eerste club keys:', Object.keys(lijst[0]));
+    console.log('[Sportlink] eerste club:', JSON.stringify(lijst[0]));
+  }
+
   return lijst
     .map(c => ({
-      id: String(c.ClientId ?? c.clientId ?? c.id ?? ''),
-      naam: String(c.Naam ?? c.naam ?? c.Name ?? c.name ?? ''),
+      id: String(c.ClientId ?? c.clientId ?? c.Id ?? c.id ?? ''),
+      naam: String(c.Naam ?? c.naam ?? c.Name ?? c.name ?? c.ClubNaam ?? c.clubnaam ?? ''),
     }))
     .filter(c => c.id && c.naam)
     .sort((a, b) => a.naam.localeCompare(b.naam, 'nl'));
