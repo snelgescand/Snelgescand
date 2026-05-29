@@ -125,6 +125,10 @@ export interface ProjectState {
   tapwaterKeuze?: 'geen' | 'warmtepompboiler' | 'qton' | 'lmnt';
   /** Bij Q-ton/LMNT: gekozen vermogenKw uit de modellenlijst */
   tapwaterModelKw?: number;
+  /** Bij Q-ton/LMNT: aantal units in cascade (1 of 2). Default 1.
+   *  Bij 2 wordt de WP-capaciteit verdubbeld en het maatregel-input vermogen
+   *  vermenigvuldigd. */
+  tapwaterAantalUnits?: number;
   /** Bij Q-ton/LMNT: gekozen buffer-volume in liter (37°C equivalent) */
   tapwaterBufferLiters?: number;
   /** Bij LMNT-keuze: ook ruimteverwarming via deze LMNT?
@@ -1479,6 +1483,7 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
               perDagPerUur={douchePieken.perDagPerUur}
               keuze={draft.tapwaterKeuze ?? 'geen'}
               modelVermogenKw={draft.tapwaterModelKw}
+              aantalUnits={draft.tapwaterAantalUnits ?? 1}
               bufferLiters={draft.tapwaterBufferLiters}
               lmntIncRuimteverwarming={draft.lmntIncRuimteverwarming}
               onKeuzeChange={k => updateDraft(s => {
@@ -1488,25 +1493,29 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
                 delete nieuweGekozen['lmnt-warmtepomp'];
                 delete nieuweGekozen['warmtepompboiler'];
                 if (k !== 'geen') delete nieuweGekozen['pvt-tapwater'];
+                // Bij wisseling van keuze: aantal units terug naar 1 (schoon starten).
+                const nieuwAantal = 1;
                 // Voeg de gekozen WP automatisch toe als maatregel zodat 'ie meeloopt in de
                 // berekening en niet apart aangevinkt hoeft te worden.
                 if (k === 'qton' || k === 'lmnt' || k === 'warmtepompboiler') {
                   const id = k === 'qton' ? 'qton-warmtepomp' : k === 'lmnt' ? 'lmnt-warmtepomp' : 'warmtepompboiler';
                   const input: Record<string, unknown> = {};
-                  if (s.tapwaterModelKw) input.vermogenKw = s.tapwaterModelKw;
+                  if (s.tapwaterModelKw) input.vermogenKw = s.tapwaterModelKw * nieuwAantal;
                   if (k === 'lmnt') input.inclusiefRuimteverwarming = s.lmntIncRuimteverwarming ?? false;
                   nieuweGekozen[id] = input;
                 }
-                return { ...s, tapwaterKeuze: k, gekozenMaatregelen: nieuweGekozen };
+                return { ...s, tapwaterKeuze: k, tapwaterAantalUnits: nieuwAantal, gekozenMaatregelen: nieuweGekozen };
               })}
               onModelChange={kw => updateDraft(s => {
+                const units = s.tapwaterAantalUnits ?? 1;
                 const nieuweGekozen = { ...s.gekozenMaatregelen };
                 const id = s.tapwaterKeuze === 'qton' ? 'qton-warmtepomp'
                   : s.tapwaterKeuze === 'lmnt' ? 'lmnt-warmtepomp'
                   : s.tapwaterKeuze === 'warmtepompboiler' ? 'warmtepompboiler' : null;
                 if (id) {
                   const huidig = (nieuweGekozen[id] as Record<string, unknown>) ?? {};
-                  nieuweGekozen[id] = { ...huidig, vermogenKw: kw };
+                  // Effectief vermogen = model-kW × aantal units in cascade.
+                  nieuweGekozen[id] = { ...huidig, vermogenKw: kw * (id === 'warmtepompboiler' ? 1 : units) };
                 }
                 return { ...s, tapwaterModelKw: kw, gekozenMaatregelen: nieuweGekozen };
               })}
@@ -1523,18 +1532,37 @@ function Stap2Maatregelen({ draft, updateDraft, modulesQuery, cached, berekenFou
                 }
                 return { ...s, lmntIncRuimteverwarming: b, gekozenMaatregelen: nieuweGekozen };
               })}
+              onAantalUnitsChange={n => updateDraft(s => {
+                const veilig = Math.max(1, Math.min(2, Math.round(n)));
+                const nieuweGekozen = { ...s.gekozenMaatregelen };
+                // Update vermogen van de auto-meegenomen maatregel (cascade verdubbelt 't).
+                const id = s.tapwaterKeuze === 'qton' ? 'qton-warmtepomp'
+                  : s.tapwaterKeuze === 'lmnt' ? 'lmnt-warmtepomp' : null;
+                if (id && s.tapwaterModelKw) {
+                  const huidig = (nieuweGekozen[id] as Record<string, unknown>) ?? {};
+                  nieuweGekozen[id] = { ...huidig, vermogenKw: s.tapwaterModelKw * veilig };
+                }
+                return { ...s, tapwaterAantalUnits: veilig, gekozenMaatregelen: nieuweGekozen };
+              })}
             />
             {/* Bevestigingsregel: maakt expliciet dat de tapwater-keuze al als maatregel
                 is opgenomen, zodat de gebruiker hem hieronder niet nóg een keer aanvinkt. */}
-            {draft.tapwaterKeuze && draft.tapwaterKeuze !== 'geen' && (
-              <div className="mt-2 bg-green-50 border border-green-200 rounded-md px-3 py-2 text-sm text-green-900">
-                ✓ Gekozen tapwater-maatregel: <strong>
-                  {draft.tapwaterKeuze === 'qton' && `Q-ton${draft.tapwaterModelKw ? ` (${draft.tapwaterModelKw} kW)` : ''}`}
-                  {draft.tapwaterKeuze === 'lmnt' && `LMNT${draft.tapwaterModelKw ? ` (${draft.tapwaterModelKw} kW)` : ''}${draft.lmntIncRuimteverwarming ? ' — inclusief ruimteverwarming' : ''}`}
-                  {draft.tapwaterKeuze === 'warmtepompboiler' && 'Warmtepompboiler'}
-                </strong>. Wordt automatisch meegenomen in de berekening — je hoeft 'm hieronder niet apart aan te vinken.
-              </div>
-            )}
+            {draft.tapwaterKeuze && draft.tapwaterKeuze !== 'geen' && (() => {
+              const units = draft.tapwaterAantalUnits ?? 1;
+              const prefix = units > 1 ? `${units}× ` : '';
+              const kw = draft.tapwaterModelKw;
+              const totaalKw = kw ? kw * (draft.tapwaterKeuze === 'warmtepompboiler' ? 1 : units) : undefined;
+              const kwLabel = kw ? (units > 1 ? ` (${kw} kW × ${units} = ${totaalKw} kW)` : ` (${kw} kW)`) : '';
+              return (
+                <div className="mt-2 bg-green-50 border border-green-200 rounded-md px-3 py-2 text-sm text-green-900">
+                  ✓ Gekozen tapwater-maatregel: <strong>
+                    {draft.tapwaterKeuze === 'qton' && `${prefix}Q-ton${kwLabel}`}
+                    {draft.tapwaterKeuze === 'lmnt' && `${prefix}LMNT${kwLabel}${draft.lmntIncRuimteverwarming ? ' — inclusief ruimteverwarming' : ''}`}
+                    {draft.tapwaterKeuze === 'warmtepompboiler' && 'Warmtepompboiler'}
+                  </strong>. Wordt automatisch meegenomen in de berekening — je hoeft 'm hieronder niet apart aan te vinken.
+                </div>
+              );
+            })()}
           </div>
         )}
 

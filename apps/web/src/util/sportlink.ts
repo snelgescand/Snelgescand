@@ -1,204 +1,96 @@
 /**
- * Sportlink-koppeling — privé bonds-API via CORS-proxy (alleen voetbal).
+ * Sportlink-koppeling — PUBLIEKE widget-API (data.sportlink.com).
  *
- * Werking:
- *  1. Login via OAuth password-grant → access token (gecached)
- *  2. Clubs ophalen via de memberportal-API → gebruiker kiest een club
- *  3. Wedstrijden ophalen voor die club → drukste weekend bepalen
+ * Dit is dezelfde publieke API die clubs op hun eigen website gebruiken om hun
+ * wedstrijdprogramma te tonen. Er is alléén een publieke `client_id` van de club
+ * nodig — geen inlog en geen (gereverse-engineerde) bonds-secrets.
  *
- * De proxy is nodig omdat de bonds-API geen CORS-headers stuurt naar browsers.
+ * We halen het hele seizoen aan THUIS-wedstrijden op (thuis=JA, uit=NEE), want
+ * alleen thuiswedstrijden zorgen voor douchegebruik op de eigen accommodatie.
+ * Daaruit bepalen we het drukste weekend en zetten dat om naar uur-rijen.
+ *
+ * Bron-API ontdekt via de open-source "Sportlink Club Info Viewer"
+ * (data.sportlink.com/programma?...&client_id=...). Velden uit die response:
+ *   wedstrijddatum, tijd, thuisteam, uitteam, competitiesoort, veld, accommodatie.
  */
 
-// ── Configuratie ─────────────────────────────────────────────────────────────
-// Pas alleen deze drie waarden aan als de proxy-URL of inloggegevens wijzigen.
-const CORS_PROXY   = 'https://cors-proxy.clubinfoproxy.workers.dev/proxy?url=';
-const SPORTLINK_BASE = 'https://app-vnl-production.sportlink.com';
-const SPORTLINK_USERNAME = 'rxxnrextolzwlqsspy@hthlm.com';
-const SPORTLINK_PASSWORD = 'test1234';
-// ─────────────────────────────────────────────────────────────────────────────
-
-const CLUBS_ENDPOINT = '/entity/common/memberportal/app/club/Clubs?v=1';
-const TOKEN_ENDPOINT = '/oauth/token';
-
-function proxiedUrl(path: string): string {
-  return `${CORS_PROXY}${encodeURIComponent(`${SPORTLINK_BASE}${path}`)}`;
-}
-
-/* ============================================================
-   Types
-============================================================ */
-
-export interface SportlinkClub {
-  id: string;
-  naam: string;
-}
+const SPORTLINK_PROGRAMMA_URL = 'https://data.sportlink.com/programma';
 
 export interface SportlinkWedstrijd {
   datum: Date;
-  tijd: string;
+  tijd: string;          // "HH:MM" indien bekend
   thuisteam: string;
   uitteam: string;
   competitiesoort: string;
 }
 
 export interface DruksteWeekend {
+  /** Zaterdag-datum die het weekend aanduidt (voor weergave). */
   zaterdag: Date;
-  label: string;
+  label: string;          // bv. "za 12 okt – zo 13 okt 2025"
   wedstrijden: SportlinkWedstrijd[];
   aantal: number;
 }
 
-export interface UurRijData {
-  dag: 'maandag' | 'dinsdag' | 'woensdag' | 'donderdag' | 'vrijdag' | 'zaterdag' | 'zondag';
-  uur: number;
-  personen: number;
-}
+/** Haal het thuis-programma (heel seizoen) op via de publieke Sportlink-widget-API. */
+export async function haalThuisProgramma(clientId: string, aantalDagen = 400): Promise<SportlinkWedstrijd[]> {
+  const id = clientId.trim();
+  if (!id) throw new Error('Geen Sportlink client_id ingevuld.');
 
-interface OAuthTokenResponse {
-  access_token: string;
-  expires_in?: number;
-}
-
-interface CachedToken {
-  accessToken: string;
-  expiresAt: number;
-}
-
-/* ============================================================
-   Token cache
-============================================================ */
-
-let tokenCache: CachedToken | null = null;
-
-async function getAccessToken(): Promise<string> {
-  if (tokenCache && Date.now() < tokenCache.expiresAt) {
-    return tokenCache.accessToken;
-  }
-
-  const res = await fetch(proxiedUrl(TOKEN_ENDPOINT), {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      username: SPORTLINK_USERNAME,
-      password: SPORTLINK_PASSWORD,
-      grant_type: 'password',
-    }),
+  const params = new URLSearchParams({
+    gebruiklokaleteamgegevens: 'NEE',
+    aantaldagen: String(aantalDagen),
+    eigenwedstrijden: 'JA',
+    thuis: 'JA',
+    uit: 'NEE',
+    client_id: id,
   });
+  const url = `${SPORTLINK_PROGRAMMA_URL}?${params.toString()}`;
 
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { Accept: 'application/json' } });
+  } catch (e) {
+    throw new Error('Kon Sportlink niet bereiken (mogelijk CORS of netwerk). Controleer de client_id.');
+  }
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Sportlink login mislukt (${res.status}): ${text}`);
+    throw new Error(`Sportlink gaf status ${res.status}. Controleer of de client_id klopt.`);
   }
 
-  const data = (await res.json()) as OAuthTokenResponse;
-  if (!data.access_token) throw new Error('Geen access token ontvangen van Sportlink.');
-
-  tokenCache = {
-    accessToken: data.access_token,
-    expiresAt: Date.now() + ((data.expires_in ?? 3600) - 60) * 1000,
-  };
-  return data.access_token;
-}
-
-/* ============================================================
-   Authenticated request helper
-============================================================ */
-
-async function sportlinkRequest<T>(endpoint: string): Promise<T> {
-  const token = await getAccessToken();
-  const res = await fetch(proxiedUrl(endpoint), {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Sportlink request mislukt (${res.status}): ${text}`);
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error('Sportlink gaf geen geldige JSON terug (verkeerde client_id?).');
   }
-  return res.json();
-}
-
-/* ============================================================
-   Clubs ophalen
-   Geeft een gesorteerde lijst van clubs terug zodat de gebruiker
-   er één kan kiezen in de UI.
-============================================================ */
-
-export async function haalClubsOp(): Promise<SportlinkClub[]> {
-  const raw = await sportlinkRequest<unknown>(CLUBS_ENDPOINT);
-
-  // Debug: log de ruwe response zodat we de structuur kunnen zien
-  console.log('[Sportlink] clubs raw response:', JSON.stringify(raw).slice(0, 500));
-
-  // De API kan een platte array zijn, of een object met een geneste array.
-  let lijst: Array<Record<string, unknown>> = [];
-  if (Array.isArray(raw)) {
-    lijst = raw as Array<Record<string, unknown>>;
-  } else if (raw && typeof raw === 'object') {
-    const obj = raw as Record<string, unknown>;
-    for (const val of Object.values(obj)) {
-      if (Array.isArray(val)) {
-        lijst = val as Array<Record<string, unknown>>;
-        break;
-      }
-    }
+  if (!Array.isArray(data)) {
+    throw new Error('Onverwacht antwoord van Sportlink (geen wedstrijdlijst).');
   }
 
-  console.log('[Sportlink] aantal clubs gevonden:', lijst.length);
-  if (lijst.length > 0) {
-    console.log('[Sportlink] eerste club keys:', Object.keys(lijst[0]));
-    console.log('[Sportlink] eerste club:', JSON.stringify(lijst[0]));
-  }
-
-  return lijst
-    .map(c => ({
-      id: String(c.ClientId ?? c.clientId ?? c.Id ?? c.id ?? ''),
-      naam: String(c.Naam ?? c.naam ?? c.Name ?? c.name ?? c.ClubNaam ?? c.clubnaam ?? ''),
-    }))
-    .filter(c => c.id && c.naam)
-    .sort((a, b) => a.naam.localeCompare(b.naam, 'nl'));
-}
-
-/* ============================================================
-   Wedstrijden ophalen voor een gekozen club
-   clubId: de id uit haalClubsOp() — gekozen door de gebruiker.
-============================================================ */
-
-export async function haalThuisProgramma(clubId: string): Promise<SportlinkWedstrijd[]> {
-  const raw = await sportlinkRequest<unknown>(CLUBS_ENDPOINT);
-  const lijst = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
   const wedstrijden: SportlinkWedstrijd[] = [];
-
-  for (const item of lijst) {
-    // Filter op de gekozen club
-    const rawId = String(item.ClientId ?? item.clientId ?? item.id ?? '');
-    if (rawId !== clubId) continue;
-
-    const datum = parseSportlinkDatum(item.wedstrijddatum);
+  for (const raw of data as Array<Record<string, unknown>>) {
+    const datum = parseSportlinkDatum(raw.wedstrijddatum);
     if (!datum) continue;
-
     wedstrijden.push({
       datum,
-      tijd: typeof item.tijd === 'string' ? item.tijd : '',
-      thuisteam: String(item.thuisteam ?? ''),
-      uitteam: String(item.uitteam ?? ''),
-      competitiesoort: String(item.competitiesoort ?? ''),
+      tijd: typeof raw.tijd === 'string' ? raw.tijd : '',
+      thuisteam: String(raw.thuisteam ?? ''),
+      uitteam: String(raw.uitteam ?? ''),
+      competitiesoort: String(raw.competitiesoort ?? ''),
     });
   }
   return wedstrijden;
 }
 
-/* ============================================================
-   Weekend analyse
-============================================================ */
-
+/**
+ * Bepaal het drukste weekend (zaterdag + zondag samen) op aantal thuiswedstrijden.
+ * Doordeweekse wedstrijden worden bij het dichtstbijzijnde weekend opgeteld voor
+ * de telling, maar de uur-rijen behouden hun eigen dag.
+ */
 export function vindDruksteWeekend(wedstrijden: SportlinkWedstrijd[]): DruksteWeekend | null {
   if (!wedstrijden.length) return null;
 
+  // Groepeer per weekend-sleutel = de zaterdag van dat weekend (ISO).
   const perWeekend = new Map<string, SportlinkWedstrijd[]>();
   for (const w of wedstrijden) {
     const zat = zaterdagVan(w.datum);
@@ -225,15 +117,25 @@ export function vindDruksteWeekend(wedstrijden: SportlinkWedstrijd[]): DruksteWe
   };
 }
 
+export interface UurRijData {
+  dag: 'maandag' | 'dinsdag' | 'woensdag' | 'donderdag' | 'vrijdag' | 'zaterdag' | 'zondag';
+  uur: number;            // 0-23 — het uur waarin gedoucht wordt
+  personen: number;
+}
+
 /**
  * Zet de wedstrijden van een weekend om naar douche-uur-rijen.
- * Spelers douchen ~2 uur na aanvang (wedstrijd ~1,5u + omkleden).
+ *
+ * Aanname: spelers van een thuiswedstrijd douchen ~2 uur na aanvang (eind wedstrijd
+ * + nazit). Per thuiswedstrijd komt ~1 team (teamgrootte) onder de douche. Meerdere
+ * wedstrijden in hetzelfde uur worden opgeteld.
  */
 export function weekendNaarUurRijen(weekend: DruksteWeekend, teamgrootte: number): UurRijData[] {
   const acc = new Map<string, UurRijData>();
   for (const w of weekend.wedstrijden) {
     const dag = dagNaam(w.datum);
     const aanvang = parseUur(w.tijd);
+    // Douche-uur = aanvang + 2u (wedstrijd ~1,5u + omkleden). Onbekende tijd → 14:00.
     const doucheUur = Math.max(0, Math.min(23, (aanvang ?? 14) + 2));
     const sleutel = `${dag}-${doucheUur}`;
     const bestaand = acc.get(sleutel);
@@ -246,12 +148,11 @@ export function weekendNaarUurRijen(weekend: DruksteWeekend, teamgrootte: number
   return [...acc.values()].sort((a, b) => a.uur - b.uur);
 }
 
-/* ============================================================
-   Helpers
-============================================================ */
+/* ===================== helpers ===================== */
 
 function parseSportlinkDatum(v: unknown): Date | null {
   if (typeof v !== 'string' || !v.trim()) return null;
+  // Probeer ISO (YYYY-MM-DD…) eerst, dan DD-MM-YYYY.
   let d = new Date(v);
   if (!isNaN(d.getTime())) return d;
   const m = v.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
@@ -269,9 +170,10 @@ function parseUur(tijd: string): number | null {
   return u >= 0 && u <= 23 ? u : null;
 }
 
+/** Geef de zaterdag (00:00) van het weekend waartoe deze datum hoort. */
 function zaterdagVan(d: Date): Date {
-  const dag = d.getDay();
-  const verschuiving = dag === 0 ? -1 : 6 - dag;
+  const dag = d.getDay(); // 0=zo, 1=ma, ... 6=za
+  const verschuiving = dag === 0 ? -1 : 6 - dag; // zo → vorige za; anders naar komende za
   const zat = new Date(d);
   zat.setHours(0, 0, 0, 0);
   zat.setDate(zat.getDate() + verschuiving);

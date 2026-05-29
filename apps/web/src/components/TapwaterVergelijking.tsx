@@ -65,6 +65,9 @@ interface Props {
   keuze: TapwaterKeuze;
   /** Bij Q-ton/LMNT: welk model (vermogenKw) */
   modelVermogenKw?: number;
+  /** Bij Q-ton/LMNT: aantal units in cascade (1 of 2). Default 1.
+   *  Een 2e unit verdubbelt de continue capaciteit. */
+  aantalUnits?: number;
   /** Buffer-volume in liter (boilervat — al op 37°C equivalent gerekend) */
   bufferLiters?: number;
   /** Bij LMNT: of het ook ruimteverwarming doet */
@@ -73,6 +76,7 @@ interface Props {
   onModelChange: (vermogenKw: number) => void;
   onBufferChange: (liters: number) => void;
   onLmntRuimteverwarmingChange: (incl: boolean) => void;
+  onAantalUnitsChange?: (n: number) => void;
 }
 
 const DAGEN: Array<keyof typeof DAGEN_NL> = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'];
@@ -80,10 +84,13 @@ const DAGEN_NL = { ma: 'Maandag', di: 'Dinsdag', wo: 'Woensdag', do: 'Donderdag'
 const DAG_KEYS = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'];
 
 export function TapwaterVergelijking({
-  perDagPerUur, keuze, modelVermogenKw, bufferLiters, lmntIncRuimteverwarming,
-  onKeuzeChange, onModelChange, onBufferChange, onLmntRuimteverwarmingChange,
+  perDagPerUur, keuze, modelVermogenKw, aantalUnits, bufferLiters, lmntIncRuimteverwarming,
+  onKeuzeChange, onModelChange, onBufferChange, onLmntRuimteverwarmingChange, onAantalUnitsChange,
 }: Props) {
-  const capaciteit37C = useMemo(() => {
+  // Aantal units (1 of 2 — cascade). Default 1.
+  const units = Math.max(1, Math.min(2, aantalUnits ?? 1));
+
+  const capaciteitPerUnit37C = useMemo(() => {
     if (keuze === 'qton' && modelVermogenKw) {
       const m = QTON_MODELLEN.find(m => m.vermogenKw === modelVermogenKw);
       return m?.literPerUur37C ?? 0;
@@ -98,6 +105,10 @@ export function TapwaterVergelijking({
     }
     return 0;
   }, [keuze, modelVermogenKw]);
+
+  // Effectieve capaciteit = per-unit × aantal units in cascade.
+  // (Warmtepompboiler kent geen cascade — daar blijft units altijd 1.)
+  const capaciteit37C = capaciteitPerUnit37C * (keuze === 'warmtepompboiler' ? 1 : units);
 
   const buffer = bufferLiters ?? 1000; // default buffer
 
@@ -192,6 +203,35 @@ export function TapwaterVergelijking({
                 </option>
               ))}
             </select>
+            {/* Cascade-knop: bij onvoldoende capaciteit kun je een 2e unit toevoegen. */}
+            {modelVermogenKw && onAantalUnitsChange && (
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                {units === 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => onAantalUnitsChange(2)}
+                    className="px-2 py-1 bg-primary-50 hover:bg-primary-100 border border-primary-300 text-primary-900 rounded font-medium"
+                    title="Twee units parallel/cascade — verdubbelt de capaciteit"
+                  >
+                    + Tweede unit (cascade)
+                  </button>
+                ) : (
+                  <>
+                    <span className="px-2 py-1 bg-primary-100 border border-primary-300 text-primary-900 rounded font-semibold">
+                      2× {keuze === 'qton' ? 'Q-ton' : 'LMNT'} cascade — {(modelVermogenKw ?? 0) * 2} kW totaal
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onAantalUnitsChange(1)}
+                      className="px-2 py-1 hover:bg-gray-100 border border-gray-300 text-gray-700 rounded"
+                      title="Verwijder de tweede unit"
+                    >
+                      ✕ verwijder 2e
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Buffervat (liter, 37°C equivalent)</label>
@@ -237,7 +277,7 @@ export function TapwaterVergelijking({
             <KopieerKnop
               label="Kopieer simulatie"
               geefData={() => ({
-                titel: `Buffer-simulatie tapwater (${keuze === 'qton' ? 'Q-ton' : keuze === 'lmnt' ? 'LMNT' : 'WP-boiler'} ${modelVermogenKw ?? ''} kW)`,
+                titel: `Buffer-simulatie tapwater (${units > 1 ? `${units}× ` : ''}${keuze === 'qton' ? 'Q-ton' : keuze === 'lmnt' ? 'LMNT' : 'WP-boiler'} ${modelVermogenKw ?? ''} kW${units > 1 ? ` = ${(modelVermogenKw ?? 0) * units} kW` : ''})`,
                 kolommen: ['Uur', 'Dag', 'Watervraag (L 37°C)', 'Resterend in buffer (L)'],
                 rijen: simulatie.map(s => [s.uur, s.dag, s.watervraag, s.resterend]),
                 voet: `Capaciteit ${capaciteit37C} L/u · Buffer ${buffer} L · Piek-uur ${piekUurVraag} L · ${onderdekt > 0 ? `${onderdekt} uur onderdekt` : 'volledig dekkend'}`,

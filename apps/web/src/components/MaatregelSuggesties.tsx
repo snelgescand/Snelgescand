@@ -145,22 +145,23 @@ export function MaatregelSuggesties({
       if (!tapwaterKeuze || tapwaterKeuze === 'geen') return true;
       // De GEKOZEN tapwater-WP wordt al automatisch toegevoegd vanuit het tapwater-blok
       // boven de maatregelenlijst. Hem ook hier als kiesbare tegel tonen zou dubbelop zijn.
-      // Bij keuze 'qton': verberg Q-ton zelf + LMNT, warmtepompboiler, PVT-tapwater
+      // Plus: e-boiler is geen logische naast-keuze als je al een tapwater-WP hebt — verberg.
+      // Bij keuze 'qton': verberg Q-ton zelf + LMNT, warmtepompboiler, PVT-tapwater, e-boiler
       if (tapwaterKeuze === 'qton') {
-        return !['qton-warmtepomp', 'lmnt-warmtepomp', 'warmtepompboiler', 'pvt-tapwater'].includes(id);
+        return !['qton-warmtepomp', 'lmnt-warmtepomp', 'warmtepompboiler', 'pvt-tapwater', 'eboiler'].includes(id);
       }
-      // Bij keuze 'lmnt': verberg LMNT zelf + Q-ton, warmtepompboiler, PVT-tapwater
+      // Bij keuze 'lmnt': verberg LMNT zelf + Q-ton, warmtepompboiler, PVT-tapwater, e-boiler
       // PLUS: als LMNT ook ruimteverwarming doet -> verberg lucht-water-warmtepomp + hybride
       if (tapwaterKeuze === 'lmnt') {
-        const verbergIds = ['lmnt-warmtepomp', 'qton-warmtepomp', 'warmtepompboiler', 'pvt-tapwater'];
+        const verbergIds = ['lmnt-warmtepomp', 'qton-warmtepomp', 'warmtepompboiler', 'pvt-tapwater', 'eboiler'];
         if (lmntIncRuimteverwarming) {
           verbergIds.push('lucht-water-warmtepomp', 'hybride-warmtepomp');
         }
         return !verbergIds.includes(id);
       }
-      // Bij keuze 'warmtepompboiler': verberg de boiler zelf + Q-ton, LMNT, PVT
+      // Bij keuze 'warmtepompboiler': verberg de boiler zelf + Q-ton, LMNT, PVT, e-boiler
       if (tapwaterKeuze === 'warmtepompboiler') {
-        return !['warmtepompboiler', 'qton-warmtepomp', 'lmnt-warmtepomp', 'pvt-tapwater'].includes(id);
+        return !['warmtepompboiler', 'qton-warmtepomp', 'lmnt-warmtepomp', 'pvt-tapwater', 'eboiler'].includes(id);
       }
       return true;
     };
@@ -213,9 +214,21 @@ export function MaatregelSuggesties({
         if (!items || items.length === 0) return null;
         const suggestie = bouwSuggestie(cat.id, scanContext);
         const lmntDektRV = cat.id === 'ruimteverwarming' && tapwaterKeuze === 'lmnt' && lmntIncRuimteverwarming;
+        const tapwaterWPGekozen = cat.id === 'tapwater' && !!tapwaterKeuze && tapwaterKeuze !== 'geen';
 
         return (
           <div key={cat.id} className="space-y-2">
+            {tapwaterWPGekozen && (
+              <div className="bg-green-50 border border-green-200 rounded-md px-3 py-2 text-sm text-green-900">
+                ✓ Je <strong>
+                  {tapwaterKeuze === 'qton' && 'Q-ton'}
+                  {tapwaterKeuze === 'lmnt' && 'LMNT'}
+                  {tapwaterKeuze === 'warmtepompboiler' && 'warmtepompboiler'}
+                </strong> is al gekozen in de tapwater-stap en wordt automatisch meegenomen. De maatregelen
+                hieronder zijn aanvullend (bv. buffervat-dimensionering); een elektrische boiler is geen
+                logische dubbelkeuze en daarom hier verborgen.
+              </div>
+            )}
             {lmntDektRV && (
               <div className="bg-green-50 border border-green-200 rounded-md px-3 py-2 text-sm text-green-900">
                 ✓ Ruimteverwarming wordt al gedekt door je <strong>LMNT-warmtepomp</strong> (gekozen in de tapwater-stap).
