@@ -1046,7 +1046,7 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging, aantal
         sportCategorie={config.categorie}
         labelGroep1={config.labelGroep1}
         labelGroep2={config.labelGroep2}
-        onToepassen={(momenten: GeimporteerdMoment[], modus) => {
+        onToepassen={(momenten: GeimporteerdMoment[], modus: 'vervang' | 'toevoegen') => {
           // Zet geimporteerde momenten om naar TrainingMoment (met id's)
           const nieuw: TrainingsSchema = momenten.map((m, i) => ({
             id: `m-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`,

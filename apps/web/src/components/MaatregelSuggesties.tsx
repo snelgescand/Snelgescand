@@ -143,22 +143,24 @@ export function MaatregelSuggesties({
       // Wordt nooit als kiesbare maatregel getoond, ook al staat de module in calc-core.
       if (id === 'douches-analyse') return false;
       if (!tapwaterKeuze || tapwaterKeuze === 'geen') return true;
-      // Bij keuze 'qton': verberg LMNT, warmtepompboiler, PVT-tapwater
+      // De GEKOZEN tapwater-WP wordt al automatisch toegevoegd vanuit het tapwater-blok
+      // boven de maatregelenlijst. Hem ook hier als kiesbare tegel tonen zou dubbelop zijn.
+      // Bij keuze 'qton': verberg Q-ton zelf + LMNT, warmtepompboiler, PVT-tapwater
       if (tapwaterKeuze === 'qton') {
-        return !['lmnt-warmtepomp', 'warmtepompboiler', 'pvt-tapwater'].includes(id);
+        return !['qton-warmtepomp', 'lmnt-warmtepomp', 'warmtepompboiler', 'pvt-tapwater'].includes(id);
       }
-      // Bij keuze 'lmnt': verberg Q-ton, warmtepompboiler, PVT-tapwater
-      // PLUS: als LMNT ook ruimteverwarming doet → verberg lucht-water-warmtepomp
+      // Bij keuze 'lmnt': verberg LMNT zelf + Q-ton, warmtepompboiler, PVT-tapwater
+      // PLUS: als LMNT ook ruimteverwarming doet -> verberg lucht-water-warmtepomp + hybride
       if (tapwaterKeuze === 'lmnt') {
-        const verbergIds = ['qton-warmtepomp', 'warmtepompboiler', 'pvt-tapwater'];
+        const verbergIds = ['lmnt-warmtepomp', 'qton-warmtepomp', 'warmtepompboiler', 'pvt-tapwater'];
         if (lmntIncRuimteverwarming) {
           verbergIds.push('lucht-water-warmtepomp', 'hybride-warmtepomp');
         }
         return !verbergIds.includes(id);
       }
-      // Bij keuze 'warmtepompboiler': verberg Q-ton, LMNT, PVT
+      // Bij keuze 'warmtepompboiler': verberg de boiler zelf + Q-ton, LMNT, PVT
       if (tapwaterKeuze === 'warmtepompboiler') {
-        return !['qton-warmtepomp', 'lmnt-warmtepomp', 'pvt-tapwater'].includes(id);
+        return !['warmtepompboiler', 'qton-warmtepomp', 'lmnt-warmtepomp', 'pvt-tapwater'].includes(id);
       }
       return true;
     };
@@ -210,19 +212,28 @@ export function MaatregelSuggesties({
         const items = scoresPerCategorie[cat.id];
         if (!items || items.length === 0) return null;
         const suggestie = bouwSuggestie(cat.id, scanContext);
+        const lmntDektRV = cat.id === 'ruimteverwarming' && tapwaterKeuze === 'lmnt' && lmntIncRuimteverwarming;
 
         return (
-          <CategorieBlok
-            key={cat.id}
-            categorie={cat}
-            suggestie={suggestie}
-            maatregelen={items}
-            modules={beschikbareModules}
-            gekozenIds={gekozenIds}
-            previews={previews}
-            onToggle={onToggle}
-            onOpenDetail={onOpenDetail}
-          />
+          <div key={cat.id} className="space-y-2">
+            {lmntDektRV && (
+              <div className="bg-green-50 border border-green-200 rounded-md px-3 py-2 text-sm text-green-900">
+                ✓ Ruimteverwarming wordt al gedekt door je <strong>LMNT-warmtepomp</strong> (gekozen in de tapwater-stap).
+                De maatregelen hieronder zijn aanvullend — bijvoorbeeld waterzijdig inregelen of een lucht/lucht-unit
+                voor koeling. Een aparte ruimteverwarmings-warmtepomp is niet nodig.
+              </div>
+            )}
+            <CategorieBlok
+              categorie={cat}
+              suggestie={suggestie}
+              maatregelen={items}
+              modules={beschikbareModules}
+              gekozenIds={gekozenIds}
+              previews={previews}
+              onToggle={onToggle}
+              onOpenDetail={onOpenDetail}
+            />
+          </div>
         );
       })}
     </div>
