@@ -53,7 +53,8 @@ export const QTON_MODELLEN: Array<{
 }> = [
   { vermogenKw: 30,  literPerUur90C: 515,  literPerUur37C: 1526, modelnaam: 'Q-ton HMA30A (30 kW)' },
   { vermogenKw: 45,  literPerUur90C: 780,  literPerUur37C: 2311, modelnaam: 'Q-ton HMA45A (45 kW)' },
-  { vermogenKw: 90,  literPerUur90C: 1560, literPerUur37C: 4622, modelnaam: '2× HMA45A cascade (90 kW)' },
+  // 90 kW als cascade staat niet meer in deze lijst — gebruik de "+ Tweede unit (cascade)"-
+  // knop onder de modelkeuze om 2× HMA30A of 2× HMA45A te draaien.
 ];
 
 export type TapwaterKeuze = 'geen' | 'warmtepompboiler' | 'qton' | 'lmnt';
