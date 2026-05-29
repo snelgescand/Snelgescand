@@ -10,12 +10,21 @@
  */
 
 // ── Configuratie ─────────────────────────────────────────────────────────────
-// Pas alleen deze drie waarden aan als de proxy-URL of inloggegevens wijzigen.
-const CORS_PROXY   = 'https://cors-proxy.clubinfoproxy.workers.dev/proxy?url=';
-const SPORTLINK_BASE = 'https://app-vnl-production.sportlink.com';
+const CORS_PROXY        = 'https://cors-proxy.clubinfoproxy.workers.dev/proxy?url=';
+const SPORTLINK_BASE    = 'https://app-vnl-production.sportlink.com';
 const SPORTLINK_USERNAME = 'rxxnrextolzwlqsspy@hthlm.com';
 const SPORTLINK_PASSWORD = 'test1234';
+const SPORTLINK_CLIENT_ID = 'oCuV9oozaaz8zee';
+const SPORTLINK_SECRET    = 'eep7Shoo7i';
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Navajo-headers die de bonds-app meestuurt — vereist door de API.
+const NAVAJO_HEADERS = {
+  'X-Navajo-Instance': 'KNVB',
+  'X-Navajo-Version': '1',
+  'X-Navajo-Locale': 'nl',
+  'X-Real-User-Agent': 'sportlink-app-voetbalnl/6.26.0-2025017636 android SM-N976N/samsung/25 (6.26.0)',
+};
 
 const CLUBS_ENDPOINT = '/entity/common/memberportal/app/club/Clubs?v=1';
 const TOKEN_ENDPOINT = '/oauth/token';
@@ -80,11 +89,14 @@ async function getAccessToken(): Promise<string> {
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/x-www-form-urlencoded',
+      ...NAVAJO_HEADERS,
     },
     body: new URLSearchParams({
+      grant_type: 'password',
       username: SPORTLINK_USERNAME,
       password: SPORTLINK_PASSWORD,
-      grant_type: 'password',
+      client_id: SPORTLINK_CLIENT_ID,
+      secret: SPORTLINK_SECRET,
     }),
   });
 
@@ -113,6 +125,7 @@ async function sportlinkRequest<T>(endpoint: string): Promise<T> {
     headers: {
       Accept: 'application/json',
       Authorization: `Bearer ${token}`,
+      ...NAVAJO_HEADERS,
     },
   });
   if (!res.ok) {
