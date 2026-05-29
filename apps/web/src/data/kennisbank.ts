@@ -295,18 +295,73 @@ export const KENNIS: KennisArtikel[] = [
     subsidieId: 'DUMAVA',
     categorie: 'subsidies',
     titel: 'DUMAVA-subsidie',
-    korteBeschrijving: 'Voor maatschappelijk vastgoed, dekt 20-30% van de investering.',
+    korteBeschrijving: 'Rijkssubsidie voor verduurzaming van maatschappelijk vastgoed — 20% bij 1-3 maatregelen, 30-40% bij integraal (4+ maatregelen).',
     paragrafen: [
-      { type: 'tekst', inhoud: 'DUMAVA (Duurzaam Maatschappelijk Vastgoed) is een subsidie van het Rijk voor verduurzaming van onder andere sportgebouwen.' },
+      { type: 'tekst', inhoud: 'DUMAVA (Duurzaam Maatschappelijk Vastgoed) is een Rijkssubsidie voor verduurzaming van onder andere sportgebouwen. Aanvragen kan vanaf 1 juni 9:00; vanaf 18 mei is het mogelijk een aanvraag digitaal klaar te zetten zodat deze op 1 juni alleen nog verzonden hoeft te worden. Totaal budget: € 405 miljoen.' },
+
+      { type: 'tekst', inhoud: '💶 Subsidiebedrag, uitkering en termijnen' },
       { type: 'lijst', items: [
-        'Standaard: 20% van de subsidiabele kosten',
-        '30% voor een "integraal" pakket (3+ maatregelen die elkaar versterken)',
-        'Maximaal €1,5 miljoen per aanvraag',
-        'Voorwaarde: aanvragen vóór start uitvoering, minstens twee offertes',
+        'Aanvragen tot € 25.000 subsidie: 100% direct uitgekeerd bij toekenning',
+        'Boven € 25.000 subsidie: 70% voorschot bij toekenning, 30% na vaststelling van de maatregelen',
+        'Binnen 13 weken uitsluitsel na aanvraag; uitvoeringstermijn 24 maanden (36 bij integraal project)',
+        '1× uitstel mogelijk: maximaal 12 maanden extra',
+        'Subsidiabele kosten: ontwerp, bouwmateriaal, gebouwgebonden installaties, projectmanagement, arbeid; ook indexering, sloop en lood-/asbestverwijdering — mits technisch noodzakelijk voor de maatregel',
+        'Per maatregel kunnen RVO-kengetallen en maximum-bijdrages gelden (bv. maximaal € per m² isolatie)',
       ]},
-      { type: 'tip', inhoud: 'Combineer altijd met andere subsidies (ISDE, BOSA) — die mogen stapelen mits de totale steun onder de "de-minimis"-grens blijft (€300k over 3 jaar).' },
+
+      { type: 'tekst', inhoud: '📋 Type advies — afhankelijk van projectomvang' },
+      { type: 'tabel', kolommen: ['', '1, 2 of 3 maatregelen', 'Integraal — 4+ maatregelen'], rijen: [
+        ['Subsidiepercentage', '20%', '30% (max 40% bij hoge energieprestatie)'],
+        ['Verduurzamingsadvies', 'Energieadvies door Sportief Opgewekt', 'Maatwerkadvies'],
+        ['EPA-U-advies', 'Niet nodig', 'Verplicht'],
+        ['Labelsprongen', 'Niet vereist', '≥ 3 sprongen tot minimaal label B'],
+        ['Subsidiebedrag (min — max)', '€ 5.000 — € 1.500.000', '€ 25.000 — € 1.500.000 (cap € 85/m² per labelsprong)'],
+      ]},
+
+      { type: 'tekst', inhoud: 'De 40% wordt gehaald als het project leidt tot "hoge energieprestatie" en het nieuwe energielabel de renovatiestandaard voor de doelgroep haalt of hoger is. Standaard zit een integraal project op 30%.' },
+
+      { type: 'tekst', inhoud: '✅ Voorwaarden voor de vereniging' },
+      { type: 'lijst', items: [
+        'Géén DUMAVA voor EML-maatregelen die de club vanuit de energiebesparingsplicht al moet nemen (geldt vanaf 50.000 kWh of 25.000 m³ verbruik per jaar)',
+        'Categorie "sportvereniging" bij de aanvraag → geen SBI-code nodig',
+        'Ondergrens: € 12.500 investering en € 2.500 subsidie (was € 25.000 / € 5.000)',
+        'HR++-glas komt nu ook in aanmerking bij een Ug-waarde van maximaal 1,2 W/m²K',
+        'Geen ondergrens meer voor het vermogen van zonnepanelen',
+        'Pand opgeleverd op of na 1 januari 2012 → moet volledig gasloos worden na het project; bij netcongestie volstaat een "gasloos-ready"-installatie',
+        'DUMAVA aanvragen vóórdat je een contract aangaat met een aannemer of begint met de werkzaamheden; starten ná de aanvraag maar vóór toekenning mag wel, maar op eigen risico',
+        'Geen andere Rijkssubsidie (ISDE, BOSA) op dezelfde maatregel — DUMAVA stapelt niet met andere Rijksregelingen per maatregel',
+        'Combineren met niet-Rijkssubsidies (gemeentelijk, provinciaal) mag nu tot 100% van de kosten (was 50%)',
+        'Inkomsten- of vennootschapsbelastingplichtige verenigingen komen niet in aanmerking',
+        'Eerder DUMAVA voor losse maatregelen gehad? Een 2e aanvraag mag (voor andere losse maatregelen of een integraal project). Eerder DUMAVA voor een integraal traject? Dan geen DUMAVA meer voor hetzelfde pand',
+      ]},
+
+      { type: 'tekst', inhoud: '📑 Wat moet er in het verduurzamingsadvies-rapport?' },
+      { type: 'lijst', items: [
+        'Technische en functionele beschrijving van het pand',
+        'Energiehuishouding van de afgelopen 3 jaar voorafgaand aan de aanvraag',
+        'Overzicht van de mogelijke verduurzamingsmaatregelen',
+        'Verwachte energiebesparing en/of CO₂-reductie, in getallen',
+        'Inschatting van investeringskosten en besparingen, in euro',
+        'Het rapport mag bij indienen maximaal 48 maanden oud zijn',
+      ]},
+
+      { type: 'tekst', inhoud: '📅 Verplichtingen ná de aanvraag' },
+      { type: 'lijst', items: [
+        'Pand blijft minimaal 10 jaar bestemd als maatschappelijk vastgoed',
+        'Slimme meter aanwezig na uitvoering van het project',
+        'Maatregelen uitvoeren binnen 24 maanden (36 bij integraal) — 1× uitstel van maximaal 12 maanden mogelijk',
+        'Documenten, facturen en betaalbewijzen 5 jaar bewaren — bij controle of vaststelling kunnen ze opgevraagd worden',
+        'Alleen bij integrale projecten: energielabel laten opstellen en registreren ná uitvoering om de labelsprongen en daarmee het definitieve subsidiebedrag vast te stellen',
+      ]},
+
+      { type: 'tip', inhoud: 'DUMAVA mag niet stapelen met ISDE of BOSA op dezelfde maatregel — wél apart toepassen op verschillende maatregelen binnen één project. Zet dat duidelijk in de offerte-uitsplitsing zodat per maatregel zichtbaar is welke regeling de kosten dekt.' },
+
+      { type: 'tip', inhoud: 'Let op: voorwaarden en maatregelenlijst voor 2026 zijn nog niet definitief en kunnen mogelijk nog veranderen. Check vlak vóór indienen altijd de actuele RVO-pagina.' },
     ],
-    bronnen: ['https://www.rvo.nl/subsidies-financiering/dumava'],
+    bronnen: [
+      'https://www.rvo.nl/subsidies-financiering/dumava',
+      'Sportief Opgewekt — How To: DUMAVA (intern document, mei 2026)',
+    ],
   },
   {
     id: 'subsidies-isde',

@@ -68,6 +68,11 @@ export function FactuurReferentiesPaneel() {
   });
 
   const [filterCat, setFilterCat] = useState<string>('alle');
+  const [filterZoek, setFilterZoek] = useState<string>('');
+  const [filterLeverancier, setFilterLeverancier] = useState<string>('alle');
+  const [filterJaar, setFilterJaar] = useState<string>('alle');
+  /** Per-rij of de toelichting uitgeklapt is. */
+  const [uitgeklapt, setUitgeklapt] = useState<Set<string>>(new Set());
   const [modalOpen, setModalOpen] = useState(false);
   const [bewerktItem, setBewerktItem] = useState<FactuurReferentie | null>(null);
 
@@ -80,9 +85,44 @@ export function FactuurReferentiesPaneel() {
     return Array.from(set).sort();
   }, [referenties]);
 
-  const gefilterd = filterCat === 'alle'
-    ? referenties
-    : referenties.filter(r => r.categorie === filterCat);
+  // Unieke leveranciers (alfabetisch) en jaren (recent eerst) — gegenereerd uit de data
+  // zelf zodat de dropdowns alleen tonen wat daadwerkelijk in de kennisbank staat.
+  const aanwezigeLeveranciers = useMemo(() => {
+    const set = new Set(referenties.map(r => r.leverancier).filter(Boolean));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'nl', { sensitivity: 'base' }));
+  }, [referenties]);
+
+  const aanwezigeJaren = useMemo(() => {
+    const set = new Set(referenties.map(r => r.jaar));
+    return Array.from(set).sort((a, b) => b - a);
+  }, [referenties]);
+
+  const gefilterd = useMemo(() => {
+    const zoekTerm = filterZoek.trim().toLowerCase();
+    return referenties.filter(r => {
+      if (filterCat !== 'alle' && r.categorie !== filterCat) return false;
+      if (filterLeverancier !== 'alle' && r.leverancier !== filterLeverancier) return false;
+      if (filterJaar !== 'alle' && String(r.jaar) !== filterJaar) return false;
+      if (zoekTerm) {
+        const hooi = [
+          labelVoor(r.categorie),
+          r.leverancier,
+          r.toelichting ?? '',
+          String(r.jaar),
+        ].join(' ').toLowerCase();
+        if (!hooi.includes(zoekTerm)) return false;
+      }
+      return true;
+    });
+  }, [referenties, filterCat, filterLeverancier, filterJaar, filterZoek]);
+
+  function toggleUitklap(id: string) {
+    setUitgeklapt(prev => {
+      const nieuw = new Set(prev);
+      if (nieuw.has(id)) nieuw.delete(id); else nieuw.add(id);
+      return nieuw;
+    });
+  }
 
   function openNieuwModal() {
     setBewerktItem(null);
@@ -116,31 +156,83 @@ export function FactuurReferentiesPaneel() {
         </p>
       </div>
 
-      {/* Filter + add */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">Filter:</label>
-          <select
-            value={filterCat}
-            onChange={e => setFilterCat(e.target.value)}
-            className="input py-1 text-sm w-auto"
-          >
-            <option value="alle">Alle categorieën ({referenties.length})</option>
-            {aanwezigeCategorieen.map(c => (
-              <option key={c} value={c}>
-                {labelVoor(c)} ({referenties.filter(r => r.categorie === c).length})
-              </option>
-            ))}
-          </select>
+      {/* === Filterbalk: tekst-zoek + categorie + leverancier + jaar === */}
+      <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
+        <div className="flex items-end gap-2 flex-wrap">
+          {/* Zoekveld — breed, vult resterende ruimte */}
+          <div className="flex-1 min-w-[180px]">
+            <label className="block text-xs font-medium text-gray-600 mb-1">🔎 Zoek</label>
+            <input
+              type="text"
+              value={filterZoek}
+              onChange={e => setFilterZoek(e.target.value)}
+              placeholder="zoek in leverancier, categorie of toelichting…"
+              className="input py-1.5 text-sm w-full"
+            />
+          </div>
+          <div className="w-44">
+            <label className="block text-xs font-medium text-gray-600 mb-1">Categorie</label>
+            <select
+              value={filterCat}
+              onChange={e => setFilterCat(e.target.value)}
+              className="input py-1.5 text-sm w-full"
+            >
+              <option value="alle">Alle ({referenties.length})</option>
+              {aanwezigeCategorieen.map(c => (
+                <option key={c} value={c}>
+                  {labelVoor(c)} ({referenties.filter(r => r.categorie === c).length})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-44">
+            <label className="block text-xs font-medium text-gray-600 mb-1">Leverancier</label>
+            <select
+              value={filterLeverancier}
+              onChange={e => setFilterLeverancier(e.target.value)}
+              className="input py-1.5 text-sm w-full"
+            >
+              <option value="alle">Alle</option>
+              {aanwezigeLeveranciers.map(l => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-28">
+            <label className="block text-xs font-medium text-gray-600 mb-1">Jaar</label>
+            <select
+              value={filterJaar}
+              onChange={e => setFilterJaar(e.target.value)}
+              className="input py-1.5 text-sm w-full"
+            >
+              <option value="alle">Alle</option>
+              {aanwezigeJaren.map(j => (
+                <option key={j} value={j}>{j}</option>
+              ))}
+            </select>
+          </div>
+          {isBeheerder && (
+            <button
+              type="button"
+              onClick={openNieuwModal}
+              className="bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium px-3 py-1.5 rounded shadow-sm whitespace-nowrap"
+            >
+              + Nieuwe referentie
+            </button>
+          )}
         </div>
-        {isBeheerder && (
-          <button
-            type="button"
-            onClick={openNieuwModal}
-            className="bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium px-3 py-1.5 rounded shadow-sm"
-          >
-            + Nieuwe referentie
-          </button>
+        {/* Resultaat-teller + reset-knop wanneer een filter actief is */}
+        {(filterZoek || filterCat !== 'alle' || filterLeverancier !== 'alle' || filterJaar !== 'alle') && (
+          <div className="flex items-center justify-between text-xs text-gray-500 pt-1 border-t border-gray-100">
+            <span>{gefilterd.length} van {referenties.length} referenties</span>
+            <button
+              type="button"
+              onClick={() => { setFilterZoek(''); setFilterCat('alle'); setFilterLeverancier('alle'); setFilterJaar('alle'); }}
+              className="text-primary-700 hover:underline"
+            >
+              ✕ filters wissen
+            </button>
+          </div>
         )}
       </div>
 
@@ -167,13 +259,39 @@ export function FactuurReferentiesPaneel() {
               </tr>
             </thead>
             <tbody>
-              {gefilterd.map(r => (
-                <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50">
+              {gefilterd.map(r => {
+                const isOpen = uitgeklapt.has(r.id);
+                const toel = r.toelichting ?? '';
+                const TRUNC = 60;
+                const isLang = toel.length > TRUNC;
+                return (
+                <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50 align-top">
                   <td className="px-3 py-2 whitespace-nowrap">{labelVoor(r.categorie)}</td>
                   <td className="px-3 py-2">{r.leverancier}</td>
                   <td className="px-3 py-2 text-right">{r.jaar}</td>
                   <td className="px-3 py-2 text-right font-medium">{fmtEur(r.bedrag)}</td>
-                  <td className="px-3 py-2 text-gray-600 text-xs">{r.toelichting ?? ''}</td>
+                  <td className="px-3 py-2 text-gray-600 text-xs max-w-md">
+                    {!toel ? (
+                      <span className="text-gray-300">—</span>
+                    ) : isLang ? (
+                      <div className="flex items-start gap-1">
+                        <span className={isOpen ? 'whitespace-pre-wrap' : 'truncate inline-block max-w-full'}>
+                          {isOpen ? toel : `${toel.slice(0, TRUNC).trimEnd()}…`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => toggleUitklap(r.id)}
+                          className="text-primary-700 hover:text-primary-900 shrink-0 font-medium"
+                          title={isOpen ? 'Klap toelichting in' : 'Klap toelichting uit'}
+                          aria-expanded={isOpen}
+                        >
+                          {isOpen ? '▴ minder' : '▾ meer'}
+                        </button>
+                      </div>
+                    ) : (
+                      <span>{toel}</span>
+                    )}
+                  </td>
                   {isBeheerder && (
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <button
@@ -195,7 +313,8 @@ export function FactuurReferentiesPaneel() {
                     </td>
                   )}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
