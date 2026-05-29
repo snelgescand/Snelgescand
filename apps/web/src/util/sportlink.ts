@@ -144,36 +144,61 @@ async function sportlinkRequest<T>(endpoint: string): Promise<T> {
 export async function haalClubsOp(): Promise<SportlinkClub[]> {
   const raw = await sportlinkRequest<unknown>(CLUBS_ENDPOINT);
 
-  // Debug: log de ruwe response zodat we de structuur kunnen zien
-  console.log('[Sportlink] clubs raw response:', JSON.stringify(raw).slice(0, 500));
+  // Log de ruwe structuur zodat we eventuele veldnamen kunnen zien
+  console.log('[Sportlink] clubs raw:', JSON.stringify(raw).slice(0, 800));
 
-  // De API kan een platte array zijn, of een object met een geneste array.
+  // Probeer de array te vinden — Sportlink geeft soms een platte array,
+  // soms { items: [...] }, { clubs: [...] }, { content: [...] }, etc.
   let lijst: Array<Record<string, unknown>> = [];
+
   if (Array.isArray(raw)) {
     lijst = raw as Array<Record<string, unknown>>;
   } else if (raw && typeof raw === 'object') {
     const obj = raw as Record<string, unknown>;
-    for (const val of Object.values(obj)) {
-      if (Array.isArray(val)) {
-        lijst = val as Array<Record<string, unknown>>;
+    // Probeer bekende sleutels eerst, dan alle waarden
+    for (const key of ['items', 'clubs', 'content', 'data', 'result', 'results', 'lijst']) {
+      if (Array.isArray(obj[key])) {
+        lijst = obj[key] as Array<Record<string, unknown>>;
+        console.log('[Sportlink] gevonden onder sleutel:', key);
         break;
+      }
+    }
+    // Fallback: eerste array-waarde die we vinden
+    if (lijst.length === 0) {
+      for (const val of Object.values(obj)) {
+        if (Array.isArray(val) && val.length > 0) {
+          lijst = val as Array<Record<string, unknown>>;
+          break;
+        }
       }
     }
   }
 
-  console.log('[Sportlink] aantal clubs gevonden:', lijst.length);
+  console.log('[Sportlink] rijen:', lijst.length);
   if (lijst.length > 0) {
-    console.log('[Sportlink] eerste club keys:', Object.keys(lijst[0]));
-    console.log('[Sportlink] eerste club:', JSON.stringify(lijst[0]));
+    console.log('[Sportlink] eerste item keys:', Object.keys(lijst[0]));
+    console.log('[Sportlink] eerste item:', JSON.stringify(lijst[0]));
   }
 
-  return lijst
-    .map(c => ({
-      id: String(c.ClientId ?? c.clientId ?? c.Id ?? c.id ?? ''),
-      naam: String(c.Naam ?? c.naam ?? c.Name ?? c.name ?? c.ClubNaam ?? c.clubnaam ?? ''),
-    }))
-    .filter(c => c.id && c.naam)
+  // Normaliseer naar { id, naam } — probeer alle gangbare veldnamen
+  const clubs = lijst
+    .map(c => {
+      const id = String(
+        c.ClientId ?? c.clientId ?? c.client_id ??
+        c.Id ?? c.id ?? c.ID ?? ''
+      );
+      const naam = String(
+        c.Naam ?? c.naam ?? c.Name ?? c.name ??
+        c.ClubNaam ?? c.clubnaam ?? c.clubName ?? c.ClubName ??
+        c.title ?? c.Title ?? id
+      );
+      return { id, naam };
+    })
+    .filter(c => c.id && c.naam && c.naam !== c.id)
     .sort((a, b) => a.naam.localeCompare(b.naam, 'nl'));
+
+  console.log('[Sportlink] clubs na normalisatie:', clubs.length);
+  return clubs;
 }
 
 /* ============================================================

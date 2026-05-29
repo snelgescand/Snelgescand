@@ -901,7 +901,12 @@ export function TrainingsSchemaInvoer({ schema, onChange, typeVereniging, aantal
     setSlClubsBezig(true);
     setSlClubsFout(null);
     try {
-      setSlClubs(await haalClubsOp());
+      const clubs = await haalClubsOp();
+      if (clubs.length === 0) {
+        setSlClubsFout('Geen clubs gevonden. Controleer de console voor de ruwe API-response.');
+      } else {
+        setSlClubs(clubs);
+      }
     } catch (e) {
       setSlClubsFout(e instanceof Error ? e.message : 'Fout bij ophalen clubs.');
     } finally {
